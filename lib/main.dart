@@ -225,6 +225,7 @@ Future<void> _pay(BuildContext context) async {
     ));
   }
 }
+}
 
 int? _addPart(List<PaymentPart> parts, String method, TextEditingController ctrl, int remaining) {
   final received = parseMoney(ctrl.text);
@@ -239,7 +240,6 @@ int? _addPart(List<PaymentPart> parts, String method, TextEditingController ctrl
   parts.add(PaymentPart(method, received));
   ctrl.clear();
   return remaining - received;
-}
 }
 
 class PaymentDialog extends StatefulWidget {
