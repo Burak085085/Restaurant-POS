@@ -1,33 +1,37 @@
 # Restaurant POS
 
-A mobile-friendly, browser-based restaurant POS prototype in Turkish.
+Offline-first Flutter point-of-sale application targeting **Android first** and **Windows desktop** from the same Dart codebase. This repository contains Flutter source code, not a prebuilt APK.
 
-## Included in this prototype
-- 20-table dashboard with free, occupied and bill-requested states.
-- Menu categories and predefined products, with prices stored as integer qəpik.
-- Add products, change quantities, remove lines and replace selected quantities with another product.
-- Cash collection keypad with short-payment validation and change calculation.
-- Completed cash sales are stored in the browser's local storage.
-- Open table orders are saved to browser local storage after UI actions.
-- Local calendar date is used for the daily sales figure.
+## Implemented modules
 
-## Run
-Open `index.html` in a modern browser on a phone, tablet or computer.
+- 20-table order management with item quantity changes.
+- Editable menu: create products, edit names/categories/prices, stock levels and low-stock thresholds.
+- Kitchen queue with queued, preparing, ready and served states.
+- Inventory deduction after completed sales and manual stock adjustments.
+- Fixed-amount and percentage discounts with reason and audit entry.
+- Cash, card and split payments. Payment parts must exactly cover the final bill.
+- Daily sales report with transaction history, staff attribution and payment-method totals.
+- Staff profiles and role labels (Manager, Waiter, Kitchen), plus a current-operator selector.
+- Audit history for order, discount, menu, stock, payment, staff and operator actions.
+- Azerbaijani manat (AZN) in qəpik precision and Azerbaijan UTC+4 business date.
+- Local persistence with serialized asynchronous writes; no network connection is required for normal use.
 
-## Important limitations
-- This is a browser prototype, not a native Android APK.
-- Data is stored only in the current browser profile on the current device. Clearing browser data, using another browser/device, or device failure can cause data loss. There is no backup/restore or cloud synchronization in this version.
-- Sales are recorded internally, but this version does not yet include a sales-history or reports screen.
-- Only cash payment is implemented. Card processing, split payments and bank-terminal integration are not implemented.
-- Menu items are currently defined in source code; there is no menu editor.
-- Kitchen queue, inventory, discounts, staff accounts, permissions, audit log, receipt printing and production-grade database recovery are not implemented.
+## Build
 
-## Planned next modules
-1. Kitchen order queue and preparation statuses.
-2. Inventory tracking and low-stock alerts.
-3. Percentage/fixed discounts with audit trail.
-4. Split payments across cash and card.
-5. Staff accounts, permissions and action history.
+Install the stable Flutter SDK, then run:
 
-## Target production architecture
-Native Android app using Kotlin, Jetpack Compose and Room/SQLite, with transactional persistence, migration tests and reliable export/restore.
+```bash
+flutter create --platforms=android,windows --project-name restaurant_pos .
+flutter pub get
+flutter analyze
+flutter test
+flutter build apk --release
+```
+
+APK output: `build/app/outputs/flutter-apk/app-release.apk`.
+
+On Windows, enable desktop support and run `flutter build windows --release`. GitHub Actions runs analysis/tests and builds the Android APK and Windows desktop artifact on pushes to `main`.
+
+## Data and security notes
+
+Data is stored locally through `shared_preferences`; it is suitable for a single-device/offline prototype and is not a transactional multi-terminal database. For production use across several tills, migrate to a database-backed repository (SQLite/Drift) and authenticated staff accounts with salted PIN hashes. Current staff roles are application-level UI permissions, not a security boundary. Back up device data before reinstalling or clearing app storage.
