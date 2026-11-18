@@ -21,8 +21,22 @@ class Product {
   Map<String,dynamic> toJson()=>{'id':id,'category':category,'name':name,'price':price,'stock':stock,'lowAt':lowAt,'active':active};
   factory Product.fromJson(Map<String,dynamic> j)=>Product(j['id']??'',j['category']??'Genel',j['name']??'',j['price']??0,stock:j['stock']??100,lowAt:j['lowAt']??5,active:j['active']??true);
 }
-class OrderLine { String productId,name; int price,qty; OrderLine(this.productId,this.name,this.price,this.qty); Map<String,dynamic> toJson()=>{'productId':productId,'name':name,'price':price,'qty':qty}; factory OrderLine.fromJson(Map<String,dynamic> j)=>OrderLine(j['productId']??'',j['name']??'',j['price']??0,j['qty']??0); }
 enum KitchenState { queued, preparing, ready, served }
+class OrderLine {
+  String productId, name;
+  int price, qty;
+  bool sent;
+  KitchenState kitchen;
+  OrderLine(this.productId, this.name, this.price, this.qty,
+      {this.sent = false, this.kitchen = KitchenState.queued});
+  Map<String, dynamic> toJson() => {'productId': productId, 'name': name,
+    'price': price, 'qty': qty, 'sent': sent, 'kitchen': kitchen.index};
+  factory OrderLine.fromJson(Map<String, dynamic> j) => OrderLine(
+    j['productId'] ?? '', j['name'] ?? '', j['price'] ?? 0, j['qty'] ?? 0,
+    sent: j['sent'] ?? true,
+    kitchen: KitchenState.values[(j['kitchen'] ?? 0).clamp(0, 3).toInt()],
+  );
+}
 class PosTable { int id; List<OrderLine> items=[]; KitchenState kitchen=KitchenState.queued; int discount=0; bool discountPercent=false; String discountReason=''; PosTable(this.id); int get subtotal=>items.fold(0,(s,e)=>s+e.price*e.qty); int get total=> (subtotal-(discountPercent?subtotal*discount~/100:discount)).clamp(0,1<<30).toInt(); Map<String,dynamic> toJson()=>{'id':id,'items':items.map((e)=>e.toJson()).toList(),'kitchen':kitchen.index,'discount':discount,'discountPercent':discountPercent,'discountReason':discountReason}; }
 class PaymentPart { String method; int amount; int tendered; PaymentPart(this.method,this.amount,{int? tendered}):tendered=tendered??amount; int get change=>method=='Nakit'?(tendered-amount).clamp(0,1<<30).toInt():0; Map<String,dynamic> toJson()=>{'method':method,'amount':amount,'tendered':tendered}; }
 class Sale { String date,time,staff; int table,total,discount; List<OrderLine> items; List<PaymentPart> payments; Sale(this.date,this.time,this.staff,this.table,this.total,this.discount,this.items,this.payments); Map<String,dynamic> toJson()=>{'date':date,'time':time,'staff':staff,'table':table,'total':total,'discount':discount,'items':items.map((e)=>e.toJson()).toList(),'payments':payments.map((e)=>e.toJson()).toList()}; factory Sale.fromJson(Map<String,dynamic> j)=>Sale(j['date']??'',j['time']??'',j['staff']??'Admin',j['table']??0,j['total']??0,j['discount']??0,(j['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(),(j['payments'] as List? ?? []).map((e)=>PaymentPart(e['method']??'Nakit',e['amount']??0,tendered:e['tendered']??e['amount']??0)).toList()); }
@@ -54,7 +68,7 @@ class Audit { String at,user,action,detail; Audit(this.at,this.user,this.action,
 class Pos extends ChangeNotifier {
   List<Product> products=[Product('p1','Dönerler','Tavuk döner',300),Product('p2','Dönerler','Dana döner',500),Product('p3','Dönerler','Dürüm döner',400),Product('p4','Dönerler','Porsiyon döner',700),Product('p5','İçecekler','Kola',200),Product('p6','İçecekler','Fanta',200),Product('p7','İçecekler','Ayran',100),Product('p8','İçecekler','Su',50),Product('p9','Ekstra','Patates',200),Product('p10','Ekstra','Ketçap',50),Product('p11','Ekstra','Mayonez',50)];
   List<PosTable> tables=List.generate(kTableCount,(i)=>PosTable(i+1)); List<Sale> sales=[]; List<Staff> staff=[Staff('Admin','Yönetici'),Staff('Garson','Garson'),Staff('Mutfak','Mutfak')]; List<Audit> audit=[]; String currentUser='Admin'; SharedPreferences? prefs; Future<void> _queue=Future.value();
-  Future<void> load() async { prefs=await SharedPreferences.getInstance(); final raw=prefs!.getString(kStoreKey); if(raw==null)return; try { final j=jsonDecode(raw) as Map<String,dynamic>; products=(j['products'] as List? ?? []).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList(); tables=List.generate(kTableCount,(i)=>PosTable(i+1)); for(final x in (j['tables'] as List? ?? [])){final m=Map<String,dynamic>.from(x); final id=m['id'] as int; if(id<1||id>kTableCount)continue; final t=tables[id-1]; t.items=(m['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(); t.kitchen=KitchenState.values[(m['kitchen']??0).clamp(0,3).toInt()]; t.discount=m['discount']??0;t.discountPercent=m['discountPercent']??false;t.discountReason=m['discountReason']??'';} sales=(j['sales'] as List? ?? []).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList(); staff=(j['staff'] as List? ?? []).map((e)=>Staff.fromJson(Map<String,dynamic>.from(e))).toList(); if(staff.isEmpty)staff=[Staff('Admin','Yönetici')]; audit=(j['audit'] as List? ?? []).map((e)=>Audit.fromJson(Map<String,dynamic>.from(e))).toList(); currentUser=j['currentUser']??staff.first.name; } catch (_) { final backupKey='${kStoreKey}_corrupt_${DateTime.now().microsecondsSinceEpoch}'; await prefs!.setString(backupKey, raw); await prefs!.remove(kStoreKey); products=[Product('p1','Dönerler','Tavuk döner',300),Product('p2','Dönerler','Dana döner',500),Product('p3','Dönerler','Dürüm döner',400),Product('p4','Dönerler','Porsiyon döner',700),Product('p5','İçecekler','Kola',200),Product('p6','İçecekler','Fanta',200),Product('p7','İçecekler','Ayran',100),Product('p8','İçecekler','Su',50),Product('p9','Ekstra','Patates',200),Product('p10','Ekstra','Ketçap',50),Product('p11','Ekstra','Mayonez',50)]; tables=List.generate(kTableCount,(i)=>PosTable(i+1)); sales=[]; staff=[Staff('Admin','Yönetici')]; audit=[]; currentUser='Admin'; } }
+  Future<void> load() async { prefs=await SharedPreferences.getInstance(); final raw=prefs!.getString(kStoreKey); if(raw==null)return; try { final j=jsonDecode(raw) as Map<String,dynamic>; products=(j['products'] as List? ?? []).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList(); tables=List.generate(kTableCount,(i)=>PosTable(i+1)); for(final x in (j['tables'] as List? ?? [])){final m=Map<String,dynamic>.from(x); final id=m['id'] as int; if(id<1||id>kTableCount)continue; final t=tables[id-1]; t.items=(m['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(); t.kitchen=KitchenState.values[(m['kitchen']??0).clamp(0,3).toInt()]; final rawItems=(m['items'] as List? ?? []); for(var lineIndex=0;lineIndex<t.items.length;lineIndex++){final rawLine=Map<String,dynamic>.from(rawItems[lineIndex]);if(!rawLine.containsKey('kitchen'))t.items[lineIndex].kitchen=t.kitchen;} t.discount=m['discount']??0;t.discountPercent=m['discountPercent']??false;t.discountReason=m['discountReason']??'';} sales=(j['sales'] as List? ?? []).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList(); staff=(j['staff'] as List? ?? []).map((e)=>Staff.fromJson(Map<String,dynamic>.from(e))).toList(); if(staff.isEmpty)staff=[Staff('Admin','Yönetici')]; audit=(j['audit'] as List? ?? []).map((e)=>Audit.fromJson(Map<String,dynamic>.from(e))).toList(); currentUser=j['currentUser']??staff.first.name; } catch (_) { final backupKey='${kStoreKey}_corrupt_${DateTime.now().microsecondsSinceEpoch}'; await prefs!.setString(backupKey, raw); await prefs!.remove(kStoreKey); products=[Product('p1','Dönerler','Tavuk döner',300),Product('p2','Dönerler','Dana döner',500),Product('p3','Dönerler','Dürüm döner',400),Product('p4','Dönerler','Porsiyon döner',700),Product('p5','İçecekler','Kola',200),Product('p6','İçecekler','Fanta',200),Product('p7','İçecekler','Ayran',100),Product('p8','İçecekler','Su',50),Product('p9','Ekstra','Patates',200),Product('p10','Ekstra','Ketçap',50),Product('p11','Ekstra','Mayonez',50)]; tables=List.generate(kTableCount,(i)=>PosTable(i+1)); sales=[]; staff=[Staff('Admin','Yönetici')]; audit=[]; currentUser='Admin'; } }
   Future<void> flush()=>_queue;
   void save(){final snapshot=jsonEncode({'products':products.map((e)=>e.toJson()).toList(),'tables':tables.map((e)=>e.toJson()).toList(),'sales':sales.map((e)=>e.toJson()).toList(),'staff':staff.map((e)=>e.toJson()).toList(),'audit':audit.map((e)=>e.toJson()).toList(),'currentUser':currentUser}); _queue=_queue.catchError((Object _) {}).then((_) async { await prefs?.setString(kStoreKey,snapshot); }).catchError((Object _) {}); notifyListeners();}
   void log(String action,String detail){audit.insert(0,Audit(stamp(azNow()),currentUser,action,detail)); if(audit.length>2000)audit.removeRange(2000,audit.length);}
@@ -64,22 +78,41 @@ class Pos extends ChangeNotifier {
       sum + table.items.where((line) => line.productId == productId).fold(0, (n, line) => n + line.qty));
   bool add(PosTable t, Product p) {
     if (!can('orders') || !p.active || reservedStock(p.id) >= p.stock) return false;
-    final existing = t.items.where((line) => line.productId == p.id);
+    final existing = t.items.where((line) => line.productId == p.id && !line.sent);
     if (existing.isNotEmpty) { existing.first.qty++; } else { t.items.add(OrderLine(p.id, p.name, p.price, 1)); }
-    t.kitchen = KitchenState.queued; log('Sipariş', 'Masa ${t.id}: ${p.name} eklendi'); save(); return true;
+    log('Sipariş', 'Masa ${t.id}: ${p.name} eklendi'); save(); return true;
   }
   bool qty(PosTable t, int i, int delta) {
     if (!can('orders') || i < 0 || i >= t.items.length) return false;
     final line = t.items[i]; final product = products.where((p) => p.id == line.productId);
     if (delta > 0 && (product.isEmpty || reservedStock(line.productId) >= product.first.stock)) return false;
-    line.qty += delta; if (line.qty <= 0) t.items.removeAt(i);
+    if (delta < 0 && line.sent) return false;
+    if (delta > 0 && line.sent) { t.items.add(OrderLine(line.productId, line.name, line.price, 1)); }
+    else { line.qty += delta; if (line.qty <= 0) t.items.removeAt(i); }
     if (t.items.isEmpty) { t.discount=0; t.discountPercent=false; t.discountReason=''; t.kitchen=KitchenState.queued; }
     else if (t.discountPercent ? t.discount > 99 : t.discount >= t.subtotal) { t.discount=0; t.discountPercent=false; t.discountReason=''; log('İndirim sıfırlandı','Masa ${t.id}: ara toplam değiştiği için indirim kaldırıldı'); }
     log('Sipariş', 'Masa ${t.id}: miktar değişti'); save(); return true;
   }
+  bool get hasUnsentItems => items.any((line) => !line.sent);
+  bool sendKitchen(PosTable t) {
+    if (!can('orders') || !t.items.any((line) => !line.sent)) return false;
+    for (final line in t.items.where((line) => !line.sent)) {
+      line.sent = true;
+      line.kitchen = KitchenState.queued;
+    }
+    t.kitchen = KitchenState.queued;
+    log('Mutfak', 'Masa ${t.id}: yeni ürünler mutfağa gönderildi');
+    save();
+    return true;
+  }
   void setKitchen(PosTable t, KitchenState state) {
-    if (!can('kitchen') || t.items.isEmpty) return;
-    t.kitchen = state; log('Mutfak', 'Masa ${t.id}: ${state.name}'); save();
+    if (!can('kitchen') || !t.items.any((line) => line.sent && line.kitchen != KitchenState.served)) return;
+    for (final line in t.items.where((line) => line.sent && line.kitchen != KitchenState.served)) {
+      line.kitchen = state;
+    }
+    t.kitchen = state;
+    log('Mutfak', 'Masa ${t.id}: ${state.name}');
+    save();
   }
   bool clearDiscount(PosTable t) { if (!can('discount') || t.discount==0) return false; t.discount=0; t.discountPercent=false; t.discountReason=''; log('İndirim kaldırıldı', 'Masa ${t.id}'); save(); return true; }
   bool setDiscount(PosTable t, int value, bool percent, String reason) {
@@ -133,7 +166,7 @@ class TablesPage extends StatelessWidget{const TablesPage({super.key});@override
 class OrderPage extends StatefulWidget{final PosTable table;const OrderPage({super.key,required this.table});@override State<OrderPage> createState()=>_OrderPageState();}
 class _OrderPageState extends State<OrderPage>{String category='Tümü';PosTable get t=>widget.table;@override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(c,_){final cats=['Tümü',...pos.products.map((p)=>p.category).toSet()];final items=pos.products.where((p)=>p.active&&(category=='Tümü'||p.category==category)).toList();return Scaffold(appBar:AppBar(title:Text('Masa ${t.id}')),body:Column(children:[SingleChildScrollView(scrollDirection:Axis.horizontal,child:Row(children:cats.map((x)=>Padding(padding:const EdgeInsets.all(4),child:ChoiceChip(label:Text(x),selected:category==x,onSelected:(_)=>setState(()=>category=x)))).toList())),Expanded(child:LayoutBuilder(builder:(c,b){final wide=b.maxWidth>700;return wide?Row(children:[Expanded(child:_products(items)),SizedBox(width:420,child:_ticket())]):Column(children:[Expanded(child:_products(items)),SizedBox(height:b.maxHeight*.48,child:_ticket())]);} ))]));});
 Widget _products(List<Product> list)=>GridView.builder(padding:const EdgeInsets.all(10),gridDelegate:const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent:170,childAspectRatio:1.45,crossAxisSpacing:8,mainAxisSpacing:8),itemCount:list.length,itemBuilder:(c,i){final p=list[i];return Card(child:InkWell(onTap:p.stock>0&&pos.can('orders')?(){if(!pos.add(t,p)){ScaffoldMessenger.of(c).showSnackBar(const SnackBar(content:Text('Yeterli stok yok veya işlem yetkiniz bulunmuyor.')));}}:null,child:Padding(padding:const EdgeInsets.all(10),child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[Text(p.name,style:const TextStyle(fontWeight:FontWeight.bold)),Text(money(p.price)),Text('Stok: ${p.stock}',style:TextStyle(color:p.stock<=p.lowAt?red:Colors.black54))]))));});
-Widget _ticket()=>Container(color:Colors.white,child:Column(children:[Padding(padding:const EdgeInsets.all(12),child:Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Sipariş',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),Text('Mutfak: ${t.kitchen==KitchenState.queued?'Kuyruk':t.kitchen==KitchenState.preparing?'Hazırlanıyor':t.kitchen==KitchenState.ready?'Hazır':'Servis edildi'}') ])),Expanded(child:ListView.builder(itemCount:t.items.length,itemBuilder:(c,i){final x=t.items[i];return ListTile(title:Text(x.name),subtitle:Text('${money(x.price)} × ${x.qty}'),trailing:Row(mainAxisSize:MainAxisSize.min,children:[IconButton(onPressed:pos.can('orders')?()=>pos.qty(t,i,-1):null,icon:const Icon(Icons.remove)),IconButton(onPressed:pos.can('orders')?(){if(!pos.qty(t,i,1)){ScaffoldMessenger.of(c).showSnackBar(const SnackBar(content:Text('Stok yetersiz.')));}}:null,icon:const Icon(Icons.add))]));})),Padding(padding:const EdgeInsets.all(12),child:Column(children:[Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Ara toplam'),Text(money(t.subtotal))]),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('İndirim'),Text(money(t.subtotal-t.total))]),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('TOPLAM',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),Text(money(t.total),style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold))]),Wrap(spacing:8,children:[OutlinedButton.icon(onPressed:t.items.isEmpty||!pos.can('discount')?null:()=>_discount(context),icon:const Icon(Icons.percent),label:const Text('İndirim')),if(t.discount>0) OutlinedButton(onPressed:()=>pos.clearDiscount(t),child:const Text('İndirimi kaldır')),OutlinedButton(onPressed:t.items.isEmpty||!pos.can('orders')?null:()=>pos.setKitchen(t,KitchenState.queued),child:const Text('Mutfağa gönder'))]),SizedBox(width:double.infinity,child:FilledButton(onPressed:t.items.isEmpty||!pos.can('orders')?null:()=>_pay(context),child:const Text('Ödeme al')))]))]));
+Widget _ticket()=>Container(color:Colors.white,child:Column(children:[Padding(padding:const EdgeInsets.all(12),child:Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Sipariş',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),Text('Mutfak: ${t.kitchen==KitchenState.queued?'Kuyruk':t.kitchen==KitchenState.preparing?'Hazırlanıyor':t.kitchen==KitchenState.ready?'Hazır':'Servis edildi'}') ])),Expanded(child:ListView.builder(itemCount:t.items.length,itemBuilder:(c,i){final x=t.items[i];return ListTile(title:Text(x.name),subtitle:Text('${money(x.price)} × ${x.qty}'),trailing:Row(mainAxisSize:MainAxisSize.min,children:[IconButton(onPressed:pos.can('orders')&&!x.sent?()=>pos.qty(t,i,-1):null,icon:const Icon(Icons.remove)),IconButton(onPressed:pos.can('orders')?(){if(!pos.qty(t,i,1)){ScaffoldMessenger.of(c).showSnackBar(SnackBar(content:Text(x.sent?'Mutfağa gönderilen ürünün miktarı değiştirilemez. Yeni ürün satırı ekleyin.':'Stok yetersiz.')));}}:null,icon:const Icon(Icons.add))]));})),Padding(padding:const EdgeInsets.all(12),child:Column(children:[Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Ara toplam'),Text(money(t.subtotal))]),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('İndirim'),Text(money(t.subtotal-t.total))]),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('TOPLAM',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),Text(money(t.total),style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold))]),Wrap(spacing:8,children:[OutlinedButton.icon(onPressed:t.items.isEmpty||!pos.can('discount')?null:()=>_discount(context),icon:const Icon(Icons.percent),label:const Text('İndirim')),if(t.discount>0) OutlinedButton(onPressed:()=>pos.clearDiscount(t),child:const Text('İndirimi kaldır')),OutlinedButton(onPressed:!t.items.any((item)=>!item.sent)||!pos.can('orders')?null:()=>pos.sendKitchen(t),child:Text(t.items.any((item)=>!item.sent)?'Mutfağa gönder':'Gönderilecek yeni ürün yok'))]),SizedBox(width:double.infinity,child:FilledButton(onPressed:t.items.isEmpty||!pos.can('orders')?null:()=>_pay(context),child:const Text('Ödeme al')))]))]));
 Future<void> _discount(BuildContext context)async{final value=TextEditingController(text:t.discountPercent?t.discount.toString():(t.discount/100).toStringAsFixed(2));final reason=TextEditingController(text:t.discountReason);bool percent=t.discountPercent;final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,set)=>AlertDialog(title:const Text('İndirim tanımla'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:value,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'İndirim tutarı / yüzde')),SwitchListTile(title:const Text('Yüzde olarak uygula'),value:percent,onChanged:(v)=>set(()=>percent=v)),TextField(controller:reason,decoration:const InputDecoration(labelText:'İndirim nedeni'))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Vazgeç')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Uygula'))])));if(!context.mounted)return;if(ok==true){final n=percent?(int.tryParse(value.text)??0):parseMoney(value.text);if(!pos.setDiscount(t,n,percent,reason.text)){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('İndirim için geçerli bir tutar ve neden girin.')));}}}
 Future<void> _pay(BuildContext context) async {
   final parts = <PaymentPart>[];
@@ -197,7 +230,7 @@ class KitchenPage extends StatelessWidget {
     return AnimatedBuilder(
       animation: pos,
       builder: (context, _) {
-        final activeTables = pos.tables.where((table) => table.items.isNotEmpty && table.kitchen != KitchenState.served).toList();
+        final activeTables = pos.tables.where((table) => table.items.any((item) => item.sent && item.kitchen != KitchenState.served)).toList();
         return Scaffold(
           appBar: AppBar(title: const Text('Mutfak sipariş kuyruğu')),
           body: activeTables.isEmpty ? const Center(child: Text('Mutfakta bekleyen sipariş yok.')) : ListView.builder(
@@ -215,7 +248,7 @@ class KitchenPage extends StatelessWidget {
                         'Masa ${table.id} · ${table.kitchen==KitchenState.queued?'Kuyruk':table.kitchen==KitchenState.preparing?'Hazırlanıyor':table.kitchen==KitchenState.ready?'Hazır':'Servis edildi'}',
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
                       ),
-                      ...table.items.map((item) => Text('${item.qty} × ${item.name}')),
+                      ...table.items.where((item) => item.sent && item.kitchen != KitchenState.served).map((item) => Text('${item.qty} × ${item.name} · ${item.kitchen == KitchenState.queued ? 'Kuyruk' : item.kitchen == KitchenState.preparing ? 'Hazırlanıyor' : 'Hazır'}')),
                       Wrap(
                         spacing: 8,
                         children: [
