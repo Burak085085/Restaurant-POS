@@ -67,4 +67,62 @@ void main() {
     expect(store.can('discount'), isFalse);
     expect(store.can('reports'), isFalse);
   });
+
+  test('unknown and inactive users receive no permissions', () {
+    final store = Pos();
+    store.currentUser = 'unknown';
+    expect(store.can('orders'), isFalse);
+    store.currentUser = 'Admin';
+    store.staff.firstWhere((member) => member.name == 'Admin').active = false;
+    expect(store.can('reports'), isFalse);
+  });
+
+  test('removing the last order line clears discount and kitchen state', () {
+    final store = Pos();
+    final table = store.tables.first;
+    table.items.add(OrderLine('p1', 'Tavuk döner', 300, 1));
+    table.discount = 100;
+    table.discountReason = 'Test';
+    table.kitchen = KitchenState.ready;
+
+    expect(store.qty(table, 0, -1), isTrue);
+    expect(table.items, isEmpty);
+    expect(table.discount, 0);
+    expect(table.discountReason, isEmpty);
+    expect(table.kitchen, KitchenState.queued);
+  });
+
+  test('product edits preserve inactive state and reject stock below reservations', () {
+    final store = Pos();
+    final original = store.products.first;
+    original.active = false;
+    store.upsertProduct(Product(original.id, original.category, original.name,
+        original.price, stock: original.stock, active: true));
+    expect(store.products.firstWhere((p) => p.id == original.id).active, isFalse);
+
+    final table = store.tables.first;
+    table.items.add(OrderLine(original.id, original.name, original.price, 3));
+    final previousStock = store.products.firstWhere((p) => p.id == original.id).stock;
+    store.upsertProduct(Product(original.id, original.category, original.name,
+        original.price, stock: 2));
+    expect(store.products.firstWhere((p) => p.id == original.id).stock,
+        previousStock);
+  });
+
+  test('corrupt local data is backed up before defaults are restored', () async {
+    SharedPreferences.setMockInitialValues({kStoreKey: '{broken-json'});
+    final store = Pos();
+    await store.load();
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(kStoreKey), isNull);
+    expect(prefs.getKeys().any((key) => key.startsWith('${kStoreKey}_corrupt_')),
+        isTrue);
+    expect(store.tables, hasLength(kTableCount));
+    expect(store.staff.any((member) => member.name == 'Admin'), isTrue);
+  });
+
+  test('money parser rejects non-finite values', () {
+    expect(parseMoney('NaN'), 0);
+    expect(parseMoney('Infinity'), 0);
+  });
 }
