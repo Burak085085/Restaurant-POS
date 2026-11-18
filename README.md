@@ -1,20 +1,26 @@
 # Restaurant POS
 
-Offline-first restaurant point-of-sale prototype.
+A mobile-friendly, browser-based restaurant POS prototype in Turkish.
 
-## Current prototype
+## Included in this prototype
 - 20-table dashboard with free, occupied and bill-requested states.
-- Editable product menu and categories.
-- Add, remove and change order quantities; move orders between tables.
-- Cash/card payment recording and cash change calculation.
-- Sales history, daily totals and CSV export.
-- Local browser persistence and JSON backup/restore.
+- Menu categories and predefined products, with prices stored as integer qəpik.
+- Add products, change quantities, remove lines and replace selected quantities with another product.
+- Cash collection keypad with short-payment validation and change calculation.
+- Completed cash sales are stored in the browser's local storage.
+- Open table orders are saved to browser local storage after UI actions.
+- Local calendar date is used for the daily sales figure.
 
 ## Run
-Open `index.html` in a modern browser. The prototype is designed for phone/tablet screens and stores data in that browser's local storage.
+Open `index.html` in a modern browser on a phone, tablet or computer.
 
 ## Important limitations
-This is an early browser prototype, not a production Android APK. Local browser storage is not a substitute for a tested database and off-device backup. Card payments are recorded only; no bank terminal or payment processor is connected. Do not use it as the sole record system for a live restaurant.
+- This is a browser prototype, not a native Android APK.
+- Data is stored only in the current browser profile on the current device. Clearing browser data, using another browser/device, or device failure can cause data loss. There is no backup/restore or cloud synchronization in this version.
+- Sales are recorded internally, but this version does not yet include a sales-history or reports screen.
+- Only cash payment is implemented. Card processing, split payments and bank-terminal integration are not implemented.
+- Menu items are currently defined in source code; there is no menu editor.
+- Kitchen queue, inventory, discounts, staff accounts, permissions, audit log, receipt printing and production-grade database recovery are not implemented.
 
 ## Planned next modules
 1. Kitchen order queue and preparation statuses.
@@ -24,4 +30,4 @@ This is an early browser prototype, not a production Android APK. Local browser 
 5. Staff accounts, permissions and action history.
 
 ## Target production architecture
-Native Android app using Kotlin, Jetpack Compose and Room/SQLite, with transactional persistence, migration tests and export/restore.
+Native Android app using Kotlin, Jetpack Compose and Room/SQLite, with transactional persistence, migration tests and reliable export/restore.
