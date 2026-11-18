@@ -171,43 +171,20 @@ Widget _products(List<Product> list)=>GridView.builder(padding:const EdgeInsets.
 Widget _ticket()=>Container(color:Colors.white,child:Column(children:[Padding(padding:const EdgeInsets.all(12),child:Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Sipariş',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),Text('Mutfak: ${t.kitchen==KitchenState.queued?'Kuyruk':t.kitchen==KitchenState.preparing?'Hazırlanıyor':t.kitchen==KitchenState.ready?'Hazır':'Servis edildi'}') ])),Expanded(child:ListView.builder(itemCount:t.items.length,itemBuilder:(c,i){final x=t.items[i];return ListTile(title:Text(x.name),subtitle:Text('${money(x.price)} × ${x.qty}'),trailing:Row(mainAxisSize:MainAxisSize.min,children:[IconButton(onPressed:pos.can('orders')&&!x.sent?()=>pos.qty(t,i,-1):null,icon:const Icon(Icons.remove)),IconButton(onPressed:pos.can('orders')?(){if(!pos.qty(t,i,1)){ScaffoldMessenger.of(c).showSnackBar(SnackBar(content:Text(x.sent?'Mutfağa gönderilen ürünün miktarı değiştirilemez. Yeni ürün satırı ekleyin.':'Stok yetersiz.')));}}:null,icon:const Icon(Icons.add))]));})),Padding(padding:const EdgeInsets.all(12),child:Column(children:[Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Ara toplam'),Text(money(t.subtotal))]),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('İndirim'),Text(money(t.subtotal-t.total))]),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('TOPLAM',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),Text(money(t.total),style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold))]),Wrap(spacing:8,children:[OutlinedButton.icon(onPressed:t.items.isEmpty||!pos.can('discount')?null:()=>_discount(context),icon:const Icon(Icons.percent),label:const Text('İndirim')),if(t.discount>0) OutlinedButton(onPressed:()=>pos.clearDiscount(t),child:const Text('İndirimi kaldır')),OutlinedButton(onPressed:!t.items.any((item)=>!item.sent)||!pos.can('orders')?null:()=>pos.sendKitchen(t),child:Text(t.items.any((item)=>!item.sent)?'Mutfağa gönder':'Gönderilecek yeni ürün yok'))]),SizedBox(width:double.infinity,child:FilledButton(onPressed:t.items.isEmpty||t.items.any((item)=>!item.sent)||!pos.can('orders')?null:()=>_pay(context),child:Text(t.items.any((item)=>!item.sent)?'Önce mutfağa gönder':'Ödeme al')))]))]));
 Future<void> _discount(BuildContext context)async{final value=TextEditingController(text:t.discountPercent?t.discount.toString():(t.discount/100).toStringAsFixed(2));final reason=TextEditingController(text:t.discountReason);bool percent=t.discountPercent;final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,set)=>AlertDialog(title:const Text('İndirim tanımla'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:value,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'İndirim tutarı / yüzde')),SwitchListTile(title:const Text('Yüzde olarak uygula'),value:percent,onChanged:(v)=>set(()=>percent=v)),TextField(controller:reason,decoration:const InputDecoration(labelText:'İndirim nedeni'))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Vazgeç')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Uygula'))])));if(!context.mounted)return;if(ok==true){final n=percent?(int.tryParse(value.text)??0):parseMoney(value.text);if(!pos.setDiscount(t,n,percent,reason.text)){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('İndirim için geçerli bir tutar ve neden girin.')));}}}
 Future<void> _pay(BuildContext context) async {
-  final parts = <PaymentPart>[];
-  var remaining = t.total;
-  final amount = TextEditingController();
-  final ok = await showDialog<bool>(
+  final payments = await showDialog<List<PaymentPart>>(
     context: context,
-    builder: (dialogContext) => StatefulBuilder(
-      builder: (dialogContext, setDialogState) => AlertDialog(
-        title: Text('Ödeme · ${money(t.total)}'),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text('Kalan: ${money(remaining)}'),
-          TextField(controller: amount, keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(labelText: 'Tutar (örn. 12,50)')),
-          Wrap(children: ['Nakit', 'Kart'].map((method) => TextButton(
-            onPressed: () { final next = _addPart(parts, method, amount, remaining); if (next != null) setDialogState(() => remaining = next); },
-            child: Text('$method ekle'),
-          )).toList()),
-          for (final part in parts)
-            Text(part.method == 'Nakit'
-              ? 'Nakit: ${money(part.amount)} · Alınan: ${money(part.tendered)} · Para üstü: ${money(part.change)}'
-              : 'Kart: ${money(part.amount)}'),
-        ]),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('İptal')),
-          FilledButton(onPressed: remaining == 0 ? () => Navigator.pop(dialogContext, true) : null,
-            child: const Text('Ödemeyi tamamla')),
-        ],
-      ),
-    ),
+    builder: (_) => PaymentDialog(total: t.total),
   );
-  amount.dispose();
-  if (ok == true) {
-    if (pos.checkout(t, parts)) { if (context.mounted) Navigator.pop(context); }
-    else if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Stok değişti veya ödeme tutarı eşleşmiyor. Sipariş korunmuştur.')));
-    }
+  if (!context.mounted || payments == null) return;
+  if (pos.checkout(t, payments)) {
+    Navigator.pop(context);
+  } else {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text('Stok değişti veya ödeme tutarı eşleşmiyor. Sipariş korunmuştur.'),
+    ));
   }
 }
+
 int? _addPart(List<PaymentPart> parts, String method, TextEditingController ctrl, int remaining) {
   final received = parseMoney(ctrl.text);
   if (received <= 0) return null;
@@ -222,6 +199,67 @@ int? _addPart(List<PaymentPart> parts, String method, TextEditingController ctrl
   ctrl.clear();
   return remaining - received;
 }
+}
+
+class PaymentDialog extends StatefulWidget {
+  final int total;
+  const PaymentDialog({super.key, required this.total});
+
+  @override
+  State<PaymentDialog> createState() => _PaymentDialogState();
+}
+
+class _PaymentDialogState extends State<PaymentDialog> {
+  final amount = TextEditingController();
+  final parts = <PaymentPart>[];
+  late int remaining = widget.total;
+
+  @override
+  void dispose() {
+    amount.dispose();
+    super.dispose();
+  }
+
+  void addPart(String method) {
+    final next = _addPart(parts, method, amount, remaining);
+    if (next == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Geçerli bir tutar girin. Kart ödemesi kalan tutarı aşamaz.'),
+      ));
+      return;
+    }
+    setState(() => remaining = next);
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text('Ödeme · ${money(widget.total)}'),
+    content: SingleChildScrollView(
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Text('Kalan: ${money(remaining)}'),
+        TextField(
+          controller: amount,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(labelText: 'Tutar (örn. 12,50)'),
+        ),
+        Wrap(children: ['Nakit', 'Kart'].map((method) => TextButton(
+          onPressed: () => addPart(method),
+          child: Text('$method ekle'),
+        )).toList()),
+        for (final part in parts)
+          Text(part.method == 'Nakit'
+            ? 'Nakit: ${money(part.amount)} · Alınan: ${money(part.tendered)} · Para üstü: ${money(part.change)}'
+            : 'Kart: ${money(part.amount)}'),
+      ]),
+    ),
+    actions: [
+      TextButton(onPressed: () => Navigator.pop(context), child: const Text('İptal')),
+      FilledButton(
+        onPressed: remaining == 0 ? () => Navigator.pop(context, parts) : null,
+        child: const Text('Ödemeyi tamamla'),
+      ),
+    ],
+  );
 }
 
 class KitchenPage extends StatelessWidget {
