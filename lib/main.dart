@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -35,13 +34,13 @@ class Pos extends ChangeNotifier {
   void log(String action,String detail){audit.insert(0,Audit(stamp(azNow()),currentUser,action,detail)); if(audit.length>2000)audit.removeRange(2000,audit.length);}
   bool can(String permission){final role=(staff.where((e)=>e.name==currentUser&&e.active).isNotEmpty?staff.firstWhere((e)=>e.name==currentUser&&e.active).role:'Garson'); if(role=='Yönetici')return true; if(role=='Mutfak')return permission=='kitchen'; if(role=='Garson')return ['orders','kitchen'].contains(permission); return false;}
   int get todayTotal=>sales.where((s)=>s.date==dayKey(azNow())).fold(0,(a,s)=>a+s.total); int get todayCount=>sales.where((s)=>s.date==dayKey(azNow())).length;
-  void add(PosTable t,Product p){if(!p.active||p.stock<=0)return; final x=t.items.where((e)=>e.productId==p.id); if(x.isNotEmpty)x.first.qty++;else t.items.add(OrderLine(p.id,p.name,p.price,1)); t.kitchen=KitchenState.queued; log('Sipariş', 'Masa ${t.id}: ${p.name} eklendi');save();}
-  void qty(PosTable t,int i,int delta){if(i<0||i>=t.items.length)return; t.items[i].qty+=delta;if(t.items[i].qty<=0)t.items.removeAt(i);log('Sipariş','Masa ${t.id}: miktar değişti');save();}
+  void add(PosTable t,Product p){if(!p.active||p.stock<=0)return; final x=t.items.where((e)=>e.productId==p.id); if(x.isNotEmpty){if(x.first.qty>=p.stock)return;x.first.qty++;}else{t.items.add(OrderLine(p.id,p.name,p.price,1));} t.kitchen=KitchenState.queued; log('Sipariş', 'Masa ${t.id}: ${p.name} eklendi');save();}
+  void qty(PosTable t,int i,int delta){if(i<0||i>=t.items.length)return; final product=products.where((p)=>p.id==t.items[i].productId); if(delta>0&&product.isNotEmpty&&t.items[i].qty>=product.first.stock)return; t.items[i].qty+=delta;if(t.items[i].qty<=0)t.items.removeAt(i);log('Sipariş','Masa ${t.id}: miktar değişti');save();}
   void setKitchen(PosTable t,KitchenState state){t.kitchen=state;log('Mutfak','Masa ${t.id}: ${state.name}');save();}
   void setDiscount(PosTable t,int value,bool percent,String reason){t.discount=value;t.discountPercent=percent;t.discountReason=reason;log('İndirim','Masa ${t.id}: ${percent?'%$value':money(value)} · $reason');save();}
   void upsertProduct(Product p){final i=products.indexWhere((e)=>e.id==p.id);if(i<0)products.add(p);else products[i]=p;log('Menü','${p.name} kaydedildi');save();}
   void stockChange(Product p,int delta){p.stock=(p.stock+delta).clamp(0,1000000).toInt();log('Stok','${p.name}: ${p.stock}');save();}
-  void checkout(PosTable t,List<PaymentPart> payments){final now=azNow();final total=t.total;for(final line in t.items){final p=products.where((e)=>e.id==line.productId);if(p.isNotEmpty)p.first.stock=(p.first.stock-line.qty).clamp(0,1000000).toInt();}sales.add(Sale(dayKey(now),stamp(now),currentUser,t.id,total,t.subtotal-total,t.items.map((e)=>OrderLine(e.productId,e.name,e.price,e.qty)).toList(),payments));log('Ödeme','Masa ${t.id}: ${money(total)}');t.items=[];t.discount=0;t.discountPercent=false;t.discountReason='';t.kitchen=KitchenState.queued;save();}
+  void checkout(PosTable t,List<PaymentPart> payments){final total=t.total;if(payments.isEmpty||payments.fold(0,(sum,p)=>sum+p.amount)!=total)return;final now=azNow();for(final line in t.items){final p=products.where((e)=>e.id==line.productId);if(p.isNotEmpty)p.first.stock=(p.first.stock-line.qty).clamp(0,1000000).toInt();}sales.add(Sale(dayKey(now),stamp(now),currentUser,t.id,total,t.subtotal-total,t.items.map((e)=>OrderLine(e.productId,e.name,e.price,e.qty)).toList(),payments));log('Ödeme','Masa ${t.id}: ${money(total)}');t.items=[];t.discount=0;t.discountPercent=false;t.discountReason='';t.kitchen=KitchenState.queued;save();}
   int get lowStock=>products.where((p)=>p.active&&p.stock<=p.lowAt).length;
 }
 final pos=Pos();
@@ -55,19 +54,179 @@ class TablesPage extends StatelessWidget{const TablesPage({super.key});@override
 
 class OrderPage extends StatefulWidget{final PosTable table;const OrderPage({super.key,required this.table});@override State<OrderPage> createState()=>_OrderPageState();}
 class _OrderPageState extends State<OrderPage>{String category='Tümü';PosTable get t=>widget.table;@override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(c,_){final cats=['Tümü',...pos.products.map((p)=>p.category).toSet()];final items=pos.products.where((p)=>p.active&&(category=='Tümü'||p.category==category)).toList();return Scaffold(appBar:AppBar(title:Text('Masa ${t.id}')),body:Column(children:[SingleChildScrollView(scrollDirection:Axis.horizontal,child:Row(children:cats.map((x)=>Padding(padding:const EdgeInsets.all(4),child:ChoiceChip(label:Text(x),selected:category==x,onSelected:(_)=>setState(()=>category=x)))).toList())),Expanded(child:LayoutBuilder(builder:(c,b){final wide=b.maxWidth>700;return wide?Row(children:[Expanded(child:_products(items)),SizedBox(width:420,child:_ticket())]):Column(children:[Expanded(child:_products(items)),SizedBox(height:b.maxHeight*.48,child:_ticket())]);} ))]));});}
-Widget _products(List<Product> list)=>GridView.builder(padding:const EdgeInsets.all(10),gridDelegate:const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent:170,childAspectRatio:1.45,crossAxisSpacing:8,mainAxisSpacing:8),itemCount:list.length,itemBuilder:(c,i){final p=list[i];return Card(child:InkWell(onTap:p.stock>0?()=>pos.add(t,p):null,child:Padding(padding:const EdgeInsets.all(10),child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[Text(p.name,style:const TextStyle(fontWeight:FontWeight.bold)),Text(money(p.price)),Text('Stok: ${p.stock}',style:TextStyle(color:p.stock<=p.lowAt?red:Colors.black54))]))));});
-Widget _ticket()=>Container(color:Colors.white,child:Column(children:[Padding(padding:const EdgeInsets.all(12),child:Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Sipariş',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),Text('Mutfak: ${t.kitchen.name}') ])),Expanded(child:ListView.builder(itemCount:t.items.length,itemBuilder:(c,i){final x=t.items[i];return ListTile(title:Text(x.name),subtitle:Text('${money(x.price)} × ${x.qty}'),trailing:Wrap(mainAxisSize:MainAxisSize.min,children:[IconButton(onPressed:()=>pos.qty(t,i,-1),icon:const Icon(Icons.remove)),IconButton(onPressed:()=>pos.qty(t,i,1),icon:const Icon(Icons.add))]));})),Padding(padding:const EdgeInsets.all(12),child:Column(children:[Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Ara toplam'),Text(money(t.subtotal))]),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('İndirim'),Text(money(t.subtotal-t.total))]),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('TOPLAM',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),Text(money(t.total),style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold))]),Wrap(spacing:8,children:[OutlinedButton.icon(onPressed:t.items.isEmpty?null:()=>_discount(context),icon:const Icon(Icons.percent),label:const Text('İndirim')),OutlinedButton(onPressed:t.items.isEmpty?null:()=>pos.setKitchen(t,KitchenState.queued),child:const Text('Mutfağa gönder'))]),SizedBox(width:double.infinity,child:FilledButton(onPressed:t.items.isEmpty?null:()=>_pay(context),child:const Text('Ödeme al')))]))]));
+Widget _products(List<Product> list)=>GridView.builder(padding:const EdgeInsets.all(10),gridDelegate:const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent:170,childAspectRatio:1.45,crossAxisSpacing:8,mainAxisSpacing:8),itemCount:list.length,itemBuilder:(c,i){final p=list[i];return Card(child:InkWell(onTap:p.stock>0&&pos.can('orders')?()=>pos.add(t,p):null,child:Padding(padding:const EdgeInsets.all(10),child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[Text(p.name,style:const TextStyle(fontWeight:FontWeight.bold)),Text(money(p.price)),Text('Stok: ${p.stock}',style:TextStyle(color:p.stock<=p.lowAt?red:Colors.black54))]))));});
+Widget _ticket()=>Container(color:Colors.white,child:Column(children:[Padding(padding:const EdgeInsets.all(12),child:Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Sipariş',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),Text('Mutfak: ${t.kitchen.name}') ])),Expanded(child:ListView.builder(itemCount:t.items.length,itemBuilder:(c,i){final x=t.items[i];return ListTile(title:Text(x.name),subtitle:Text('${money(x.price)} × ${x.qty}'),trailing:Wrap(mainAxisSize:MainAxisSize.min,children:[IconButton(onPressed:pos.can('orders')?()=>pos.qty(t,i,-1):null,icon:const Icon(Icons.remove)),IconButton(onPressed:pos.can('orders')?()=>pos.qty(t,i,1):null,icon:const Icon(Icons.add))]));})),Padding(padding:const EdgeInsets.all(12),child:Column(children:[Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Ara toplam'),Text(money(t.subtotal))]),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('İndirim'),Text(money(t.subtotal-t.total))]),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('TOPLAM',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),Text(money(t.total),style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold))]),Wrap(spacing:8,children:[OutlinedButton.icon(onPressed:t.items.isEmpty||!pos.can('discount')?null:()=>_discount(context),icon:const Icon(Icons.percent),label:const Text('İndirim')),OutlinedButton(onPressed:t.items.isEmpty||!pos.can('orders')?null:()=>pos.setKitchen(t,KitchenState.queued),child:const Text('Mutfağa gönder'))]),SizedBox(width:double.infinity,child:FilledButton(onPressed:t.items.isEmpty||!pos.can('orders')?null:()=>_pay(context),child:const Text('Ödeme al')))]))]));
 Future<void> _discount(BuildContext context)async{final value=TextEditingController(text:t.discount.toString());final reason=TextEditingController(text:t.discountReason);bool percent=t.discountPercent;final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,set)=>AlertDialog(title:const Text('İndirim tanımla'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:value,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'İndirim tutarı / yüzde')),SwitchListTile(title:const Text('Yüzde olarak uygula'),value:percent,onChanged:(v)=>set(()=>percent=v)),TextField(controller:reason,decoration:const InputDecoration(labelText:'İndirim nedeni'))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Vazgeç')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Uygula'))])));if(ok==true){final n=int.tryParse(value.text)??0;pos.setDiscount(t,n.clamp(0,percent?100:t.subtotal).toInt(),percent,reason.text);}}
 Future<void> _pay(BuildContext context)async{final parts=<PaymentPart>[];int remaining=t.total;final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,set){final amount=TextEditingController();return AlertDialog(title:Text('Ödeme · ${money(t.total)}'),content:Column(mainAxisSize:MainAxisSize.min,children:[Text('Kalan: ${money(remaining)}'),TextField(controller:amount,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Tutar (örn. 12,50)')),Wrap(children:['Nakit','Kart'].map((m)=>TextButton(onPressed:()=>set(()=>_addPart(parts,m,amount,remaining,(v)=>remaining=v)),child:Text('$m ekle'))).toList()),if(parts.isNotEmpty)...parts.map((p)=>Text('${p.method}: ${money(p.amount)}'))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:remaining==0?()=>Navigator.pop(c,true):null,child:const Text('Ödemeyi tamamla'))]);}));if(ok==true){pos.checkout(t,parts);if(mounted)Navigator.pop(context);}}
 void _addPart(List<PaymentPart> parts,String method,TextEditingController ctrl,int remaining,void Function(int) update){final n=parseMoney(ctrl.text);if(n<=0||n>remaining)return;parts.add(PaymentPart(method,n));update(remaining-n);ctrl.clear();}
+}
 
-class KitchenPage extends StatelessWidget{const KitchenPage({super.key});@override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(c,_)=>Scaffold(appBar:AppBar(title:const Text('Mutfak sipariş kuyruğu')),body:ListView(children:[for(final t in pos.tables.where((x)=>x.items.isNotEmpty))Card(margin:const EdgeInsets.all(8),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('Masa ${t.id} · ${t.kitchen.name}',style:const TextStyle(fontWeight:FontWeight.bold,fontSize:18)),...t.items.map((x)=>Text('${x.qty} × ${x.name}')),Wrap(spacing:8,children:[for(final s in KitchenState.values)OutlinedButton(onPressed:()=>pos.setKitchen(t,s),child:Text(s==KitchenState.queued?'Kuyruk':s==KitchenState.preparing?'Hazırlanıyor':s==KitchenState.ready?'Hazır':'Servis edildi'))])])))]));}
+class KitchenPage extends StatelessWidget{const KitchenPage({super.key});@override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(c,_)=>Scaffold(appBar:AppBar(title:const Text('Mutfak sipariş kuyruğu')),body:ListView(children:[for(final t in pos.tables.where((x)=>x.items.isNotEmpty))Card(margin:const EdgeInsets.all(8),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('Masa ${t.id} · ${t.kitchen.name}',style:const TextStyle(fontWeight:FontWeight.bold,fontSize:18)),...t.items.map((x)=>Text('${x.qty} × ${x.name}')),Wrap(spacing:8,children:[for(final s in KitchenState.values)OutlinedButton(onPressed:pos.can('kitchen')?()=>pos.setKitchen(t,s):null,child:Text(s==KitchenState.queued?'Kuyruk':s==KitchenState.preparing?'Hazırlanıyor':s==KitchenState.ready?'Hazır':'Servis edildi'))])])))]));}
 
-class InventoryPage extends StatelessWidget{const InventoryPage({super.key});@override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(c,_)=>Scaffold(appBar:AppBar(title:const Text('Stok yönetimi'),actions:[IconButton(onPressed:()=>_editProduct(context),icon:const Icon(Icons.add))]),body:ListView(children:[for(final p in pos.products)ListTile(title:Text(p.name),subtitle:Text('${p.category} · ${money(p.price)} · Kritik seviye: ${p.lowAt}'),leading:Icon(Icons.inventory,color:p.stock<=p.lowAt?red:green),trailing:Wrap(mainAxisSize:MainAxisSize.min,children:[Text('${p.stock}'),IconButton(onPressed:()=>pos.stockChange(p,-1),icon:const Icon(Icons.remove)),IconButton(onPressed:()=>pos.stockChange(p,1),icon:const Icon(Icons.add)),IconButton(onPressed:()=>_editProduct(context,p),icon:const Icon(Icons.edit))]))])));}
-Future<void> _editProduct(BuildContext context,[Product? old])async{final name=TextEditingController(text:old?.name??''),cat=TextEditingController(text:old?.category??'Genel'),price=TextEditingController(text:old==null?'':(old.price/100).toStringAsFixed(2)),stock=TextEditingController(text:'${old?.stock??0}'),low=TextEditingController(text:'${old?.lowAt??5}');final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:Text(old==null?'Ürün ekle':'Ürünü düzenle'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:name,decoration:const InputDecoration(labelText:'Ürün adı')),TextField(controller:cat,decoration:const InputDecoration(labelText:'Kategori')),TextField(controller:price,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Fiyat (₼)')),TextField(controller:stock,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Stok adedi')),TextField(controller:low,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Kritik stok seviyesi'))])),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Kaydet'))]));if(ok==true&&name.text.trim().isNotEmpty){pos.upsertProduct(Product(old?.id??DateTime.now().microsecondsSinceEpoch.toString(),cat.text.trim().isEmpty?'Genel':cat.text.trim(),name.text.trim(),parseMoney(price.text),stock:int.tryParse(stock.text)??0,lowAt:int.tryParse(low.text)??5));}}
+class InventoryPage extends StatelessWidget {
+  const InventoryPage({super.key});
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: pos,
+        builder: (context, _) => Scaffold(
+          appBar: AppBar(
+            title: const Text('Stok yönetimi'),
+            actions: [
+              IconButton(
+                onPressed: pos.can('inventory') ? () => _editProduct(context) : null,
+                icon: const Icon(Icons.add),
+              ),
+            ],
+          ),
+          body: pos.can('inventory')
+              ? ListView(
+                  children: [
+                    for (final product in pos.products)
+                      ListTile(
+                        title: Text(product.name),
+                        subtitle: Text('${product.category} · ${money(product.price)} · Kritik seviye: ${product.lowAt}'),
+                        leading: Icon(Icons.inventory, color: product.stock <= product.lowAt ? red : green),
+                        trailing: Wrap(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('${product.stock}'),
+                            IconButton(onPressed: () => pos.stockChange(product, -1), icon: const Icon(Icons.remove)),
+                            IconButton(onPressed: () => pos.stockChange(product, 1), icon: const Icon(Icons.add)),
+                            IconButton(onPressed: () => _editProduct(context, product), icon: const Icon(Icons.edit)),
+                          ],
+                        ),
+                      ),
+                  ],
+                )
+              : const Center(child: Text('Bu bölüm için yönetici yetkisi gerekir.')),
+        ),
+      );
 
-class ReportsPage extends StatelessWidget{const ReportsPage({super.key});@override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(c,_) {final today=dayKey(azNow());final sales=pos.sales.where((s)=>s.date==today).toList().reversed.toList();final cash=sales.fold(0,(a,s)=>a+s.payments.where((p)=>p.method=='Nakit').fold(0,(x,p)=>x+p.amount));final card=sales.fold(0,(a,s)=>a+s.payments.where((p)=>p.method=='Kart').fold(0,(x,p)=>x+p.amount));return Scaffold(appBar:AppBar(title:const Text('Günlük rapor ve satış geçmişi')),body:ListView(padding:const EdgeInsets.all(12),children:[Wrap(spacing:8,runSpacing:8,children:[_metric('Ciro',money(sales.fold(0,(a,s)=>a+s.total))),_metric('Satış adedi','${sales.length}'),_metric('Nakit',money(cash)),_metric('Kart',money(card))]),const SizedBox(height:12),const Text('Satış geçmişi',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),for(final s in sales)Card(child:ExpansionTile(title:Text('${s.time} · Masa ${s.table} · ${money(s.total)}'),subtitle:Text('Personel: ${s.staff} · İndirim: ${money(s.discount)}'),children:[for(final x in s.items)ListTile(dense:true,title:Text('${x.qty} × ${x.name}'),trailing:Text(money(x.qty*x.price))),Padding(padding:const EdgeInsets.all(12),child:Text('Ödeme: ${s.payments.map((p)=>'${p.method} ${money(p.amount)}').join(' + ')}'))]))]));});}
+  Future<void> _editProduct(BuildContext context, [Product? old]) async {
+    final name = TextEditingController(text: old?.name ?? '');
+    final category = TextEditingController(text: old?.category ?? 'Genel');
+    final price = TextEditingController(text: old == null ? '' : (old.price / 100).toStringAsFixed(2));
+    final stock = TextEditingController(text: '${old?.stock ?? 0}');
+    final low = TextEditingController(text: '${old?.lowAt ?? 5}');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(old == null ? 'Ürün ekle' : 'Ürünü düzenle'),
+        content: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(controller: name, decoration: const InputDecoration(labelText: 'Ürün adı')),
+            TextField(controller: category, decoration: const InputDecoration(labelText: 'Kategori')),
+            TextField(controller: price, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Fiyat (₼)')),
+            TextField(controller: stock, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Stok adedi')),
+            TextField(controller: low, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Kritik stok seviyesi')),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('İptal')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Kaydet')),
+        ],
+      ),
+    );
+    final parsedPrice = parseMoney(price.text);
+    if (ok == true && name.text.trim().isNotEmpty && parsedPrice > 0) {
+      pos.upsertProduct(Product(
+        old?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
+        category.text.trim().isEmpty ? 'Genel' : category.text.trim(),
+        name.text.trim(),
+        parsedPrice,
+        stock: (int.tryParse(stock.text) ?? 0).clamp(0, 1000000).toInt(),
+        lowAt: (int.tryParse(low.text) ?? 5).clamp(0, 1000000).toInt(),
+      ));
+    }
+  }
+}
+
+class ReportsPage extends StatelessWidget{const ReportsPage({super.key});@override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(c,_) {final today=dayKey(azNow());final allSales=pos.sales.reversed.toList();final sales=pos.sales.where((s)=>s.date==today).toList();final cash=sales.fold(0,(a,s)=>a+s.payments.where((p)=>p.method=='Nakit').fold(0,(x,p)=>x+p.amount));final card=sales.fold(0,(a,s)=>a+s.payments.where((p)=>p.method=='Kart').fold(0,(x,p)=>x+p.amount));return Scaffold(appBar:AppBar(title:const Text('Günlük rapor ve satış geçmişi')),body:pos.can('reports')?ListView(padding:const EdgeInsets.all(12),children:[Wrap(spacing:8,runSpacing:8,children:[_metric('Ciro',money(sales.fold(0,(a,s)=>a+s.total))),_metric('Satış adedi','${sales.length}'),_metric('Nakit',money(cash)),_metric('Kart',money(card))]),const SizedBox(height:12),const Text('Satış geçmişi',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),for(final s in allSales)Card(child:ExpansionTile(title:Text('${s.time} · Masa ${s.table} · ${money(s.total)}'),subtitle:Text('Personel: ${s.staff} · İndirim: ${money(s.discount)}'),children:[for(final x in s.items)ListTile(dense:true,title:Text('${x.qty} × ${x.name}'),trailing:Text(money(x.qty*x.price))),Padding(padding:const EdgeInsets.all(12),child:Text('Ödeme: ${s.payments.map((p)=>'${p.method} ${money(p.amount)}').join(' + ')}'))]))]):const Center(child:Text('Raporlar için yönetici yetkisi gerekir.')));});}
 Widget _metric(String title,String value)=>SizedBox(width:160,child:Card(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(title),Text(value,style:const TextStyle(fontWeight:FontWeight.bold,fontSize:19))]))));
 
-class AdminPage extends StatelessWidget{const AdminPage({super.key});@override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(c,_)=>Scaffold(appBar:AppBar(title:const Text('Yönetim · Personel · Kayıtlar')),body:ListView(padding:const EdgeInsets.all(12),children:[ListTile(title:const Text('Aktif personel'),subtitle:Text(pos.currentUser),trailing:DropdownButton<String>(value:pos.currentUser,items:pos.staff.where((s)=>s.active).map((s)=>DropdownMenuItem(value:s.name,child:Text(s.name))).toList(),onChanged:(v){if(v!=null){pos.currentUser=v;pos.log('Oturum','Aktif kullanıcı: $v');pos.save();}})),FilledButton.icon(onPressed:()=>_staffDialog(context),icon:const Icon(Icons.person_add),label:const Text('Personel ekle')),const Divider(),const Text('İşlem geçmişi',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),for(final a in pos.audit.take(100))ListTile(dense:true,title:Text('${a.action}: ${a.detail}'),subtitle:Text('${a.at} · ${a.user}'))]));}
-Future<void> _staffDialog(BuildContext context)async{final name=TextEditingController(),pin=TextEditingController(text:'1234');String role='Garson';final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,set)=>AlertDialog(title:const Text('Personel ekle'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:name,decoration:const InputDecoration(labelText:'Ad')),TextField(controller:pin,decoration:const InputDecoration(labelText:'PIN')),DropdownButton<String>(value:role,items:['Yönetici','Garson','Mutfak'].map((x)=>DropdownMenuItem(value:x,child:Text(x))).toList(),onChanged:(v)=>set(()=>role=v??role))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Ekle'))])));if(ok==true&&name.text.trim().isNotEmpty){pos.staff.add(Staff(name.text.trim(),role,pin:pin.text));pos.log('Personel','${name.text} eklendi ($role)');pos.save();}}
+class AdminPage extends StatelessWidget {
+  const AdminPage({super.key});
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: pos,
+        builder: (context, _) => Scaffold(
+          appBar: AppBar(title: const Text('Yönetim · Personel · Kayıtlar')),
+          body: ListView(
+            padding: const EdgeInsets.all(12),
+            children: [
+              ListTile(
+                title: const Text('Aktif personel'),
+                subtitle: Text(pos.currentUser),
+                trailing: DropdownButton<String>(
+                  value: pos.currentUser,
+                  items: pos.staff.where((s) => s.active).map((s) => DropdownMenuItem(value: s.name, child: Text(s.name))).toList(),
+                  onChanged: (value) async {
+                    if (value == null) return;
+                    final target = pos.staff.firstWhere((s) => s.name == value);
+                    final pin = TextEditingController();
+                    final ok = await showDialog<bool>(
+                      context: context,
+                      builder: (dialogContext) => AlertDialog(
+                        title: Text('$value giriş'),
+                        content: TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, decoration: const InputDecoration(labelText: 'Personel PIN')),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('İptal')),
+                          FilledButton(onPressed: () => Navigator.pop(dialogContext, pin.text == target.pin), child: const Text('Giriş')),
+                        ],
+                      ),
+                    );
+                    if (ok == true) {
+                      pos.currentUser = value;
+                      pos.log('Oturum', 'Aktif kullanıcı: $value');
+                      pos.save();
+                    } else if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PIN hatalı veya giriş iptal edildi.')));
+                    }
+                  },
+                ),
+              ),
+              if (pos.can('staff'))
+                FilledButton.icon(onPressed: () => _staffDialog(context), icon: const Icon(Icons.person_add), label: const Text('Personel ekle')),
+              if (pos.can('staff')) const Divider(),
+              if (pos.can('staff')) const Text('İşlem geçmişi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              if (pos.can('staff'))
+                for (final entry in pos.audit.take(100))
+                  ListTile(dense: true, title: Text('${entry.action}: ${entry.detail}'), subtitle: Text('${entry.at} · ${entry.user}')),
+              if (!pos.can('staff')) const Text('Personel yönetimi ve işlem kayıtları için yönetici yetkisi gerekir.'),
+            ],
+          ),
+        ),
+      );
+
+  Future<void> _staffDialog(BuildContext context) async {
+    final name = TextEditingController();
+    final pin = TextEditingController(text: '1234');
+    String role = 'Garson';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Personel ekle'),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(controller: name, decoration: const InputDecoration(labelText: 'Ad')),
+            TextField(controller: pin, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'PIN')),
+            DropdownButton<String>(
+              value: role,
+              items: ['Yönetici', 'Garson', 'Mutfak'].map((value) => DropdownMenuItem(value: value, child: Text(value))).toList(),
+              onChanged: (value) => setDialogState(() => role = value ?? role),
+            ),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('İptal')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Ekle')),
+          ],
+        ),
+      ),
+    );
+    if (ok == true && name.text.trim().isNotEmpty && pin.text.trim().length >= 4) {
+      pos.staff.add(Staff(name.text.trim(), role, pin: pin.text.trim()));
+      pos.log('Personel', '${name.text} eklendi ($role)');
+      pos.save();
+    }
+  }
+}
