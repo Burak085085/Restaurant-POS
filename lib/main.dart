@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+final GlobalKey<ScaffoldMessengerState> appMessengerKey = GlobalKey<ScaffoldMessengerState>();
 const int kTableCount = 20;
 const String kStoreKey = 'restaurant_pos_v2';
 const Color ink = Color(0xFF1B2733), bg = Color(0xFFEEF1F4), green = Color(0xFF23845B), red = Color(0xFFC7443B), amber = Color(0xFFE39A1C);
@@ -89,7 +90,28 @@ class Pos extends ChangeNotifier {
   List<PosTable> tables=List.generate(kTableCount,(i)=>PosTable(i+1)); List<Sale> sales=[]; List<Staff> staff=[Staff('Admin','Yönetici'),Staff('Garson','Garson'),Staff('Mutfak','Mutfak')]; List<Audit> audit=[]; String currentUser='Admin'; SharedPreferences? prefs; Future<void> _queue=Future.value();
   Future<void> load() async { prefs=await SharedPreferences.getInstance(); final raw=prefs!.getString(kStoreKey); if(raw==null)return; try { final j=jsonDecode(raw) as Map<String,dynamic>; products=(j['products'] as List? ?? []).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList(); tables=List.generate(kTableCount,(i)=>PosTable(i+1)); for(final x in (j['tables'] as List? ?? [])){final m=Map<String,dynamic>.from(x); final id=m['id'] as int; if(id<1||id>kTableCount)continue; final t=tables[id-1]; t.items=(m['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(); t.kitchen=KitchenState.values[(m['kitchen']??0).clamp(0,3).toInt()]; final rawItems=(m['items'] as List? ?? []); for(var lineIndex=0;lineIndex<t.items.length;lineIndex++){final rawLine=Map<String,dynamic>.from(rawItems[lineIndex]);if(!rawLine.containsKey('kitchen'))t.items[lineIndex].kitchen=t.kitchen;} t.discount=m['discount']??0;t.discountPercent=m['discountPercent']??false;t.discountReason=m['discountReason']??'';} sales=(j['sales'] as List? ?? []).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList(); staff=(j['staff'] as List? ?? []).map((e)=>Staff.fromJson(Map<String,dynamic>.from(e))).toList(); if(staff.isEmpty)staff=[Staff('Admin','Yönetici')]; audit=(j['audit'] as List? ?? []).map((e)=>Audit.fromJson(Map<String,dynamic>.from(e))).toList(); currentUser=j['currentUser']??staff.first.name; } catch (_) { final backupKey='${kStoreKey}_corrupt_${DateTime.now().microsecondsSinceEpoch}'; await prefs!.setString(backupKey, raw); await prefs!.remove(kStoreKey); products=[Product('p1','Dönerler','Tavuk döner',300),Product('p2','Dönerler','Dana döner',500),Product('p3','Dönerler','Dürüm döner',400),Product('p4','Dönerler','Porsiyon döner',700),Product('p5','İçecekler','Kola',200),Product('p6','İçecekler','Fanta',200),Product('p7','İçecekler','Ayran',100),Product('p8','İçecekler','Su',50),Product('p9','Ekstra','Patates',200),Product('p10','Ekstra','Ketçap',50),Product('p11','Ekstra','Mayonez',50)]; tables=List.generate(kTableCount,(i)=>PosTable(i+1)); sales=[]; staff=[Staff('Admin','Yönetici')]; audit=[]; currentUser='Admin'; } }
   Future<void> flush()=>_queue;
-  void save(){final snapshot=jsonEncode({'products':products.map((e)=>e.toJson()).toList(),'tables':tables.map((e)=>e.toJson()).toList(),'sales':sales.map((e)=>e.toJson()).toList(),'staff':staff.map((e)=>e.toJson()).toList(),'audit':audit.map((e)=>e.toJson()).toList(),'currentUser':currentUser}); _queue=_queue.catchError((Object _) {}).then((_) async { await prefs?.setString(kStoreKey,snapshot); }).catchError((Object _) {}); notifyListeners();}
+  void save() {
+    final snapshot = jsonEncode({
+      'products': products.map((e) => e.toJson()).toList(),
+      'tables': tables.map((e) => e.toJson()).toList(),
+      'sales': sales.map((e) => e.toJson()).toList(),
+      'staff': staff.map((e) => e.toJson()).toList(),
+      'audit': audit.map((e) => e.toJson()).toList(),
+      'currentUser': currentUser,
+    });
+    _queue = _queue.catchError((Object _) {}).then((_) async {
+      try {
+        final saved = await prefs?.setString(kStoreKey, snapshot);
+        if (saved == false) throw StateError('Yerel kayıt reddedildi.');
+      } catch (error) {
+        appMessengerKey.currentState?.showSnackBar(SnackBar(
+          content: Text('Veriler kaydedilemedi. Depolama alanını kontrol edin. ($error)'),
+          duration: const Duration(seconds: 6),
+        ));
+      }
+    });
+    notifyListeners();
+  }
   void log(String action,String detail){audit.insert(0,Audit(stamp(azNow()),currentUser,action,detail)); if(audit.length>2000)audit.removeRange(2000,audit.length);}
   bool can(String permission){final current=staff.where((e)=>e.name==currentUser&&e.active); if(current.isEmpty)return false; final role=current.first.role; if(role=='Yönetici')return true; if(role=='Mutfak')return permission=='kitchen'; if(role=='Garson')return ['orders','kitchen'].contains(permission); return false;}
   int get todayTotal=>sales.where((s)=>s.date==dayKey(azNow())).fold(0,(a,s)=>a+s.total); int get todayCount=>sales.where((s)=>s.date==dayKey(azNow())).length;
@@ -177,7 +199,7 @@ class Pos extends ChangeNotifier {
 }
 final pos=Pos();
 Future<void> main() async {WidgetsFlutterBinding.ensureInitialized();await pos.load();runApp(const PosApp());}
-class PosApp extends StatelessWidget {const PosApp({super.key});@override Widget build(BuildContext context)=>MaterialApp(title:'Restaurant POS',debugShowCheckedModeBanner:false,theme:ThemeData(useMaterial3:true,colorScheme:ColorScheme.fromSeed(seedColor:ink),scaffoldBackgroundColor:bg,appBarTheme:const AppBarTheme(backgroundColor:ink,foregroundColor:Colors.white)),home:const Home());}
+class PosApp extends StatelessWidget {const PosApp({super.key});@override Widget build(BuildContext context)=>MaterialApp(scaffoldMessengerKey:appMessengerKey,title:'Restaurant POS',debugShowCheckedModeBanner:false,theme:ThemeData(useMaterial3:true,colorScheme:ColorScheme.fromSeed(seedColor:ink),scaffoldBackgroundColor:bg,appBarTheme:const AppBarTheme(backgroundColor:ink,foregroundColor:Colors.white)),home:const Home());}
 
 class Home extends StatefulWidget {const Home({super.key});@override State<Home> createState()=>_HomeState();}
 class _HomeState extends State<Home>{int tab=0;bool authenticated=false;@override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(context,_){if(!authenticated)return PinGate(onAuthenticated:()=>setState(()=>authenticated=true));final pages=[const TablesPage(),const KitchenPage(),const InventoryPage(),const ReportsPage(),const AdminPage()];return Scaffold(body:SafeArea(child:pages[tab]),bottomNavigationBar:NavigationBar(selectedIndex:tab,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:const [NavigationDestination(icon:Icon(Icons.table_restaurant),label:'Masalar'),NavigationDestination(icon:Icon(Icons.soup_kitchen),label:'Mutfak'),NavigationDestination(icon:Icon(Icons.inventory_2),label:'Stok'),NavigationDestination(icon:Icon(Icons.bar_chart),label:'Rapor'),NavigationDestination(icon:Icon(Icons.settings),label:'Yönetim') ]));});}
