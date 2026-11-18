@@ -25,6 +25,29 @@ void main() {
     expect(store.stockChange(product, -1), isFalse);
   });
 
+  test('kitchen dispatch tracks only sent lines and preserves earlier batches', () {
+    final store = Pos();
+    final product = Product('kitchen-test', 'Test', 'Test item', 300, stock: 5);
+    store.products = [product];
+    final table = store.tables.first;
+
+    expect(store.add(table, product), isTrue);
+    expect(table.items.single.sent, isFalse);
+    expect(store.sendKitchen(table), isTrue);
+    expect(table.items.single.sent, isTrue);
+    store.setKitchen(table, KitchenState.preparing);
+    expect(table.items.single.kitchen, KitchenState.preparing);
+
+    expect(store.add(table, product), isTrue);
+    expect(table.items, hasLength(2));
+    expect(table.items.first.kitchen, KitchenState.preparing);
+    expect(table.items.last.sent, isFalse);
+    expect(store.sendKitchen(table), isTrue);
+    expect(table.items.last.kitchen, KitchenState.queued);
+    expect(table.items.first.kitchen, KitchenState.preparing);
+    expect(store.qty(table, 0, -1), isFalse);
+  });
+
   test('cash overpayment records change and checkout consumes stock', () {
     final store = Pos();
     final product = Product('test', 'Test', 'Test item', 300, stock: 2);
