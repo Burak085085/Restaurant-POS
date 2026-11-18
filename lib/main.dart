@@ -93,7 +93,6 @@ class Pos extends ChangeNotifier {
     else if (t.discountPercent ? t.discount > 99 : t.discount >= t.subtotal) { t.discount=0; t.discountPercent=false; t.discountReason=''; log('İndirim sıfırlandı','Masa ${t.id}: ara toplam değiştiği için indirim kaldırıldı'); }
     log('Sipariş', 'Masa ${t.id}: miktar değişti'); save(); return true;
   }
-  bool get hasUnsentItems => items.any((line) => !line.sent);
   bool sendKitchen(PosTable t) {
     if (!can('orders') || !t.items.any((line) => !line.sent)) return false;
     for (final line in t.items.where((line) => !line.sent)) {
