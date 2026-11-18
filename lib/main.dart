@@ -81,7 +81,7 @@ class Pos extends ChangeNotifier {
     if (!can('kitchen') || t.items.isEmpty) return;
     t.kitchen = state; log('Mutfak', 'Masa ${t.id}: ${state.name}'); save();
   }
-  bool clearDiscount(PosTable t) { if (!can('discount') || t.discount==0) return false; t.discount=0; t.discountPercent=false; t.discountReason=''; log('İndirim kaldırıldı','Masa ${t.id}'); save(); return true; }
+  bool clearDiscount(PosTable t) { if (!can('discount') || t.discount==0) return false; t.discount=0; t.discountPercent=false; t.discountReason=''; log('İndirim kaldırıldı','Masa ' + t.id.toString()); save(); return true; }
   bool setDiscount(PosTable t, int value, bool percent, String reason) {
     if (!can('discount') || t.items.isEmpty || reason.trim().isEmpty || value <= 0) return false;
     if (percent ? value > 99 : value >= t.subtotal) return false;
@@ -277,7 +277,7 @@ class InventoryPage extends StatelessWidget {
                             Text('${product.stock}'),
                             IconButton(onPressed: () { if (!pos.stockChange(product, -1)) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Stok, açık siparişlerde rezerve edilmiş miktarın altına indirilemez.'))); }, icon: const Icon(Icons.remove)),
                             IconButton(onPressed: () => pos.stockChange(product, 1), icon: const Icon(Icons.add)),
-                            Switch(value: product.active, onChanged: (value) { product.active=value; pos.log('Menü', '${product.name}: ${value ? 'aktif' : 'pasif'}'); pos.save(); }),
+                            Switch(value: product.active, onChanged: (value) { product.active=value; pos.log('Menü', product.name + ': ' + (value ? 'aktif' : 'pasif')); pos.save(); }),
                             IconButton(onPressed: () => _editProduct(context, product), icon: const Icon(Icons.edit)),
                           ],
                         ),
@@ -391,86 +391,25 @@ class AdminPage extends StatelessWidget {
       );
 
   Future<void> _changePin(BuildContext context) async {
-    final oldPin=TextEditingController(); final newPin=TextEditingController(); final confirmPin=TextEditingController();
-    final ok=await showDialog<bool>(context:context,builder:(dialogContext)=>AlertDialog(title:const Text('Yönetici PIN değiştir'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:oldPin,obscureText:true,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Mevcut PIN')),TextField(controller:newPin,obscureText:true,keyboardType:TextInputType.number,maxLength:4,decoration:const InputDecoration(labelText:'Yeni 4 haneli PIN')),TextField(controller:confirmPin,obscureText:true,keyboardType:TextInputType.number,maxLength:4,decoration:const InputDecoration(labelText:'Yeni PIN tekrar'))]),actions:[TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(dialogContext,true),child:const Text('Değiştir'))]));
-    if(ok==true){final admin=pos.staff.firstWhere((s)=>s.name=='Admin');if(admin.verifyPin(oldPin.text.trim())&&RegExp(r'^[0-9]{4}
-    final name = TextEditingController();
-    final pin = TextEditingController();
-    String role = 'Garson';
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: const Text('Personel ekle'),
-          content: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextField(controller: name, decoration: const InputDecoration(labelText: 'Ad')),
-            TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, decoration: const InputDecoration(labelText: 'Yeni PIN (4-12 rakam)')),
-            DropdownButton<String>(
-              value: role,
-              items: ['Yönetici', 'Garson', 'Mutfak'].map((value) => DropdownMenuItem(value: value, child: Text(value))).toList(),
-              onChanged: (value) => setDialogState(() => role = value ?? role),
-            ),
-          ]),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('İptal')),
-            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Ekle')),
-          ],
-        ),
-      ),
-    );
-    if (ok == true && name.text.trim().isNotEmpty && RegExp(r'^[0-9]{4,12}$').hasMatch(pin.text.trim()) && !pos.staff.any((member) => member.name.toLowerCase() == name.text.trim().toLowerCase())) {
-      pos.staff.add(Staff(name.text.trim(), role, pin: pin.text.trim()));
-      pos.log('Personel', '${name.text} eklendi ($role)');
-      pos.save();
-    } else if (ok == true && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Benzersiz personel adı ve 4-12 haneli PIN gerekli.')));
+    final oldPin=TextEditingController();
+    final newPin=TextEditingController();
+    final confirmPin=TextEditingController();
+    final ok=await showDialog<bool>(context:context,builder:(dialogContext)=>AlertDialog(
+      title:const Text('Yönetici PIN değiştir'),
+      content:Column(mainAxisSize:MainAxisSize.min,children:[
+        TextField(controller:oldPin,obscureText:true,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Mevcut PIN')),
+        TextField(controller:newPin,obscureText:true,keyboardType:TextInputType.number,maxLength:4,decoration:const InputDecoration(labelText:'Yeni 4 haneli PIN')),
+        TextField(controller:confirmPin,obscureText:true,keyboardType:TextInputType.number,maxLength:4,decoration:const InputDecoration(labelText:'Yeni PIN tekrar')),
+      ]),
+      actions:[TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(dialogContext,true),child:const Text('Değiştir'))],
+    ));
+    if(ok==true){
+      final admin=pos.staff.firstWhere((member)=>member.name=='Admin');
+      final value=newPin.text.trim();
+      final valid=admin.verifyPin(oldPin.text.trim())&&value.length==4&&int.tryParse(value)!=null&&value!='1234'&&value==confirmPin.text.trim();
+      if(valid){admin.setPin(value);pos.log('Güvenlik','Yönetici PIN kodu değiştirildi');pos.save();}
+      else if(context.mounted){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Mevcut PIN yanlış veya yeni PIN geçersiz.')));}
     }
-  }
-}
-
-class PinGate extends StatefulWidget {
-  final VoidCallback onAuthenticated;
-  const PinGate({super.key, required this.onAuthenticated});
-  @override State<PinGate> createState() => _PinGateState();
-}
-class _PinGateState extends State<PinGate> {
-  final pin = TextEditingController();
-  final confirm = TextEditingController();
-  String? error;
-  int failedAttempts=0;
-  DateTime? lockedUntil;
-  Staff get admin => pos.staff.firstWhere((s) => s.name == 'Admin', orElse: () => pos.staff.first);
-  bool get setupRequired => admin.verifyPin('1234');
-  @override void dispose() { pin.dispose(); confirm.dispose(); super.dispose(); }
-  void submit() {
-    if (lockedUntil != null && DateTime.now().isBefore(lockedUntil!)) { setState(() => error = 'Çok fazla hatalı deneme. 30 saniye bekleyin.'); return; }
-    final value = pin.text.trim();
-    if (!RegExp(r'^[0-9]{4}$').hasMatch(value) || (setupRequired && value == '1234')) { setState(() => error = '4 rakamlı, varsayılan olmayan bir PIN girin.'); return; }
-    if (setupRequired) {
-      if (value != confirm.text.trim()) { setState(() => error = 'PIN kodları eşleşmiyor.'); return; }
-      failedAttempts=0; admin.setPin(value); pos.currentUser = admin.name; pos.log('Güvenlik', 'Yönetici PIN kodu oluşturuldu'); pos.save(); widget.onAuthenticated(); return;
-    }
-    if (admin.verifyPin(value)) { failedAttempts=0; pos.currentUser = admin.name; widget.onAuthenticated(); }
-    else { failedAttempts++; if(failedAttempts>=5){lockedUntil=DateTime.now().add(const Duration(seconds:30));failedAttempts=0;} setState(() => error = lockedUntil!=null ? 'Çok fazla hatalı deneme. 30 saniye bekleyin.' : 'PIN hatalı.'); pin.clear(); }
-  }
-  @override Widget build(BuildContext context) => Scaffold(
-    backgroundColor: ink,
-    body: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 380), child: Card(
-      margin: const EdgeInsets.all(24),
-      child: Padding(padding: const EdgeInsets.all(28), child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const Icon(Icons.lock_outline, size: 48, color: ink),
-        const SizedBox(height: 16),
-        Text(setupRequired ? 'Yönetici PIN kodunu oluştur' : 'Yönetici girişi', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 20),
-        TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4, decoration: InputDecoration(labelText: setupRequired ? 'Yeni 4 haneli PIN' : 'Yönetici PIN'), onSubmitted: (_) => submit()),
-        if (setupRequired) TextField(controller: confirm, keyboardType: TextInputType.number, obscureText: true, maxLength: 4, decoration: const InputDecoration(labelText: 'PIN tekrar')),
-        if (error != null) Padding(padding: const EdgeInsets.only(bottom: 12), child: Text(error!, style: const TextStyle(color: red))),
-        SizedBox(width: double.infinity, child: FilledButton(onPressed: submit, child: Text(setupRequired ? 'PIN oluştur ve devam et' : 'Giriş yap'))),
-      ])),
-    ))),
-  );
-}
-).hasMatch(newPin.text.trim())&&newPin.text.trim()!='1234'&&newPin.text.trim()==confirmPin.text.trim()){admin.setPin(newPin.text.trim());pos.log('Güvenlik','Yönetici PIN kodu değiştirildi');pos.save();}else if(context.mounted){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Mevcut PIN yanlış veya yeni PIN geçersiz.')));}}
     oldPin.dispose();newPin.dispose();confirmPin.dispose();
   }
 
