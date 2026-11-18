@@ -59,11 +59,68 @@ class _OrderPageState extends State<OrderPage>{String category='Tümü';PosTable
 Widget _products(List<Product> list)=>GridView.builder(padding:const EdgeInsets.all(10),gridDelegate:const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent:170,childAspectRatio:1.45,crossAxisSpacing:8,mainAxisSpacing:8),itemCount:list.length,itemBuilder:(c,i){final p=list[i];return Card(child:InkWell(onTap:p.stock>0&&pos.can('orders')?()=>pos.add(t,p):null,child:Padding(padding:const EdgeInsets.all(10),child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[Text(p.name,style:const TextStyle(fontWeight:FontWeight.bold)),Text(money(p.price)),Text('Stok: ${p.stock}',style:TextStyle(color:p.stock<=p.lowAt?red:Colors.black54))]))));});
 Widget _ticket()=>Container(color:Colors.white,child:Column(children:[Padding(padding:const EdgeInsets.all(12),child:Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Sipariş',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),Text('Mutfak: ${t.kitchen.name}') ])),Expanded(child:ListView.builder(itemCount:t.items.length,itemBuilder:(c,i){final x=t.items[i];return ListTile(title:Text(x.name),subtitle:Text('${money(x.price)} × ${x.qty}'),trailing:Row(mainAxisSize:MainAxisSize.min,children:[IconButton(onPressed:pos.can('orders')?()=>pos.qty(t,i,-1):null,icon:const Icon(Icons.remove)),IconButton(onPressed:pos.can('orders')?()=>pos.qty(t,i,1):null,icon:const Icon(Icons.add))]));})),Padding(padding:const EdgeInsets.all(12),child:Column(children:[Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Ara toplam'),Text(money(t.subtotal))]),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('İndirim'),Text(money(t.subtotal-t.total))]),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('TOPLAM',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),Text(money(t.total),style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold))]),Wrap(spacing:8,children:[OutlinedButton.icon(onPressed:t.items.isEmpty||!pos.can('discount')?null:()=>_discount(context),icon:const Icon(Icons.percent),label:const Text('İndirim')),OutlinedButton(onPressed:t.items.isEmpty||!pos.can('orders')?null:()=>pos.setKitchen(t,KitchenState.queued),child:const Text('Mutfağa gönder'))]),SizedBox(width:double.infinity,child:FilledButton(onPressed:t.items.isEmpty||!pos.can('orders')?null:()=>_pay(context),child:const Text('Ödeme al')))]))]));
 Future<void> _discount(BuildContext context)async{final value=TextEditingController(text:t.discount.toString());final reason=TextEditingController(text:t.discountReason);bool percent=t.discountPercent;final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,set)=>AlertDialog(title:const Text('İndirim tanımla'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:value,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'İndirim tutarı / yüzde')),SwitchListTile(title:const Text('Yüzde olarak uygula'),value:percent,onChanged:(v)=>set(()=>percent=v)),TextField(controller:reason,decoration:const InputDecoration(labelText:'İndirim nedeni'))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Vazgeç')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Uygula'))])));if(ok==true){final n=int.tryParse(value.text)??0;pos.setDiscount(t,n.clamp(0,percent?100:t.subtotal).toInt(),percent,reason.text);}}
-Future<void> _pay(BuildContext context)async{final parts=<PaymentPart>[];int remaining=t.total;final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,set){final amount=TextEditingController();return AlertDialog(title:Text('Ödeme · ${money(t.total)}'),content:Column(mainAxisSize:MainAxisSize.min,children:[Text('Kalan: ${money(remaining)}'),TextField(controller:amount,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Tutar (örn. 12,50)')),Wrap(children:['Nakit','Kart'].map((m)=>TextButton(onPressed:()=>set(()=>_addPart(parts,m,amount,remaining,(v)=>remaining=v)),child:Text('$m ekle'))).toList()),if(parts.isNotEmpty)...parts.map((p)=>Text('${p.method}: ${money(p.amount)}'))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:remaining==0?()=>Navigator.pop(c,true):null,child:const Text('Ödemeyi tamamla'))]);}));if(ok==true){pos.checkout(t,parts);if(mounted)Navigator.pop(context);}}
+Future<void> _pay(BuildContext context)async{final parts=<PaymentPart>[];int remaining=t.total;final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,set){final amount=TextEditingController();return AlertDialog(title:Text('Ödeme · ${money(t.total)}'),content:Column(mainAxisSize:MainAxisSize.min,children:[Text('Kalan: ${money(remaining)}'),TextField(controller:amount,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Tutar (örn. 12,50)')),Wrap(children:['Nakit','Kart'].map((m)=>TextButton(onPressed:()=>set(()=>_addPart(parts,m,amount,remaining,(v)=>remaining=v)),child:Text('$m ekle'))).toList()),if(parts.isNotEmpty)...parts.map((p)=>Text('${p.method}: ${money(p.amount)}'))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:remaining==0?()=>Navigator.pop(c,true):null,child:const Text('Ödemeyi tamamla'))]);}));if(ok==true){pos.checkout(t,parts);if(context.mounted)Navigator.pop(context);}}
 void _addPart(List<PaymentPart> parts,String method,TextEditingController ctrl,int remaining,void Function(int) update){final n=parseMoney(ctrl.text);if(n<=0||n>remaining)return;parts.add(PaymentPart(method,n));update(remaining-n);ctrl.clear();}
 }
 
-class KitchenPage extends StatelessWidget{const KitchenPage({super.key});@override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(c,_)=>Scaffold(appBar:AppBar(title:const Text('Mutfak sipariş kuyruğu')),body:ListView(children:[for(final t in pos.tables.where((x)=>x.items.isNotEmpty))Card(margin:const EdgeInsets.all(8),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('Masa ${t.id} · ${t.kitchen.name}',style:const TextStyle(fontWeight:FontWeight.bold,fontSize:18)),...t.items.map((x)=>Text('${x.qty} × ${x.name}')),Wrap(spacing:8,children:[for(final s in KitchenState.values)OutlinedButton(onPressed:pos.can('kitchen')?()=>pos.setKitchen(t,s):null,child:Text(s==KitchenState.queued?'Kuyruk':s==KitchenState.preparing?'Hazırlanıyor':s==KitchenState.ready?'Hazır':'Servis edildi'))])])))]));}
+class KitchenPage extends StatelessWidget {
+  const KitchenPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: pos,
+      builder: (context, _) {
+        final activeTables = pos.tables.where((table) => table.items.isNotEmpty).toList();
+        return Scaffold(
+          appBar: AppBar(title: const Text('Mutfak sipariş kuyruğu')),
+          body: ListView.builder(
+            itemCount: activeTables.length,
+            itemBuilder: (context, index) {
+              final table = activeTables[index];
+              return Card(
+                margin: const EdgeInsets.all(8),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Masa ${table.id} · ${table.kitchen.name}',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                      ),
+                      ...table.items.map((item) => Text('${item.qty} × ${item.name}')),
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          for (final state in KitchenState.values)
+                            OutlinedButton(
+                              onPressed: pos.can('kitchen')
+                                  ? () => pos.setKitchen(table, state)
+                                  : null,
+                              child: Text(
+                                state == KitchenState.queued
+                                    ? 'Kuyruk'
+                                    : state == KitchenState.preparing
+                                        ? 'Hazırlanıyor'
+                                        : state == KitchenState.ready
+                                            ? 'Hazır'
+                                            : 'Servis edildi',
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+}
 
 class InventoryPage extends StatelessWidget {
   const InventoryPage({super.key});
