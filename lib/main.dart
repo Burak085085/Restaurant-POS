@@ -81,7 +81,7 @@ class Pos extends ChangeNotifier {
     if (!can('kitchen') || t.items.isEmpty) return;
     t.kitchen = state; log('Mutfak', 'Masa ${t.id}: ${state.name}'); save();
   }
-  bool clearDiscount(PosTable t) { if (!can('discount') || t.discount==0) return false; t.discount=0; t.discountPercent=false; t.discountReason=''; log('İndirim kaldırıldı','Masa ' + t.id.toString()); save(); return true; }
+  bool clearDiscount(PosTable t) { if (!can('discount') || t.discount==0) return false; t.discount=0; t.discountPercent=false; t.discountReason=''; log('İndirim kaldırıldı', 'Masa ${t.id}'); save(); return true; }
   bool setDiscount(PosTable t, int value, bool percent, String reason) {
     if (!can('discount') || t.items.isEmpty || reason.trim().isEmpty || value <= 0) return false;
     if (percent ? value > 99 : value >= t.subtotal) return false;
@@ -277,7 +277,7 @@ class InventoryPage extends StatelessWidget {
                             Text('${product.stock}'),
                             IconButton(onPressed: () { if (!pos.stockChange(product, -1)) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Stok, açık siparişlerde rezerve edilmiş miktarın altına indirilemez.'))); }, icon: const Icon(Icons.remove)),
                             IconButton(onPressed: () => pos.stockChange(product, 1), icon: const Icon(Icons.add)),
-                            Switch(value: product.active, onChanged: (value) { product.active=value; pos.log('Menü', product.name + ': ' + (value ? 'aktif' : 'pasif')); pos.save(); }),
+                            Switch(value: product.active, onChanged: (value) { product.active=value; pos.log('Menü', '${product.name}: ${value ? 'aktif' : 'pasif'}'); pos.save(); }),
                             IconButton(onPressed: () => _editProduct(context, product), icon: const Icon(Icons.edit)),
                           ],
                         ),
