@@ -1,6 +1,7 @@
 // ignore_for_file: deprecated_member_use, curly_braces_in_flow_control_structures
 
 import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -22,9 +23,30 @@ class Product {
 class OrderLine { String productId,name; int price,qty; OrderLine(this.productId,this.name,this.price,this.qty); Map<String,dynamic> toJson()=>{'productId':productId,'name':name,'price':price,'qty':qty}; factory OrderLine.fromJson(Map<String,dynamic> j)=>OrderLine(j['productId']??'',j['name']??'',j['price']??0,j['qty']??0); }
 enum KitchenState { queued, preparing, ready, served }
 class PosTable { int id; List<OrderLine> items=[]; KitchenState kitchen=KitchenState.queued; int discount=0; bool discountPercent=false; String discountReason=''; PosTable(this.id); int get subtotal=>items.fold(0,(s,e)=>s+e.price*e.qty); int get total=> (subtotal-(discountPercent?subtotal*discount~/100:discount)).clamp(0,1<<30).toInt(); Map<String,dynamic> toJson()=>{'id':id,'items':items.map((e)=>e.toJson()).toList(),'kitchen':kitchen.index,'discount':discount,'discountPercent':discountPercent,'discountReason':discountReason}; }
-class PaymentPart { String method; int amount; PaymentPart(this.method,this.amount); Map<String,dynamic> toJson()=>{'method':method,'amount':amount}; }
-class Sale { String date,time,staff; int table,total,discount; List<OrderLine> items; List<PaymentPart> payments; Sale(this.date,this.time,this.staff,this.table,this.total,this.discount,this.items,this.payments); Map<String,dynamic> toJson()=>{'date':date,'time':time,'staff':staff,'table':table,'total':total,'discount':discount,'items':items.map((e)=>e.toJson()).toList(),'payments':payments.map((e)=>e.toJson()).toList()}; factory Sale.fromJson(Map<String,dynamic> j)=>Sale(j['date']??'',j['time']??'',j['staff']??'Admin',j['table']??0,j['total']??0,j['discount']??0,(j['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(),(j['payments'] as List? ?? []).map((e)=>PaymentPart(e['method']??'Nakit',e['amount']??0)).toList()); }
-class Staff { String name,role,pin; bool active; Staff(this.name,this.role,{this.pin='1234',this.active=true}); Map<String,dynamic> toJson()=>{'name':name,'role':role,'pin':pin,'active':active}; factory Staff.fromJson(Map<String,dynamic> j)=>Staff(j['name']??'Personel',j['role']??'Garson',pin:j['pin']??'1234',active:j['active']??true); }
+class PaymentPart { String method; int amount; int tendered; PaymentPart(this.method,this.amount,{int? tendered}):tendered=tendered??amount; int get change=>method=='Nakit'?(tendered-amount).clamp(0,1<<30).toInt():0; Map<String,dynamic> toJson()=>{'method':method,'amount':amount,'tendered':tendered}; }
+class Sale { String date,time,staff; int table,total,discount; List<OrderLine> items; List<PaymentPart> payments; Sale(this.date,this.time,this.staff,this.table,this.total,this.discount,this.items,this.payments); Map<String,dynamic> toJson()=>{'date':date,'time':time,'staff':staff,'table':table,'total':total,'discount':discount,'items':items.map((e)=>e.toJson()).toList(),'payments':payments.map((e)=>e.toJson()).toList()}; factory Sale.fromJson(Map<String,dynamic> j)=>Sale(j['date']??'',j['time']??'',j['staff']??'Admin',j['table']??0,j['total']??0,j['discount']??0,(j['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(),(j['payments'] as List? ?? []).map((e)=>PaymentPart(e['method']??'Nakit',e['amount']??0,tendered:e['tendered']??e['amount']??0)).toList()); }
+class Staff {
+  String name, role, salt, pinHash;
+  bool active;
+  Staff(this.name, this.role, {String pin='1234', String? salt, String? pinHash, this.active=true})
+      : salt = salt ?? DateTime.now().microsecondsSinceEpoch.toString(),
+        pinHash = pinHash ?? '' {
+    if (pinHash == null) this.pinHash = _hashPin(this.salt, pin);
+  }
+  Staff._(this.name, this.role, this.salt, this.pinHash, this.active);
+  static String _hashPin(String salt, String pin) =>
+      sha256.convert(utf8.encode('$salt:$pin')).toString();
+  bool verifyPin(String candidate) => pinHash == _hashPin(salt, candidate);
+  Map<String,dynamic> toJson()=>{'name':name,'role':role,'salt':salt,'pinHash':pinHash,'active':active};
+  factory Staff.fromJson(Map<String,dynamic> j) {
+    final name = j['name'] ?? 'Personel';
+    final role = j['role'] ?? 'Garson';
+    final salt = j['salt']?.toString();
+    final hash = j['pinHash']?.toString();
+    if (salt != null && hash != null) return Staff._(name, role, salt, hash, j['active'] ?? true);
+    return Staff(name, role, pin: (j['pin'] ?? '1234').toString(), active: j['active'] ?? true);
+  }
+}
 class Audit { String at,user,action,detail; Audit(this.at,this.user,this.action,this.detail); Map<String,dynamic> toJson()=>{'at':at,'user':user,'action':action,'detail':detail}; factory Audit.fromJson(Map<String,dynamic> j)=>Audit(j['at']??'',j['user']??'',j['action']??'',j['detail']??''); }
 
 class Pos extends ChangeNotifier {
@@ -36,13 +58,62 @@ class Pos extends ChangeNotifier {
   void log(String action,String detail){audit.insert(0,Audit(stamp(azNow()),currentUser,action,detail)); if(audit.length>2000)audit.removeRange(2000,audit.length);}
   bool can(String permission){final role=(staff.where((e)=>e.name==currentUser&&e.active).isNotEmpty?staff.firstWhere((e)=>e.name==currentUser&&e.active).role:'Garson'); if(role=='Yönetici')return true; if(role=='Mutfak')return permission=='kitchen'; if(role=='Garson')return ['orders','kitchen'].contains(permission); return false;}
   int get todayTotal=>sales.where((s)=>s.date==dayKey(azNow())).fold(0,(a,s)=>a+s.total); int get todayCount=>sales.where((s)=>s.date==dayKey(azNow())).length;
-  void add(PosTable t,Product p){if(!p.active||p.stock<=0)return; final x=t.items.where((e)=>e.productId==p.id); if(x.isNotEmpty){if(x.first.qty>=p.stock)return;x.first.qty++;}else{t.items.add(OrderLine(p.id,p.name,p.price,1));} t.kitchen=KitchenState.queued; log('Sipariş', 'Masa ${t.id}: ${p.name} eklendi');save();}
-  void qty(PosTable t,int i,int delta){if(i<0||i>=t.items.length)return; final product=products.where((p)=>p.id==t.items[i].productId); if(delta>0&&product.isNotEmpty&&t.items[i].qty>=product.first.stock)return; t.items[i].qty+=delta;if(t.items[i].qty<=0)t.items.removeAt(i);log('Sipariş','Masa ${t.id}: miktar değişti');save();}
-  void setKitchen(PosTable t,KitchenState state){t.kitchen=state;log('Mutfak','Masa ${t.id}: ${state.name}');save();}
-  void setDiscount(PosTable t,int value,bool percent,String reason){t.discount=value;t.discountPercent=percent;t.discountReason=reason;log('İndirim','Masa ${t.id}: ${percent?'%$value':money(value)} · $reason');save();}
-  void upsertProduct(Product p){final i=products.indexWhere((e)=>e.id==p.id);if(i<0)products.add(p);else products[i]=p;log('Menü','${p.name} kaydedildi');save();}
-  void stockChange(Product p,int delta){p.stock=(p.stock+delta).clamp(0,1000000).toInt();log('Stok','${p.name}: ${p.stock}');save();}
-  void checkout(PosTable t,List<PaymentPart> payments){final total=t.total;if(payments.isEmpty||payments.fold(0,(sum,p)=>sum+p.amount)!=total)return;final now=azNow();for(final line in t.items){final p=products.where((e)=>e.id==line.productId);if(p.isNotEmpty)p.first.stock=(p.first.stock-line.qty).clamp(0,1000000).toInt();}sales.add(Sale(dayKey(now),stamp(now),currentUser,t.id,total,t.subtotal-total,t.items.map((e)=>OrderLine(e.productId,e.name,e.price,e.qty)).toList(),payments));log('Ödeme','Masa ${t.id}: ${money(total)}');t.items=[];t.discount=0;t.discountPercent=false;t.discountReason='';t.kitchen=KitchenState.queued;save();}
+  int reservedStock(String productId) => tables.fold(0, (sum, table) =>
+      sum + table.items.where((line) => line.productId == productId).fold(0, (n, line) => n + line.qty));
+  bool add(PosTable t, Product p) {
+    if (!can('orders') || !p.active || reservedStock(p.id) >= p.stock) return false;
+    final existing = t.items.where((line) => line.productId == p.id);
+    if (existing.isNotEmpty) { existing.first.qty++; } else { t.items.add(OrderLine(p.id, p.name, p.price, 1)); }
+    t.kitchen = KitchenState.queued; log('Sipariş', 'Masa ${t.id}: ${p.name} eklendi'); save(); return true;
+  }
+  bool qty(PosTable t, int i, int delta) {
+    if (!can('orders') || i < 0 || i >= t.items.length) return false;
+    final line = t.items[i]; final product = products.where((p) => p.id == line.productId);
+    if (delta > 0 && (product.isEmpty || reservedStock(line.productId) >= product.first.stock)) return false;
+    line.qty += delta; if (line.qty <= 0) t.items.removeAt(i);
+    log('Sipariş', 'Masa ${t.id}: miktar değişti'); save(); return true;
+  }
+  void setKitchen(PosTable t, KitchenState state) {
+    if (!can('kitchen') || t.items.isEmpty) return;
+    t.kitchen = state; log('Mutfak', 'Masa ${t.id}: ${state.name}'); save();
+  }
+  bool setDiscount(PosTable t, int value, bool percent, String reason) {
+    if (!can('discount') || t.items.isEmpty || reason.trim().isEmpty || value <= 0) return false;
+    if (percent ? value > 99 : value >= t.subtotal) return false;
+    t.discount = value; t.discountPercent = percent; t.discountReason = reason.trim();
+    log('İndirim', 'Masa ${t.id}: ${percent ? '%$value' : money(value)} · ${reason.trim()}'); save(); return true;
+  }
+  void upsertProduct(Product p) {
+    if (!can('inventory')) return;
+    final i = products.indexWhere((e) => e.id == p.id); if (i < 0) products.add(p); else products[i] = p;
+    log('Menü', '${p.name} kaydedildi'); save();
+  }
+  bool stockChange(Product p, int delta) {
+    if (!can('inventory')) return false;
+    final next = (p.stock + delta).clamp(0, 1000000).toInt();
+    if (next < reservedStock(p.id)) return false;
+    p.stock = next; log('Stok', '${p.name}: ${p.stock}'); save(); return true;
+  }
+  bool checkout(PosTable t, List<PaymentPart> payments) {
+    if (!can('orders') || t.items.isEmpty) return false;
+    final total = t.total;
+    if (payments.isEmpty || payments.fold(0, (sum, part) => sum + part.amount) != total) return false;
+    for (final line in t.items) {
+      final matches = products.where((product) => product.id == line.productId);
+      if (matches.isEmpty || matches.first.stock < line.qty) return false;
+    }
+    final now = azNow();
+    for (final line in t.items) { products.firstWhere((product) => product.id == line.productId).stock -= line.qty; }
+    sales.add(Sale(dayKey(now), stamp(now), currentUser, t.id, total, t.subtotal-total,
+      t.items.map((e) => OrderLine(e.productId, e.name, e.price, e.qty)).toList(), payments));
+    log('Ödeme', 'Masa ${t.id}: ${money(total)}');
+    t.items = []; t.discount = 0; t.discountPercent = false; t.discountReason = ''; t.kitchen = KitchenState.queued;
+    save(); return true;
+  }
+  bool setStaffActive(Staff member, bool active) {
+    if (!can('staff') || (member.name == currentUser && !active)) return false;
+    member.active = active; log('Personel', '${member.name}: ${active ? 'aktif' : 'pasif'}'); save(); return true;
+  }
   int get lowStock=>products.where((p)=>p.active&&p.stock<=p.lowAt).length;
 }
 final pos=Pos();
@@ -56,11 +127,61 @@ class TablesPage extends StatelessWidget{const TablesPage({super.key});@override
 
 class OrderPage extends StatefulWidget{final PosTable table;const OrderPage({super.key,required this.table});@override State<OrderPage> createState()=>_OrderPageState();}
 class _OrderPageState extends State<OrderPage>{String category='Tümü';PosTable get t=>widget.table;@override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(c,_){final cats=['Tümü',...pos.products.map((p)=>p.category).toSet()];final items=pos.products.where((p)=>p.active&&(category=='Tümü'||p.category==category)).toList();return Scaffold(appBar:AppBar(title:Text('Masa ${t.id}')),body:Column(children:[SingleChildScrollView(scrollDirection:Axis.horizontal,child:Row(children:cats.map((x)=>Padding(padding:const EdgeInsets.all(4),child:ChoiceChip(label:Text(x),selected:category==x,onSelected:(_)=>setState(()=>category=x)))).toList())),Expanded(child:LayoutBuilder(builder:(c,b){final wide=b.maxWidth>700;return wide?Row(children:[Expanded(child:_products(items)),SizedBox(width:420,child:_ticket())]):Column(children:[Expanded(child:_products(items)),SizedBox(height:b.maxHeight*.48,child:_ticket())]);} ))]));});
-Widget _products(List<Product> list)=>GridView.builder(padding:const EdgeInsets.all(10),gridDelegate:const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent:170,childAspectRatio:1.45,crossAxisSpacing:8,mainAxisSpacing:8),itemCount:list.length,itemBuilder:(c,i){final p=list[i];return Card(child:InkWell(onTap:p.stock>0&&pos.can('orders')?()=>pos.add(t,p):null,child:Padding(padding:const EdgeInsets.all(10),child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[Text(p.name,style:const TextStyle(fontWeight:FontWeight.bold)),Text(money(p.price)),Text('Stok: ${p.stock}',style:TextStyle(color:p.stock<=p.lowAt?red:Colors.black54))]))));});
-Widget _ticket()=>Container(color:Colors.white,child:Column(children:[Padding(padding:const EdgeInsets.all(12),child:Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Sipariş',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),Text('Mutfak: ${t.kitchen.name}') ])),Expanded(child:ListView.builder(itemCount:t.items.length,itemBuilder:(c,i){final x=t.items[i];return ListTile(title:Text(x.name),subtitle:Text('${money(x.price)} × ${x.qty}'),trailing:Row(mainAxisSize:MainAxisSize.min,children:[IconButton(onPressed:pos.can('orders')?()=>pos.qty(t,i,-1):null,icon:const Icon(Icons.remove)),IconButton(onPressed:pos.can('orders')?()=>pos.qty(t,i,1):null,icon:const Icon(Icons.add))]));})),Padding(padding:const EdgeInsets.all(12),child:Column(children:[Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Ara toplam'),Text(money(t.subtotal))]),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('İndirim'),Text(money(t.subtotal-t.total))]),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('TOPLAM',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),Text(money(t.total),style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold))]),Wrap(spacing:8,children:[OutlinedButton.icon(onPressed:t.items.isEmpty||!pos.can('discount')?null:()=>_discount(context),icon:const Icon(Icons.percent),label:const Text('İndirim')),OutlinedButton(onPressed:t.items.isEmpty||!pos.can('orders')?null:()=>pos.setKitchen(t,KitchenState.queued),child:const Text('Mutfağa gönder'))]),SizedBox(width:double.infinity,child:FilledButton(onPressed:t.items.isEmpty||!pos.can('orders')?null:()=>_pay(context),child:const Text('Ödeme al')))]))]));
-Future<void> _discount(BuildContext context)async{final value=TextEditingController(text:t.discount.toString());final reason=TextEditingController(text:t.discountReason);bool percent=t.discountPercent;final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,set)=>AlertDialog(title:const Text('İndirim tanımla'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:value,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'İndirim tutarı / yüzde')),SwitchListTile(title:const Text('Yüzde olarak uygula'),value:percent,onChanged:(v)=>set(()=>percent=v)),TextField(controller:reason,decoration:const InputDecoration(labelText:'İndirim nedeni'))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Vazgeç')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Uygula'))])));if(ok==true){final n=int.tryParse(value.text)??0;pos.setDiscount(t,n.clamp(0,percent?100:t.subtotal).toInt(),percent,reason.text);}}
-Future<void> _pay(BuildContext context)async{final parts=<PaymentPart>[];int remaining=t.total;final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,set){final amount=TextEditingController();return AlertDialog(title:Text('Ödeme · ${money(t.total)}'),content:Column(mainAxisSize:MainAxisSize.min,children:[Text('Kalan: ${money(remaining)}'),TextField(controller:amount,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Tutar (örn. 12,50)')),Wrap(children:['Nakit','Kart'].map((m)=>TextButton(onPressed:()=>set(()=>_addPart(parts,m,amount,remaining,(v)=>remaining=v)),child:Text('$m ekle'))).toList()),if(parts.isNotEmpty)...parts.map((p)=>Text('${p.method}: ${money(p.amount)}'))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:remaining==0?()=>Navigator.pop(c,true):null,child:const Text('Ödemeyi tamamla'))]);}));if(ok==true){pos.checkout(t,parts);if(context.mounted)Navigator.pop(context);}}
-void _addPart(List<PaymentPart> parts,String method,TextEditingController ctrl,int remaining,void Function(int) update){final n=parseMoney(ctrl.text);if(n<=0||n>remaining)return;parts.add(PaymentPart(method,n));update(remaining-n);ctrl.clear();}
+Widget _products(List<Product> list)=>GridView.builder(padding:const EdgeInsets.all(10),gridDelegate:const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent:170,childAspectRatio:1.45,crossAxisSpacing:8,mainAxisSpacing:8),itemCount:list.length,itemBuilder:(c,i){final p=list[i];return Card(child:InkWell(onTap:p.stock>0&&pos.can('orders')?(){if(!pos.add(t,p)){ScaffoldMessenger.of(c).showSnackBar(const SnackBar(content:Text('Yeterli stok yok veya işlem yetkiniz bulunmuyor.')));}}:null,child:Padding(padding:const EdgeInsets.all(10),child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[Text(p.name,style:const TextStyle(fontWeight:FontWeight.bold)),Text(money(p.price)),Text('Stok: ${p.stock}',style:TextStyle(color:p.stock<=p.lowAt?red:Colors.black54))]))));});
+Widget _ticket()=>Container(color:Colors.white,child:Column(children:[Padding(padding:const EdgeInsets.all(12),child:Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Sipariş',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),Text('Mutfak: ${t.kitchen.name}') ])),Expanded(child:ListView.builder(itemCount:t.items.length,itemBuilder:(c,i){final x=t.items[i];return ListTile(title:Text(x.name),subtitle:Text('${money(x.price)} × ${x.qty}'),trailing:Row(mainAxisSize:MainAxisSize.min,children:[IconButton(onPressed:pos.can('orders')?()=>pos.qty(t,i,-1):null,icon:const Icon(Icons.remove)),IconButton(onPressed:pos.can('orders')?(){if(!pos.qty(t,i,1)){ScaffoldMessenger.of(c).showSnackBar(const SnackBar(content:Text('Stok yetersiz.')));}}:null,icon:const Icon(Icons.add))]));})),Padding(padding:const EdgeInsets.all(12),child:Column(children:[Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Ara toplam'),Text(money(t.subtotal))]),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('İndirim'),Text(money(t.subtotal-t.total))]),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('TOPLAM',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),Text(money(t.total),style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold))]),Wrap(spacing:8,children:[OutlinedButton.icon(onPressed:t.items.isEmpty||!pos.can('discount')?null:()=>_discount(context),icon:const Icon(Icons.percent),label:const Text('İndirim')),OutlinedButton(onPressed:t.items.isEmpty||!pos.can('orders')?null:()=>pos.setKitchen(t,KitchenState.queued),child:const Text('Mutfağa gönder'))]),SizedBox(width:double.infinity,child:FilledButton(onPressed:t.items.isEmpty||!pos.can('orders')?null:()=>_pay(context),child:const Text('Ödeme al')))]))]));
+Future<void> _discount(BuildContext context)async{final value=TextEditingController(text:t.discountPercent?t.discount.toString():(t.discount/100).toStringAsFixed(2));final reason=TextEditingController(text:t.discountReason);bool percent=t.discountPercent;final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,set)=>AlertDialog(title:const Text('İndirim tanımla'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:value,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'İndirim tutarı / yüzde')),SwitchListTile(title:const Text('Yüzde olarak uygula'),value:percent,onChanged:(v)=>set(()=>percent=v)),TextField(controller:reason,decoration:const InputDecoration(labelText:'İndirim nedeni'))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Vazgeç')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Uygula'))])));if(ok==true){final n=percent?(int.tryParse(value.text)??0):parseMoney(value.text);if(!pos.setDiscount(t,n.clamp(0,percent?99:(t.subtotal-1).clamp(0,1<<30)).toInt(),percent,reason.text)){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('İndirim için geçerli bir tutar ve neden girin.')));}}}
+Future<void> _pay(BuildContext context) async {
+  final parts = <PaymentPart>[];
+  var remaining = t.total;
+  final amount = TextEditingController();
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (dialogContext, setDialogState) => AlertDialog(
+        title: Text('Ödeme · ${money(t.total)}'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('Kalan: ${money(remaining)}'),
+          TextField(controller: amount, keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(labelText: 'Tutar (örn. 12,50)')),
+          Wrap(children: ['Nakit', 'Kart'].map((method) => TextButton(
+            onPressed: () { final next = _addPart(parts, method, amount, remaining); if (next != null) setDialogState(() => remaining = next); },
+            child: Text('$method ekle'),
+          )).toList()),
+          for (final part in parts)
+            Text(part.method == 'Nakit'
+              ? 'Nakit: ${money(part.amount)} · Alınan: ${money(part.tendered)} · Para üstü: ${money(part.change)}'
+              : 'Kart: ${money(part.amount)}'),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('İptal')),
+          FilledButton(onPressed: remaining == 0 ? () => Navigator.pop(dialogContext, true) : null,
+            child: const Text('Ödemeyi tamamla')),
+        ],
+      ),
+    ),
+  );
+  amount.dispose();
+  if (ok == true) {
+    if (pos.checkout(t, parts)) { if (context.mounted) Navigator.pop(context); }
+    else if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Stok değişti veya ödeme tutarı eşleşmiyor. Sipariş korunmuştur.')));
+    }
+  }
+}
+int? _addPart(List<PaymentPart> parts, String method, TextEditingController ctrl, int remaining) {
+  final received = parseMoney(ctrl.text);
+  if (received <= 0) return null;
+  if (method == 'Nakit') {
+    final applied = received > remaining ? remaining : received;
+    parts.add(PaymentPart(method, applied, tendered: received));
+    ctrl.clear();
+    return remaining - applied;
+  }
+  if (received > remaining) return null;
+  parts.add(PaymentPart(method, received));
+  ctrl.clear();
+  return remaining - received;
+}
 }
 
 class KitchenPage extends StatelessWidget {
@@ -71,10 +192,10 @@ class KitchenPage extends StatelessWidget {
     return AnimatedBuilder(
       animation: pos,
       builder: (context, _) {
-        final activeTables = pos.tables.where((table) => table.items.isNotEmpty).toList();
+        final activeTables = pos.tables.where((table) => table.items.isNotEmpty && table.kitchen != KitchenState.served).toList();
         return Scaffold(
           appBar: AppBar(title: const Text('Mutfak sipariş kuyruğu')),
-          body: ListView.builder(
+          body: activeTables.isEmpty ? const Center(child: Text('Mutfakta bekleyen sipariş yok.')) : ListView.builder(
             itemCount: activeTables.length,
             itemBuilder: (context, index) {
               final table = activeTables[index];
@@ -149,7 +270,7 @@ class InventoryPage extends StatelessWidget {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text('${product.stock}'),
-                            IconButton(onPressed: () => pos.stockChange(product, -1), icon: const Icon(Icons.remove)),
+                            IconButton(onPressed: () { if (!pos.stockChange(product, -1)) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Stok, açık siparişlerde rezerve edilmiş miktarın altına indirilemez.'))); }, icon: const Icon(Icons.remove)),
                             IconButton(onPressed: () => pos.stockChange(product, 1), icon: const Icon(Icons.add)),
                             IconButton(onPressed: () => _editProduct(context, product), icon: const Icon(Icons.edit)),
                           ],
@@ -200,7 +321,7 @@ class InventoryPage extends StatelessWidget {
   }
 }
 
-class ReportsPage extends StatelessWidget{const ReportsPage({super.key});@override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(c,_) {final today=dayKey(azNow());final allSales=pos.sales.reversed.toList();final sales=pos.sales.where((s)=>s.date==today).toList();final cash=sales.fold(0,(a,s)=>a+s.payments.where((p)=>p.method=='Nakit').fold(0,(x,p)=>x+p.amount));final card=sales.fold(0,(a,s)=>a+s.payments.where((p)=>p.method=='Kart').fold(0,(x,p)=>x+p.amount));return Scaffold(appBar:AppBar(title:const Text('Günlük rapor ve satış geçmişi')),body:pos.can('reports')?ListView(padding:const EdgeInsets.all(12),children:[Wrap(spacing:8,runSpacing:8,children:[_metric('Ciro',money(sales.fold(0,(a,s)=>a+s.total))),_metric('Satış adedi','${sales.length}'),_metric('Nakit',money(cash)),_metric('Kart',money(card))]),const SizedBox(height:12),const Text('Satış geçmişi',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),for(final s in allSales)Card(child:ExpansionTile(title:Text('${s.time} · Masa ${s.table} · ${money(s.total)}'),subtitle:Text('Personel: ${s.staff} · İndirim: ${money(s.discount)}'),children:[for(final x in s.items)ListTile(dense:true,title:Text('${x.qty} × ${x.name}'),trailing:Text(money(x.qty*x.price))),Padding(padding:const EdgeInsets.all(12),child:Text('Ödeme: ${s.payments.map((p)=>'${p.method} ${money(p.amount)}').join(' + ')}'))]))]):const Center(child:Text('Raporlar için yönetici yetkisi gerekir.')));});}
+class ReportsPage extends StatelessWidget{const ReportsPage({super.key});@override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(c,_) {final today=dayKey(azNow());final allSales=pos.sales.reversed.toList();final sales=pos.sales.where((s)=>s.date==today).toList();final cash=sales.fold(0,(a,s)=>a+s.payments.where((p)=>p.method=='Nakit').fold(0,(x,p)=>x+p.amount));final card=sales.fold(0,(a,s)=>a+s.payments.where((p)=>p.method=='Kart').fold(0,(x,p)=>x+p.amount));return Scaffold(appBar:AppBar(title:const Text('Günlük rapor ve satış geçmişi')),body:pos.can('reports')?ListView(padding:const EdgeInsets.all(12),children:[Wrap(spacing:8,runSpacing:8,children:[_metric('Ciro',money(sales.fold(0,(a,s)=>a+s.total))),_metric('Satış adedi','${sales.length}'),_metric('Nakit',money(cash)),_metric('Kart',money(card))]),const SizedBox(height:12),const Text('Satış geçmişi',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),for(final s in allSales)Card(child:ExpansionTile(title:Text('${s.time} · Masa ${s.table} · ${money(s.total)}'),subtitle:Text('Personel: ${s.staff} · İndirim: ${money(s.discount)}'),children:[for(final x in s.items)ListTile(dense:true,title:Text('${x.qty} × ${x.name}'),trailing:Text(money(x.qty*x.price))),Padding(padding:const EdgeInsets.all(12),child:Text('Ödeme: ${s.payments.map((p)=>p.method=='Nakit'?'Nakit ${money(p.amount)} (alınan ${money(p.tendered)}, para üstü ${money(p.change)})':'Kart ${money(p.amount)}').join(' + ')}'))]))]):const Center(child:Text('Raporlar için yönetici yetkisi gerekir.')));});}
 Widget _metric(String title,String value)=>SizedBox(width:160,child:Card(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(title),Text(value,style:const TextStyle(fontWeight:FontWeight.bold,fontSize:19))]))));
 
 class AdminPage extends StatelessWidget {
@@ -230,7 +351,7 @@ class AdminPage extends StatelessWidget {
                         content: TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, decoration: const InputDecoration(labelText: 'Personel PIN')),
                         actions: [
                           TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('İptal')),
-                          FilledButton(onPressed: () => Navigator.pop(dialogContext, pin.text == target.pin), child: const Text('Giriş')),
+                          FilledButton(onPressed: () => Navigator.pop(dialogContext, target.verifyPin(pin.text)), child: const Text('Giriş')),
                         ],
                       ),
                     );
@@ -247,6 +368,11 @@ class AdminPage extends StatelessWidget {
               if (pos.can('staff'))
                 FilledButton.icon(onPressed: () => _staffDialog(context), icon: const Icon(Icons.person_add), label: const Text('Personel ekle')),
               if (pos.can('staff')) const Divider(),
+              if (pos.can('staff')) const Text('Personel hesapları', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              if (pos.can('staff'))
+                for (final member in pos.staff)
+                  ListTile(dense: true, title: Text(member.name), subtitle: Text(member.role),
+                    trailing: Switch(value: member.active, onChanged: member.name == pos.currentUser ? null : (value) => pos.setStaffActive(member, value))),
               if (pos.can('staff')) const Text('İşlem geçmişi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
               if (pos.can('staff'))
                 for (final entry in pos.audit.take(100))
@@ -282,10 +408,14 @@ class AdminPage extends StatelessWidget {
         ),
       ),
     );
-    if (ok == true && name.text.trim().isNotEmpty && pin.text.trim().length >= 4) {
+    if (ok == true && name.text.trim().isNotEmpty && RegExp(r'^\\d{4,12}
+  }
+}).hasMatch(pin.text.trim()) && !pos.staff.any((member) => member.name.toLowerCase() == name.text.trim().toLowerCase())) {
       pos.staff.add(Staff(name.text.trim(), role, pin: pin.text.trim()));
       pos.log('Personel', '${name.text} eklendi ($role)');
       pos.save();
+    } else if (ok == true && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Benzersiz personel adı ve 4-12 haneli PIN gerekli.')));
     }
   }
 }
