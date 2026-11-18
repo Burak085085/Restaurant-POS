@@ -409,8 +409,6 @@ class AdminPage extends StatelessWidget {
       ),
     );
     if (ok == true && name.text.trim().isNotEmpty && RegExp(r'^[0-9]{4,12}$').hasMatch(pin.text.trim()) && !pos.staff.any((member) => member.name.toLowerCase() == name.text.trim().toLowerCase())) {
-  }
-}).hasMatch(pin.text.trim()) && !pos.staff.any((member) => member.name.toLowerCase() == name.text.trim().toLowerCase())) {
       pos.staff.add(Staff(name.text.trim(), role, pin: pin.text.trim()));
       pos.log('Personel', '${name.text} eklendi ($role)');
       pos.save();
