@@ -48,6 +48,29 @@ void main() {
     expect(store.qty(table, 0, -1), isFalse);
   });
 
+  test('kitchen dispatch state survives JSON round trip', () {
+    final original = OrderLine(
+      'p1', 'Tavuk döner', 300, 2,
+      sent: true,
+      kitchen: KitchenState.preparing,
+    );
+    final restored = OrderLine.fromJson(original.toJson());
+    expect(restored.sent, isTrue);
+    expect(restored.kitchen, KitchenState.preparing);
+    expect(restored.qty, 2);
+  });
+
+  test('legacy order lines migrate as already sent to kitchen', () {
+    final restored = OrderLine.fromJson({
+      'productId': 'p1',
+      'name': 'Tavuk döner',
+      'price': 300,
+      'qty': 1,
+    });
+    expect(restored.sent, isTrue);
+    expect(restored.kitchen, KitchenState.queued);
+  });
+
   test('cash overpayment records change and checkout consumes stock', () {
     final store = Pos();
     final product = Product('test', 'Test', 'Test item', 300, stock: 2);
