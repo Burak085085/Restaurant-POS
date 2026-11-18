@@ -54,6 +54,8 @@ void main() {
     store.products = [product];
     final table = store.tables.first;
     expect(store.add(table, product), isTrue);
+    expect(store.checkout(table, [PaymentPart('Nakit', 300)]), isFalse);
+    expect(store.sendKitchen(table), isTrue);
     final cash = PaymentPart('Nakit', 300, tendered: 500);
     expect(cash.change, 200);
     expect(store.checkout(table, [cash]), isTrue);
