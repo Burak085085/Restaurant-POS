@@ -816,7 +816,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
     content: SingleChildScrollView(
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Text('Kalan: ${money(remaining)}'),
-        DropdownButtonFormField<String>(initialValue:staffName,decoration:const InputDecoration(labelText:'Satışı yapan personel'),items:pos.staff.where((member)=>member.active).map((member)=>DropdownMenuItem(value:member.name,child:Text('${member.name} · ${member.role}'))).toList(),onChanged:(value)=>setState(()=>{staffName=value;staffPin.clear();})),
+        DropdownButtonFormField<String>(initialValue:staffName,decoration:const InputDecoration(labelText:'Satışı yapan personel'),items:pos.staff.where((member)=>member.active).map((member)=>DropdownMenuItem(value:member.name,child:Text('${member.name} · ${member.role}'))).toList(),onChanged:(value){setState((){staffName=value;staffPin.clear();});}),
         TextField(controller:staffPin,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'Personel PIN doğrulaması'),onChanged:(_)=>setState((){})),
         TextField(
           controller: amount,
