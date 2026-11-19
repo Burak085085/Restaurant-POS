@@ -8,7 +8,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 const String legacyStoreKey = 'restaurant_pos_v2';
 
 bool isDailyBackupFileName(String name) =>
-    RegExp(r'^restaurant-pos-\\d{4}-\\d{2}-\\d{2}\\.json
+    RegExp(r'^restaurant-pos-[0-9]{4}-[0-9]{2}-[0-9]{2}[.]json$').hasMatch(name);
 
 abstract class StoreRepository {
   Future<String?> read();
