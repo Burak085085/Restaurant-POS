@@ -7,6 +7,7 @@ Offline-first Flutter point-of-sale application for **Android and Windows**.
 - 20-table order management and separate kitchen order batches.
 - Editable product menu, stock reservation, low-stock warnings and stock deduction at checkout.
 - Cash, card and split payments with validated tender amounts and change calculation.
+- Cash register shifts with opening float, cash-in/cash-out reasons, sales linked to the active shift, expected cash and closing reconciliation.
 - Fixed and percentage discounts with required reason and audit history.
 - Daily cash/card totals, 7-day revenue, best-selling products and transaction history.
 - Single administrator account with salted PIN hash, PIN change and failed-attempt lockout.
@@ -14,11 +15,11 @@ Offline-first Flutter point-of-sale application for **Android and Windows**.
 
 ## Storage, migration and backups
 
-- Primary storage is normalized SQLite tables: `products`, `pos_tables`, `order_lines`, `sales`, `sale_items`, `payments`, `staff`, `audit` and `app_meta`.
+- Primary storage is normalized SQLite tables: `products`, `pos_tables`, `order_lines`, `sales`, `sale_items`, `payments`, `register_sessions`, `cash_movements`, `staff`, `audit` and `app_meta`.
 - Order lines, sale items and payments use foreign keys and explicit positions so item and transaction order survives reloads.
 - State writes replace the normalized records inside one database transaction. SQLite uses WAL journaling, `synchronous=FULL` and foreign-key enforcement.
 - Existing version-1 `app_state` JSON and `restaurant_pos_v2` SharedPreferences data remain readable. They are converted to normalized records on the first successful save; the old SharedPreferences key is removed only after the SQLite transaction commits.
-- The database is upgraded to schema version 2 without discarding the previous JSON payload.
+- The database is upgraded to schema version 3 without discarding the previous JSON payload. Version 3 adds cash-register sessions and cash movements; historical sales remain valid with no assigned shift.
 - A daily JSON snapshot is written under the app documents directory in `backups/`. The seven most recent daily backups are retained.
 - Corrupt legacy JSON is preserved as a separate recovery file before the app starts with safe defaults.
 - Android and Windows devices keep separate local databases. This is not cloud synchronization.
