@@ -286,7 +286,6 @@ class SqliteStoreRepository implements StoreRepository {
                 'name': _string(line['name']),
                 'price': _int(line['price']),
                 'qty': _int(line['qty']),
-                'unit_cost': _int(line['unitCost']),
                 'sent': _bool(line['sent'], true) ? 1 : 0,
                 'kitchen': _int(line['kitchen'], _int(table['kitchen'])),
               });
@@ -350,6 +349,7 @@ class SqliteStoreRepository implements StoreRepository {
                 'name': _string(line['name']),
                 'price': _int(line['price']),
                 'qty': _int(line['qty']),
+                'unit_cost': _int(line['unitCost']),
                 'sent': _bool(line['sent'], true) ? 1 : 0,
                 'kitchen': _int(line['kitchen']),
               });
