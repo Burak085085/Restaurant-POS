@@ -397,4 +397,7 @@ void main() {
   });
 
 
+
+  test('sale captures product cost and calculates gross profit',(){final store=Pos(repository:MemoryStoreRepository());final p=Product('cost','Test','Item',1000,costPrice:400,stock:2);store.products=[p];final table=store.tables.first;expect(store.add(table,p),isTrue);expect(store.sendKitchen(table),isTrue);expect(store.checkout(table,[PaymentPart('Kart',1000)]),isTrue);p.costPrice=800;expect(store.costOfSale(store.sales.single),400);expect(store.netProfit,600);});
+  test('expense and stock ledger survive serialization',()async{final repo=MemoryStoreRepository();final store=Pos(repository:repo);final p=Product('ledger','Test','Item',500,costPrice:200,stock:5);store.products=[p];expect(store.stockChange(p,2,note:'Alım'),isTrue);expect(store.addExpense(2500,'Elektrik','Fatura'),isTrue);await store.flush();final copy=Pos(repository:MemoryStoreRepository(value:repo.value));await copy.load();expect(copy.expenses.single.amount,2500);expect(copy.stockMovements.single.afterStock,7);expect(copy.products.single.costPrice,200);expect(copy.buildCsv(),contains('Elektrik'));});
 }

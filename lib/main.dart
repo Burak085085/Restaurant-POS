@@ -2,6 +2,8 @@
 
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 import 'package:crypto/crypto.dart';
 import 'package:material_ui/material_ui.dart';
 import 'storage.dart';
@@ -17,25 +19,25 @@ String dayKey(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${
 String stamp(DateTime d) => '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
 
 class Product {
-  String id, category, name; int price, stock, lowAt; bool active;
-  Product(this.id,this.category,this.name,this.price,{this.stock=100,this.lowAt=5,this.active=true});
-  Map<String,dynamic> toJson()=>{'id':id,'category':category,'name':name,'price':price,'stock':stock,'lowAt':lowAt,'active':active};
-  factory Product.fromJson(Map<String,dynamic> j)=>Product(j['id']??'',j['category']??'Genel',j['name']??'',j['price']??0,stock:j['stock']??100,lowAt:j['lowAt']??5,active:j['active']??true);
+  String id, category, name; int price, costPrice, stock, lowAt; bool active;
+  Product(this.id,this.category,this.name,this.price,{this.costPrice=0,this.stock=100,this.lowAt=5,this.active=true});
+  Map<String,dynamic> toJson()=>{'id':id,'category':category,'name':name,'price':price,'costPrice':costPrice,'stock':stock,'lowAt':lowAt,'active':active};
+  factory Product.fromJson(Map<String,dynamic> j)=>Product(j['id']??'',j['category']??'Genel',j['name']??'',j['price']??0,costPrice:j['costPrice']??0,stock:j['stock']??100,lowAt:j['lowAt']??5,active:j['active']??true);
 }
 enum KitchenState { queued, preparing, ready, served }
 class OrderLine {
   String productId, name;
-  int price, qty;
+  int price, qty, unitCost;
   bool sent;
   KitchenState kitchen;
   OrderLine(this.productId, this.name, this.price, this.qty,
-      {this.sent = false, this.kitchen = KitchenState.queued});
+      {this.sent = false, this.kitchen = KitchenState.queued, this.unitCost = 0});
   Map<String, dynamic> toJson() => {'productId': productId, 'name': name,
-    'price': price, 'qty': qty, 'sent': sent, 'kitchen': kitchen.index};
+    'price': price, 'qty': qty, 'sent': sent, 'kitchen': kitchen.index, 'unitCost': unitCost};
   factory OrderLine.fromJson(Map<String, dynamic> j) => OrderLine(
     j['productId'] ?? '', j['name'] ?? '', j['price'] ?? 0, j['qty'] ?? 0,
     sent: j['sent'] ?? true,
-    kitchen: KitchenState.values[(j['kitchen'] ?? 0).clamp(0, 3).toInt()],
+    kitchen: KitchenState.values[(j['kitchen'] ?? 0).clamp(0, 3).toInt()], unitCost: j['unitCost'] ?? 0,
   );
 }
 class PosTable { int id; List<OrderLine> items=[]; KitchenState kitchen=KitchenState.queued; int discount=0; bool discountPercent=false; String discountReason=''; PosTable(this.id); int get subtotal=>items.fold(0,(s,e)=>s+e.price*e.qty); int get total=> (subtotal-(discountPercent?subtotal*discount~/100:discount)).clamp(0,1<<30).toInt(); Map<String,dynamic> toJson()=>{'id':id,'items':items.map((e)=>e.toJson()).toList(),'kitchen':kitchen.index,'discount':discount,'discountPercent':discountPercent,'discountReason':discountReason}; }
@@ -98,6 +100,8 @@ class CashMovement {
   );
 }
 class Sale { String date,time,staff; int table,total,discount; List<OrderLine> items; List<PaymentPart> payments; int? registerSessionId; Sale(this.date,this.time,this.staff,this.table,this.total,this.discount,this.items,this.payments,{this.registerSessionId}); Map<String,dynamic> toJson()=>{'date':date,'time':time,'staff':staff,'table':table,'total':total,'discount':discount,'registerSessionId':registerSessionId,'items':items.map((e)=>e.toJson()).toList(),'payments':payments.map((e)=>e.toJson()).toList()}; factory Sale.fromJson(Map<String,dynamic> j)=>Sale(j['date']??'',j['time']??'',j['staff']??'Admin',j['table']??0,j['total']??0,j['discount']??0,(j['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(),(j['payments'] as List? ?? []).map((e)=>PaymentPart(e['method']??'Nakit',e['amount']??0,tendered:e['tendered']??e['amount']??0)).toList(),registerSessionId:j['registerSessionId']); }
+class Expense { final int id,amount; final String date,category,note; Expense({required this.id,required this.amount,required this.date,required this.category,required this.note}); Map<String,dynamic> toJson()=>{'id':id,'amount':amount,'date':date,'category':category,'note':note}; factory Expense.fromJson(Map<String,dynamic> j)=>Expense(id:j['id']??0,amount:j['amount']??0,date:j['date']??'',category:j['category']??'Diğer',note:j['note']??''); }
+class StockMovement { final int id,quantity,beforeStock,afterStock,productCost; final String productId,productName,type,at,note; StockMovement({required this.id,required this.productId,required this.productName,required this.type,required this.quantity,required this.beforeStock,required this.afterStock,required this.productCost,required this.at,required this.note}); Map<String,dynamic> toJson()=>{'id':id,'productId':productId,'productName':productName,'type':type,'quantity':quantity,'beforeStock':beforeStock,'afterStock':afterStock,'productCost':productCost,'at':at,'note':note}; factory StockMovement.fromJson(Map<String,dynamic> j)=>StockMovement(id:j['id']??0,productId:j['productId']??'',productName:j['productName']??'',type:j['type']??'',quantity:j['quantity']??0,beforeStock:j['beforeStock']??0,afterStock:j['afterStock']??0,productCost:j['productCost']??0,at:j['at']??'',note:j['note']??''); }
 class Staff {
   String name, role, salt, pinHash;
   bool active;
@@ -125,14 +129,16 @@ class Audit { String at,user,action,detail; Audit(this.at,this.user,this.action,
 
 class Pos extends ChangeNotifier {
   List<Product> products=[Product('p1','Dönerler','Tavuk döner',300),Product('p2','Dönerler','Dana döner',500),Product('p3','Dönerler','Dürüm döner',400),Product('p4','Dönerler','Porsiyon döner',700),Product('p5','İçecekler','Kola',200),Product('p6','İçecekler','Fanta',200),Product('p7','İçecekler','Ayran',100),Product('p8','İçecekler','Su',50),Product('p9','Ekstra','Patates',200),Product('p10','Ekstra','Ketçap',50),Product('p11','Ekstra','Mayonez',50)];
-  List<PosTable> tables=List.generate(kTableCount,(i)=>PosTable(i+1)); List<Sale> sales=[]; List<RegisterSession> registerSessions=[]; List<CashMovement> cashMovements=[]; List<Staff> staff=[Staff('Admin','Yönetici')]; List<Audit> audit=[]; String currentUser='Admin'; final StoreRepository _repository; Future<void> _queue=Future.value();
+  List<PosTable> tables=List.generate(kTableCount,(i)=>PosTable(i+1)); List<Sale> sales=[]; List<RegisterSession> registerSessions=[]; List<CashMovement> cashMovements=[]; List<Expense> expenses=[]; List<StockMovement> stockMovements=[]; List<Staff> staff=[Staff('Admin','Yönetici')]; List<Audit> audit=[]; String currentUser='Admin'; final StoreRepository _repository; Future<void> _queue=Future.value();
   Pos({StoreRepository? repository}) : _repository = repository ?? SqliteStoreRepository();
-  Future<void> load() async { final raw=await _repository.read(); if(raw==null)return; try { final j=jsonDecode(raw) as Map<String,dynamic>; products=(j['products'] as List? ?? []).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList(); tables=List.generate(kTableCount,(i)=>PosTable(i+1)); for(final x in (j['tables'] as List? ?? [])){final m=Map<String,dynamic>.from(x); final id=m['id'] as int; if(id<1||id>kTableCount)continue; final t=tables[id-1]; t.items=(m['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(); t.kitchen=KitchenState.values[(m['kitchen']??0).clamp(0,3).toInt()]; final rawItems=(m['items'] as List? ?? []); for(var lineIndex=0;lineIndex<t.items.length;lineIndex++){final rawLine=Map<String,dynamic>.from(rawItems[lineIndex]);if(!rawLine.containsKey('kitchen'))t.items[lineIndex].kitchen=t.kitchen;} t.discount=m['discount']??0;t.discountPercent=m['discountPercent']??false;t.discountReason=m['discountReason']??'';} sales=(j['sales'] as List? ?? []).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList(); registerSessions=(j['registerSessions'] as List? ?? []).map((e)=>RegisterSession.fromJson(Map<String,dynamic>.from(e))).toList(); cashMovements=(j['cashMovements'] as List? ?? []).map((e)=>CashMovement.fromJson(Map<String,dynamic>.from(e))).toList(); final legacyStaff=(j['staff'] as List? ?? []).map((e)=>Staff.fromJson(Map<String,dynamic>.from(e))).toList(); final admins=legacyStaff.where((member)=>member.name=='Admin').toList(); final admin=admins.isNotEmpty ? admins.first : Staff('Admin','Yönetici'); admin.active=true; staff=[admin]; audit=(j['audit'] as List? ?? []).map((e)=>Audit.fromJson(Map<String,dynamic>.from(e))).toList(); currentUser='Admin'; } catch (_) { await _repository.backupCorrupt(raw); products=[Product('p1','Dönerler','Tavuk döner',300),Product('p2','Dönerler','Dana döner',500),Product('p3','Dönerler','Dürüm döner',400),Product('p4','Dönerler','Porsiyon döner',700),Product('p5','İçecekler','Kola',200),Product('p6','İçecekler','Fanta',200),Product('p7','İçecekler','Ayran',100),Product('p8','İçecekler','Su',50),Product('p9','Ekstra','Patates',200),Product('p10','Ekstra','Ketçap',50),Product('p11','Ekstra','Mayonez',50)]; tables=List.generate(kTableCount,(i)=>PosTable(i+1)); sales=[]; registerSessions=[]; cashMovements=[]; staff=[Staff('Admin','Yönetici')]; audit=[]; currentUser='Admin'; } }
+  Future<void> load() async { final raw=await _repository.read(); if(raw==null)return; try { final j=jsonDecode(raw) as Map<String,dynamic>; products=(j['products'] as List? ?? []).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList(); tables=List.generate(kTableCount,(i)=>PosTable(i+1)); for(final x in (j['tables'] as List? ?? [])){final m=Map<String,dynamic>.from(x); final id=m['id'] as int; if(id<1||id>kTableCount)continue; final t=tables[id-1]; t.items=(m['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(); t.kitchen=KitchenState.values[(m['kitchen']??0).clamp(0,3).toInt()]; final rawItems=(m['items'] as List? ?? []); for(var lineIndex=0;lineIndex<t.items.length;lineIndex++){final rawLine=Map<String,dynamic>.from(rawItems[lineIndex]);if(!rawLine.containsKey('kitchen'))t.items[lineIndex].kitchen=t.kitchen;} t.discount=m['discount']??0;t.discountPercent=m['discountPercent']??false;t.discountReason=m['discountReason']??'';} sales=(j['sales'] as List? ?? []).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList(); expenses=(j['expenses'] as List? ?? []).map((e)=>Expense.fromJson(Map<String,dynamic>.from(e))).toList(); stockMovements=(j['stockMovements'] as List? ?? []).map((e)=>StockMovement.fromJson(Map<String,dynamic>.from(e))).toList(); registerSessions=(j['registerSessions'] as List? ?? []).map((e)=>RegisterSession.fromJson(Map<String,dynamic>.from(e))).toList(); cashMovements=(j['cashMovements'] as List? ?? []).map((e)=>CashMovement.fromJson(Map<String,dynamic>.from(e))).toList(); final legacyStaff=(j['staff'] as List? ?? []).map((e)=>Staff.fromJson(Map<String,dynamic>.from(e))).toList(); final admins=legacyStaff.where((member)=>member.name=='Admin').toList(); final admin=admins.isNotEmpty ? admins.first : Staff('Admin','Yönetici'); admin.active=true; staff=[admin]; audit=(j['audit'] as List? ?? []).map((e)=>Audit.fromJson(Map<String,dynamic>.from(e))).toList(); currentUser='Admin'; } catch (_) { await _repository.backupCorrupt(raw); products=[Product('p1','Dönerler','Tavuk döner',300),Product('p2','Dönerler','Dana döner',500),Product('p3','Dönerler','Dürüm döner',400),Product('p4','Dönerler','Porsiyon döner',700),Product('p5','İçecekler','Kola',200),Product('p6','İçecekler','Fanta',200),Product('p7','İçecekler','Ayran',100),Product('p8','İçecekler','Su',50),Product('p9','Ekstra','Patates',200),Product('p10','Ekstra','Ketçap',50),Product('p11','Ekstra','Mayonez',50)]; tables=List.generate(kTableCount,(i)=>PosTable(i+1)); sales=[]; registerSessions=[]; cashMovements=[]; expenses=[]; stockMovements=[]; staff=[Staff('Admin','Yönetici')]; audit=[]; currentUser='Admin'; } }
 
   String _snapshot() => jsonEncode({
     'products': products.map((e) => e.toJson()).toList(),
     'tables': tables.map((e) => e.toJson()).toList(),
     'sales': sales.map((e) => e.toJson()).toList(),
+    'expenses': expenses.map((e) => e.toJson()).toList(),
+    'stockMovements': stockMovements.map((e) => e.toJson()).toList(),
     'registerSessions': registerSessions.map((e) => e.toJson()).toList(),
     'cashMovements': cashMovements.map((e) => e.toJson()).toList(),
     'staff': staff.map((e) => e.toJson()).toList(),
@@ -173,6 +179,8 @@ class Pos extends ChangeNotifier {
       'products': products.map((e) => e.toJson()).toList(),
       'tables': tables.map((e) => e.toJson()).toList(),
       'sales': sales.map((e) => e.toJson()).toList(),
+      'expenses': expenses.map((e) => e.toJson()).toList(),
+      'stockMovements': stockMovements.map((e) => e.toJson()).toList(),
       'registerSessions': registerSessions.map((e) => e.toJson()).toList(),
       'cashMovements': cashMovements.map((e) => e.toJson()).toList(),
       'staff': staff.map((e) => e.toJson()).toList(),
@@ -248,12 +256,10 @@ class Pos extends ChangeNotifier {
     final i = products.indexWhere((e) => e.id == p.id); if (i < 0) products.add(p); else { p.active=products[i].active; products[i] = p; }
     log('Menü', '${p.name} kaydedildi'); save();
   }
-  bool stockChange(Product p, int delta) {
-    if (!can('inventory')) return false;
-    final next = (p.stock + delta).clamp(0, 1000000).toInt();
-    if (next < reservedStock(p.id)) return false;
-    p.stock = next; log('Stok', '${p.name}: ${p.stock}'); save(); return true;
-  }
+  bool stockChange(Product p, int delta, {String note='Manuel stok düzeltmesi'}) { if(!can('inventory')||delta==0||note.trim().isEmpty)return false;final before=p.stock;final next=(before+delta).clamp(0,1000000).toInt();if(next<reservedStock(p.id)||next==before)return false;p.stock=next;stockMovements.add(StockMovement(id:DateTime.now().microsecondsSinceEpoch,productId:p.id,productName:p.name,type:delta>0?'Giriş':'Çıkış',quantity:delta.abs(),beforeStock:before,afterStock:next,productCost:p.costPrice,at:azNow().toIso8601String(),note:note.trim()));log('Stok','${p.name}: $before → $next · ${note.trim()}');save();return true;}
+  bool addExpense(int amount,String category,String note){if(!can('reports')||amount<=0||category.trim().isEmpty||note.trim().isEmpty)return false;expenses.add(Expense(id:DateTime.now().microsecondsSinceEpoch,amount:amount,category:category.trim(),note:note.trim(),date:dayKey(azNow())));log('Gider','${category.trim()} · ${money(amount)} · ${note.trim()}');save();return true;}
+  int costOfSale(Sale sale)=>sale.items.fold(0,(s,item)=>s+item.unitCost*item.qty);int get totalExpenses=>expenses.fold(0,(s,e)=>s+e.amount);int get totalCostOfSales=>sales.fold(0,(s,e)=>s+costOfSale(e));int get netProfit=>sales.fold(0,(s,e)=>s+e.total-costOfSale(e))-totalExpenses;
+  String buildCsv(){String q(Object? v)=>'"${v.toString().replaceAll('"','""')}"';final b=StringBuffer('Tarih;Tür;Açıklama;Adet;Ciro/Gider;Maliyet\\r\\n');for(final sale in sales){b.writeln([q(sale.date),q('Satış'),q('Masa ${sale.table}'),q(sale.items.fold(0,(n,x)=>n+x.qty)),q(sale.total/100),q(costOfSale(sale)/100)].join(';'));}for(final e in expenses){b.writeln([q(e.date),q('Gider'),q('${e.category}: ${e.note}'),q(1),q(e.amount/100),q(0)].join(';'));}return b.toString();}
   bool checkout(PosTable t, List<PaymentPart> payments) {
     if (!can('orders') || t.items.isEmpty || t.items.any((line) => !line.sent)) return false;
     final total = t.total;
@@ -263,9 +269,9 @@ class Pos extends ChangeNotifier {
       if (matches.isEmpty || matches.first.stock < line.qty) return false;
     }
     final now = azNow();
-    for (final line in t.items) { products.firstWhere((product) => product.id == line.productId).stock -= line.qty; }
+    for (final line in t.items) { final product=products.firstWhere((product) => product.id == line.productId); final before=product.stock; product.stock-=line.qty; stockMovements.add(StockMovement(id:DateTime.now().microsecondsSinceEpoch,productId:product.id,productName:product.name,type:'Satış',quantity:line.qty,beforeStock:before,afterStock:product.stock,productCost:product.costPrice,at:now.toIso8601String(),note:'Masa ${t.id} satışı')); }
     sales.add(Sale(dayKey(now), stamp(now), currentUser, t.id, total, t.subtotal-total,
-      t.items.map((e) => OrderLine(e.productId, e.name, e.price, e.qty)).toList(), payments,
+      t.items.map((e) { final product=products.firstWhere((p)=>p.id==e.productId); return OrderLine(e.productId,e.name,e.price,e.qty,unitCost:product.costPrice); }).toList(), payments,
       registerSessionId: activeRegister?.id));
     log('Ödeme', 'Masa ${t.id}: ${money(total)}');
     t.items = []; t.discount = 0; t.discountPercent = false; t.discountReason = ''; t.kitchen = KitchenState.queued;
@@ -514,6 +520,7 @@ class InventoryPage extends StatelessWidget {
           appBar: AppBar(
             title: const Text('Stok yönetimi'),
             actions: [
+              IconButton(tooltip:'Stok hareket geçmişi',onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const StockHistoryPage())),icon:const Icon(Icons.history)),
               IconButton(
                 onPressed: pos.can('inventory') ? () => _editProduct(context) : null,
                 icon: const Icon(Icons.add),
@@ -526,7 +533,7 @@ class InventoryPage extends StatelessWidget {
                     for (final product in pos.products)
                       ListTile(
                         title: Text(product.name),
-                        subtitle: Text('${product.category} · ${money(product.price)} · Kritik seviye: ${product.lowAt}'),
+                        subtitle: Text('${product.category} · Satış: ${money(product.price)} · Maliyet: ${money(product.costPrice)} · Birim kâr: ${money(product.price-product.costPrice)} · Kritik seviye: ${product.lowAt}'),
                         leading: Icon(Icons.inventory, color: product.stock <= product.lowAt ? red : green),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -549,6 +556,7 @@ class InventoryPage extends StatelessWidget {
     final name = TextEditingController(text: old?.name ?? '');
     final category = TextEditingController(text: old?.category ?? 'Genel');
     final price = TextEditingController(text: old == null ? '' : (old.price / 100).toStringAsFixed(2));
+    final cost = TextEditingController(text: old == null ? '' : (old.costPrice / 100).toStringAsFixed(2));
     final stock = TextEditingController(text: '${old?.stock ?? 0}');
     final low = TextEditingController(text: '${old?.lowAt ?? 5}');
     final ok = await showDialog<bool>(
@@ -559,7 +567,8 @@ class InventoryPage extends StatelessWidget {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             TextField(controller: name, decoration: const InputDecoration(labelText: 'Ürün adı')),
             TextField(controller: category, decoration: const InputDecoration(labelText: 'Kategori')),
-            TextField(controller: price, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Fiyat (₼)')),
+            TextField(controller: price, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Satış fiyatı (₼)')),
+            TextField(controller: cost, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Alış maliyeti (₼)')),
             TextField(controller: stock, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Stok adedi')),
             TextField(controller: low, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Kritik stok seviyesi')),
           ]),
@@ -577,6 +586,7 @@ class InventoryPage extends StatelessWidget {
         category.text.trim().isEmpty ? 'Genel' : category.text.trim(),
         name.text.trim(),
         parsedPrice,
+        costPrice: parseMoney(cost.text),
         stock: (int.tryParse(stock.text) ?? 0).clamp(0, 1000000).toInt(),
         lowAt: (int.tryParse(low.text) ?? 5).clamp(0, 1000000).toInt(),
       ));
@@ -584,8 +594,11 @@ class InventoryPage extends StatelessWidget {
   }
 }
 
+class StockHistoryPage extends StatelessWidget {const StockHistoryPage({super.key});@override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(context,_)=>Scaffold(appBar:AppBar(title:const Text('Stok hareket geçmişi')),body:pos.stockMovements.isEmpty?const Center(child:Text('Henüz stok hareketi yok.')):ListView.builder(itemCount:pos.stockMovements.length,itemBuilder:(c,i){final x=pos.stockMovements[pos.stockMovements.length-1-i];return ListTile(title:Text('${x.productName} · ${x.type} · ${x.quantity} adet'),subtitle:Text('${x.beforeStock} → ${x.afterStock} · ${x.note}'),trailing:Text(money(x.productCost*x.quantity)));})));}}
 class ReportsPage extends StatelessWidget {
   const ReportsPage({super.key});
+  Future<void> _addExpense(BuildContext context) async {final amount=TextEditingController(),category=TextEditingController(text:'Diğer'),note=TextEditingController();final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('İşletme gideri ekle'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Tutar (₼)')),TextField(controller:category,decoration:const InputDecoration(labelText:'Kategori')),TextField(controller:note,decoration:const InputDecoration(labelText:'Açıklama'))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Kaydet'))]));if(ok==true&&!pos.addExpense(parseMoney(amount.text),category.text,note.text)&&context.mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Gider kaydedilemedi.')));amount.dispose();category.dispose();note.dispose();}
+  Future<void> _exportCsv(BuildContext context) async {try{final dir=await getApplicationDocumentsDirectory();final file=File('${dir.path}/restoram-rapor-${dayKey(azNow())}.csv');await file.writeAsString(pos.buildCsv(),flush:true);if(context.mounted)showDialog<void>(context:context,builder:(c)=>AlertDialog(title:const Text('CSV raporu hazır'),content:SelectableText(file.path),actions:[TextButton(onPressed:()=>Navigator.pop(c),child:const Text('Kapat'))]));}catch(e){if(context.mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('CSV oluşturulamadı: $e')));}}
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: pos,
@@ -629,7 +642,7 @@ class ReportsPage extends StatelessWidget {
           if (topProducts.isEmpty) const ListTile(title: Text('Henüz satış verisi yok.')),
           for (final item in topProducts.take(5)) ListTile(leading: const Icon(Icons.trending_up), title: Text(item.key), trailing: Text('${item.value} adet')),
           const Divider(),
-          const Text('Satış geçmişi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          const Text('Kârlılık özeti',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),Wrap(spacing:8,runSpacing:8,children:[_metric('Ürün maliyeti',money(pos.totalCostOfSales)),_metric('Brüt kâr',money(pos.sales.fold(0,(s,x)=>s+x.total-pos.costOfSale(x)))),_metric('Toplam gider',money(pos.totalExpenses)),_metric('Net kâr',money(pos.netProfit))]),OutlinedButton.icon(onPressed:()=>_addExpense(context),icon:const Icon(Icons.add_card),label:const Text('İşletme gideri ekle')),OutlinedButton.icon(onPressed:()=>_exportCsv(context),icon:const Icon(Icons.download),label:const Text('Raporları CSV dışa aktar')),for(final expense in pos.expenses.reversed.take(30))ListTile(dense:true,title:Text('${expense.category} · ${money(expense.amount)}'),subtitle:Text('${expense.date} · ${expense.note}')),const Text('Satış geçmişi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
           for (final sale in pos.sales.reversed) Card(child: ExpansionTile(
             title: Text('${sale.date} · ${sale.time} · Masa ${sale.table} · ${money(sale.total)}'),
             subtitle: Text('İndirim: ${money(sale.discount)}'),

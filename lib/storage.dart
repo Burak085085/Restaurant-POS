@@ -7,7 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 const String legacyStoreKey = 'restaurant_pos_v2';
-const int storeDatabaseVersion = 3;
+const int storeDatabaseVersion = 4;
 
 bool isDailyBackupFileName(String name) {
   final match = RegExp(r'^restaurant-pos-[0-9]{4}-[0-9]{2}-[0-9]{2}[.]json').firstMatch(name);
@@ -72,6 +72,7 @@ class SqliteStoreRepository implements StoreRepository {
             await db.execute('ALTER TABLE sales ADD COLUMN register_session_id INTEGER REFERENCES register_sessions(id)');
           }
         }
+        if(oldVersion<4){final pc=await db.rawQuery('PRAGMA table_info(products)');if(!pc.any((c)=>c['name']=='cost_price'))await db.execute('ALTER TABLE products ADD COLUMN cost_price INTEGER NOT NULL DEFAULT 0');final sc=await db.rawQuery('PRAGMA table_info(sale_items)');if(!sc.any((c)=>c['name']=='unit_cost'))await db.execute('ALTER TABLE sale_items ADD COLUMN unit_cost INTEGER NOT NULL DEFAULT 0');await db.execute('CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY, date TEXT NOT NULL, category TEXT NOT NULL, amount INTEGER NOT NULL, note TEXT NOT NULL)');await db.execute('CREATE TABLE IF NOT EXISTS stock_movements (id INTEGER PRIMARY KEY, product_id TEXT NOT NULL, product_name TEXT NOT NULL, type TEXT NOT NULL, quantity INTEGER NOT NULL, before_stock INTEGER NOT NULL, after_stock INTEGER NOT NULL, product_cost INTEGER NOT NULL, at TEXT NOT NULL, note TEXT NOT NULL)');}
       },
     );
     return _database!;
@@ -79,16 +80,16 @@ class SqliteStoreRepository implements StoreRepository {
 
   Future<void> _createNormalizedSchema(DatabaseExecutor db) async {
     await db.execute('CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
-    await db.execute('CREATE TABLE IF NOT EXISTS products (id TEXT PRIMARY KEY, category TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, stock INTEGER NOT NULL, low_at INTEGER NOT NULL, active INTEGER NOT NULL)');
+    await db.execute('CREATE TABLE IF NOT EXISTS products (id TEXT PRIMARY KEY, category TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, cost_price INTEGER NOT NULL DEFAULT 0, stock INTEGER NOT NULL, low_at INTEGER NOT NULL, active INTEGER NOT NULL)');
     await db.execute('CREATE TABLE IF NOT EXISTS pos_tables (id INTEGER PRIMARY KEY, kitchen INTEGER NOT NULL, discount INTEGER NOT NULL, discount_percent INTEGER NOT NULL, discount_reason TEXT NOT NULL)');
     await db.execute('CREATE TABLE IF NOT EXISTS order_lines (id INTEGER PRIMARY KEY AUTOINCREMENT, table_id INTEGER NOT NULL REFERENCES pos_tables(id) ON DELETE CASCADE, position INTEGER NOT NULL, product_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, qty INTEGER NOT NULL, sent INTEGER NOT NULL, kitchen INTEGER NOT NULL, UNIQUE(table_id, position))');
     await db.execute('CREATE TABLE IF NOT EXISTS register_sessions (id INTEGER PRIMARY KEY, opened_at TEXT NOT NULL, closed_at TEXT, opening_cash INTEGER NOT NULL, closing_cash INTEGER, expected_cash INTEGER, note TEXT NOT NULL)');
     await db.execute('CREATE TABLE IF NOT EXISTS cash_movements (id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL REFERENCES register_sessions(id) ON DELETE CASCADE, at TEXT NOT NULL, type TEXT NOT NULL, amount INTEGER NOT NULL, note TEXT NOT NULL)');
     await db.execute('CREATE TABLE IF NOT EXISTS sales (position INTEGER PRIMARY KEY, date TEXT NOT NULL, time TEXT NOT NULL, staff TEXT NOT NULL, table_id INTEGER NOT NULL, total INTEGER NOT NULL, discount INTEGER NOT NULL, register_session_id INTEGER REFERENCES register_sessions(id))');
-    await db.execute('CREATE TABLE IF NOT EXISTS sale_items (id INTEGER PRIMARY KEY AUTOINCREMENT, sale_position INTEGER NOT NULL REFERENCES sales(position) ON DELETE CASCADE, position INTEGER NOT NULL, product_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, qty INTEGER NOT NULL, sent INTEGER NOT NULL, kitchen INTEGER NOT NULL, UNIQUE(sale_position, position))');
+    await db.execute('CREATE TABLE IF NOT EXISTS sale_items (id INTEGER PRIMARY KEY AUTOINCREMENT, sale_position INTEGER NOT NULL REFERENCES sales(position) ON DELETE CASCADE, position INTEGER NOT NULL, product_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, qty INTEGER NOT NULL, sent INTEGER NOT NULL, kitchen INTEGER NOT NULL, unit_cost INTEGER NOT NULL DEFAULT 0, UNIQUE(sale_position, position))');
     await db.execute('CREATE TABLE IF NOT EXISTS payments (id INTEGER PRIMARY KEY AUTOINCREMENT, sale_position INTEGER NOT NULL REFERENCES sales(position) ON DELETE CASCADE, position INTEGER NOT NULL, method TEXT NOT NULL, amount INTEGER NOT NULL, tendered INTEGER NOT NULL, UNIQUE(sale_position, position))');
     await db.execute('CREATE TABLE IF NOT EXISTS staff (name TEXT PRIMARY KEY, role TEXT NOT NULL, salt TEXT NOT NULL, pin_hash TEXT NOT NULL, active INTEGER NOT NULL)');
-    await db.execute('CREATE TABLE IF NOT EXISTS audit (position INTEGER PRIMARY KEY, at TEXT NOT NULL, user TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL)');
+    await db.execute('CREATE TABLE IF NOT EXISTS audit (position INTEGER PRIMARY KEY, at TEXT NOT NULL, user TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL)');await db.execute('CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY, date TEXT NOT NULL, category TEXT NOT NULL, amount INTEGER NOT NULL, note TEXT NOT NULL)');await db.execute('CREATE TABLE IF NOT EXISTS stock_movements (id INTEGER PRIMARY KEY, product_id TEXT NOT NULL, product_name TEXT NOT NULL, type TEXT NOT NULL, quantity INTEGER NOT NULL, before_stock INTEGER NOT NULL, after_stock INTEGER NOT NULL, product_cost INTEGER NOT NULL, at TEXT NOT NULL, note TEXT NOT NULL)');
   }
 
   int _int(Object? value, [int fallback = 0]) =>
@@ -133,6 +134,7 @@ class SqliteStoreRepository implements StoreRepository {
           'name': _string(line['name']),
           'price': _int(line['price']),
           'qty': _int(line['qty']),
+          'unitCost': _int(line['unit_cost']),
           'sent': _int(line['sent']) == 1,
           'kitchen': _int(line['kitchen']),
         }).toList(),
@@ -173,7 +175,7 @@ class SqliteStoreRepository implements StoreRepository {
       });
     }
 
-    final staffRows = await db.query('staff', orderBy: 'name');
+    final expenseRows=await db.query('expenses',orderBy:'date,id');final stockRows=await db.query('stock_movements',orderBy:'at,id');final staffRows = await db.query('staff', orderBy: 'name');
     final auditRows = await db.query('audit', orderBy: 'position');
     final currentUserRows = await db.query('app_meta', columns: ['value'],
         where: 'key = ?', whereArgs: ['currentUser'], limit: 1);
@@ -183,6 +185,7 @@ class SqliteStoreRepository implements StoreRepository {
         'category': _string(product['category']),
         'name': _string(product['name']),
         'price': _int(product['price']),
+        'costPrice': _int(product['cost_price']),
         'stock': _int(product['stock']),
         'lowAt': _int(product['low_at']),
         'active': _int(product['active']) == 1,
@@ -198,6 +201,7 @@ class SqliteStoreRepository implements StoreRepository {
         'expectedCash': session['expected_cash'] == null ? null : _int(session['expected_cash']),
         'note': _string(session['note']),
       }).toList(),
+      'expenses':expenseRows.map((e)=>{'id':_int(e['id']),'date':_string(e['date']),'category':_string(e['category']),'amount':_int(e['amount']),'note':_string(e['note'])}).toList(),'stockMovements':stockRows.map((e)=>{'id':_int(e['id']),'productId':_string(e['product_id']),'productName':_string(e['product_name']),'type':_string(e['type']),'quantity':_int(e['quantity']),'beforeStock':_int(e['before_stock']),'afterStock':_int(e['after_stock']),'productCost':_int(e['product_cost']),'at':_string(e['at']),'note':_string(e['note'])}).toList(),
       'cashMovements': movementRows.map((movement) => {
         'id': _int(movement['id']),
         'sessionId': _int(movement['session_id']),
@@ -234,7 +238,7 @@ class SqliteStoreRepository implements StoreRepository {
       await transaction.delete('payments');
       await transaction.delete('sale_items');
       await transaction.delete('sales');
-      await transaction.delete('cash_movements');
+      await transaction.delete('cash_movements');await transaction.delete('expenses');await transaction.delete('stock_movements');
       await transaction.delete('register_sessions');
       await transaction.delete('order_lines');
       await transaction.delete('pos_tables');
@@ -251,6 +255,7 @@ class SqliteStoreRepository implements StoreRepository {
             'category': _string(item['category'], 'Genel'),
             'name': _string(item['name']),
             'price': _int(item['price']),
+            'cost_price': _int(item['costPrice']),
             'stock': _int(item['stock'], 100),
             'low_at': _int(item['lowAt'], 5),
             'active': _bool(item['active'], true) ? 1 : 0,
@@ -281,6 +286,7 @@ class SqliteStoreRepository implements StoreRepository {
                 'name': _string(line['name']),
                 'price': _int(line['price']),
                 'qty': _int(line['qty']),
+                'unit_cost': _int(line['unitCost']),
                 'sent': _bool(line['sent'], true) ? 1 : 0,
                 'kitchen': _int(line['kitchen'], _int(table['kitchen'])),
               });
@@ -365,6 +371,7 @@ class SqliteStoreRepository implements StoreRepository {
         }
       }
 
+      final expenses=decoded['expenses'];if(expenses is List)for(final raw in expenses){final e=Map<String,dynamic>.from(raw as Map);await transaction.insert('expenses',{'id':_int(e['id']),'date':_string(e['date']),'category':_string(e['category']),'amount':_int(e['amount']),'note':_string(e['note'])});}final stockRows=decoded['stockMovements'];if(stockRows is List)for(final raw in stockRows){final e=Map<String,dynamic>.from(raw as Map);await transaction.insert('stock_movements',{'id':_int(e['id']),'product_id':_string(e['productId']),'product_name':_string(e['productName']),'type':_string(e['type']),'quantity':_int(e['quantity']),'before_stock':_int(e['beforeStock']),'after_stock':_int(e['afterStock']),'product_cost':_int(e['productCost']),'at':_string(e['at']),'note':_string(e['note'])});}
       final staff = decoded['staff'];
       if (staff is List) {
         for (final raw in staff) {

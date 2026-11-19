@@ -39,3 +39,10 @@ On Windows, enable desktop support and run `flutter build windows --release`. Gi
 ## Security notes
 
 The app is deliberately restricted to one administrator account. Staff switching and staff account creation are disabled. The administrator PIN is stored as a salted SHA-256 hash, not plaintext. This is local application-level protection, not a replacement for operating-system account security or encrypted device storage.
+
+
+## Maliyet, gider ve stok geçmişi (SQLite şema v4)
+
+- Ürün alış maliyeti satıştan ayrı saklanır; satış tamamlandığında birim maliyet satış satırına kopyalanır. Eski satışların bilinmeyen maliyeti sıfır kalır, geriye dönük tahmin yapılmaz.
+- İşletme giderleri tarih, kategori, tutar ve açıklamayla kaydedilir. Raporlar kayıtlı satış maliyeti, brüt kâr, gider ve net kârı gösterir.
+- Manuel stok giriş/çıkışları ve satıştan kaynaklanan stok düşüşleri önce/sonra miktarlarıyla kaydedilir. CSV raporu uygulama belge klasörüne yazılır.
