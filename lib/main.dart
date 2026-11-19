@@ -612,6 +612,13 @@ class ReportsPage extends StatelessWidget {
             _metric('Satış adedi', '${todaySales.length}'), _metric('Nakit', money(cash)), _metric('Kart', money(card)),
           ]),
           const SizedBox(height: 18),
+          OutlinedButton.icon(
+            onPressed: () => Navigator.push(context,
+              MaterialPageRoute(builder: (_) => const RegisterPage())),
+            icon: const Icon(Icons.point_of_sale),
+            label: const Text('Kasa vardiyası ve nakit hareketleri'),
+          ),
+          const SizedBox(height: 12),
           const Text('Son 7 gün', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
           Wrap(spacing: 8, runSpacing: 8, children: [
             _metric('7 günlük ciro', money(weekSales.fold(0, (sum, sale) => sum + sale.total))),
@@ -809,5 +816,167 @@ class _PinGateState extends State<PinGate> {
         SizedBox(width: double.infinity, child: FilledButton(onPressed: submit, child: Text(setupRequired ? 'PIN oluştur ve devam et' : 'Giriş yap'))),
       ])),
     ))),
+  );
+}
+
+
+class RegisterPage extends StatelessWidget {
+  const RegisterPage({super.key});
+
+  Future<int?> _amountDialog(BuildContext context, String title,
+      {required String label, String initial = '0'}) async {
+    final controller = TextEditingController(text: initial);
+    final value = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: TextField(controller: controller, autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: InputDecoration(labelText: label)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Ləğv et')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, parseMoney(controller.text)),
+            child: const Text('Davam et')),
+        ],
+      ),
+    );
+    controller.dispose();
+    return value;
+  }
+
+  Future<String?> _noteDialog(BuildContext context, String title) async {
+    final controller = TextEditingController();
+    final value = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: TextField(controller: controller, autofocus: true, maxLines: 2,
+          decoration: const InputDecoration(labelText: 'Qeyd / səbəb')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Ləğv et')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text),
+            child: const Text('Yadda saxla')),
+        ],
+      ),
+    );
+    controller.dispose();
+    return value;
+  }
+
+  Future<void> _open(BuildContext context) async {
+    final amount = await _amountDialog(context, 'Kasanı aç', label: 'Açılış nağdı (₼)');
+    if (!context.mounted || amount == null) return;
+    final note = await _noteDialog(context, 'Açılış qeydi');
+    if (!context.mounted || note == null) return;
+    final success = pos.openRegister(amount, note: note);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(success ? 'Kasa açıldı.' : 'Kasa açıla bilmədi.')));
+  }
+
+  Future<void> _movement(BuildContext context, String type) async {
+    final amount = await _amountDialog(context,
+      type == 'Giriş' ? 'Kasaya pul əlavə et' : 'Kasadan pul çıxar',
+      label: 'Məbləğ (₼)');
+    if (!context.mounted || amount == null) return;
+    final note = await _noteDialog(context, 'Əməliyyatın səbəbi');
+    if (!context.mounted || note == null) return;
+    final success = pos.addCashMovement(type, amount, note);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(success ? 'Nağd əməliyyat qeydə alındı.' :
+        'Əməliyyat mümkün olmadı. Məbləği və kassa qalığını yoxlayın.')));
+  }
+
+  Future<void> _close(BuildContext context, RegisterSession session) async {
+    final expected = pos.expectedRegisterCash(session);
+    final amount = await _amountDialog(context, 'Kasanı bağla',
+      label: 'Faktiki sayılmış nağd (₼)', initial: (expected / 100).toStringAsFixed(2));
+    if (!context.mounted || amount == null) return;
+    final success = pos.closeRegister(amount);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(success ? 'Kasa bağlandı. Fərq: ${money(amount - expected)}' :
+        'Kasa bağlana bilmədi.')));
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: pos,
+    builder: (context, _) {
+      final session = pos.activeRegister;
+      final sessions = pos.registerSessions.reversed.toList();
+      return Scaffold(
+        appBar: AppBar(title: const Text('Kasa və növbə idarəetməsi')),
+        body: ListView(padding: const EdgeInsets.all(12), children: [
+          Card(child: Padding(padding: const EdgeInsets.all(16),
+            child: session == null
+              ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('Aktiv kasa növbəsi yoxdur.',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                  const SizedBox(height: 8),
+                  const Text('Yeni növbə açarkən kassadakı başlanğıc nağd məbləği daxil edin.'),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: pos.can('register') ? () => _open(context) : null,
+                    icon: const Icon(Icons.lock_open), label: const Text('Kasanı aç')),
+                ])
+              : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('KASA AÇIQDIR',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                  Text('Açılış: ${stamp(DateTime.parse(session.openedAt).toLocal())}'),
+                  const Divider(),
+                  _metric('Açılış nağdı', money(session.openingCash)),
+                  _metric('Nağd satış', money(pos.cashSalesForSession(session.id))),
+                  _metric('Nağd hərəkət', money(pos.cashMovementsForSession(session.id))),
+                  _metric('Gözlənilən nağd', money(pos.expectedRegisterCash(session))),
+                  const SizedBox(height: 8),
+                  Wrap(spacing: 8, runSpacing: 8, children: [
+                    OutlinedButton.icon(onPressed: () => _movement(context, 'Giriş'),
+                      icon: const Icon(Icons.add), label: const Text('Pul girişi')),
+                    OutlinedButton.icon(onPressed: () => _movement(context, 'Çıxış'),
+                      icon: const Icon(Icons.remove), label: const Text('Pul çıxışı')),
+                    FilledButton.icon(onPressed: () => _close(context, session),
+                      icon: const Icon(Icons.lock), label: const Text('Növbəni bağla')),
+                  ]),
+                ]),
+          )),
+          const SizedBox(height: 12),
+          const Text('Nağd əməliyyatlar',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          if (session == null || !pos.cashMovements.any((m) => m.sessionId == session.id))
+            const ListTile(title: Text('Aktiv növbədə nağd hərəkət yoxdur.')),
+          if (session != null)
+            for (final movement in pos.cashMovements.where((m) => m.sessionId == session.id).toList().reversed)
+              ListTile(
+                leading: Icon(movement.type == 'Giriş' ? Icons.call_received : Icons.call_made),
+                title: Text('${movement.type}: ${money(movement.amount)}'),
+                subtitle: Text('${movement.note} · ${stamp(DateTime.parse(movement.at).toLocal())}')),
+          const Divider(),
+          const Text('Əvvəlki növbələr',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          if (sessions.isEmpty)
+            const ListTile(title: Text('Hələ növbə qeydə alınmayıb.')),
+          for (final item in sessions)
+            Card(child: ExpansionTile(
+              title: Text('${stamp(DateTime.parse(item.openedAt).toLocal())} · ${item.isOpen ? 'Açıq' : 'Bağlı'}'),
+              subtitle: Text('Açılış ${money(item.openingCash)} · Nağd satış ${money(pos.cashSalesForSession(item.id))}'),
+              children: [
+                ListTile(title: const Text('Gözlənilən nağd'),
+                  trailing: Text(money(item.expectedCash ?? pos.expectedRegisterCash(item)))),
+                if (item.closingCash != null)
+                  ListTile(title: const Text('Sayılmış nağd'), trailing: Text(money(item.closingCash!))),
+                if (item.closingCash != null && item.expectedCash != null)
+                  ListTile(title: const Text('Kassa fərqi'),
+                    trailing: Text(money(item.closingCash! - item.expectedCash!))),
+                for (final movement in pos.cashMovements.where((m) => m.sessionId == item.id))
+                  ListTile(dense: true,
+                    title: Text('${movement.type}: ${money(movement.amount)}'),
+                    subtitle: Text(movement.note)),
+              ],
+            )),
+        ]),
+      );
+    },
   );
 }
