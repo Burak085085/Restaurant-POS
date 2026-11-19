@@ -368,7 +368,7 @@ void main() {
     databaseFactory = databaseFactoryFfi;
     SharedPreferences.setMockInitialValues({});
     final directory = await Directory.systemTemp.createTemp('restaurant-pos-v2-');
-    final databasePath = '\${directory.path}/pos.sqlite3';
+    final databasePath = '${directory.path}/pos.sqlite3';
     const legacy = '{"products":[],"tables":[],"sales":[],"staff":[],"audit":[]}';
     final oldDatabase = await openDatabase(
       databasePath,
