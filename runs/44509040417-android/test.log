@@ -1,0 +1,21 @@
+
+::group::✅ Passing tests
+✅ /home/runner/work/Restaurant-POS/Restaurant-POS/test/pos_test.dart: Azerbaijani manat formatting uses qəpik precision
+✅ /home/runner/work/Restaurant-POS/Restaurant-POS/test/pos_test.dart: money parser converts comma decimals to qəpik
+✅ /home/runner/work/Restaurant-POS/Restaurant-POS/test/pos_test.dart: stock is reserved across all open tables
+✅ /home/runner/work/Restaurant-POS/Restaurant-POS/test/pos_test.dart: kitchen dispatch tracks only sent lines and preserves earlier batches
+✅ /home/runner/work/Restaurant-POS/Restaurant-POS/test/pos_test.dart: kitchen dispatch state survives JSON round trip
+✅ /home/runner/work/Restaurant-POS/Restaurant-POS/test/pos_test.dart: legacy order lines migrate as already sent to kitchen
+✅ /home/runner/work/Restaurant-POS/Restaurant-POS/test/pos_test.dart: cash overpayment records change and checkout consumes stock
+✅ /home/runner/work/Restaurant-POS/Restaurant-POS/test/pos_test.dart: discount requires reason and respects total
+✅ /home/runner/work/Restaurant-POS/Restaurant-POS/test/pos_test.dart: staff PIN is salted and never serialized as plaintext
+✅ /home/runner/work/Restaurant-POS/Restaurant-POS/test/pos_test.dart: waiter permissions do not include management actions
+✅ /home/runner/work/Restaurant-POS/Restaurant-POS/test/pos_test.dart: unknown and inactive users receive no permissions
+✅ /home/runner/work/Restaurant-POS/Restaurant-POS/test/pos_test.dart: removing the last order line clears discount and kitchen state
+✅ /home/runner/work/Restaurant-POS/Restaurant-POS/test/pos_test.dart: product edits preserve inactive state and reject stock below reservations
+✅ /home/runner/work/Restaurant-POS/Restaurant-POS/test/pos_test.dart: corrupt local data is backed up before defaults are restored
+✅ /home/runner/work/Restaurant-POS/Restaurant-POS/test/pos_test.dart: money parser rejects non-finite values
+✅ /home/runner/work/Restaurant-POS/Restaurant-POS/test/widget_test.dart: POS requires admin PIN setup before opening the app
+::endgroup::
+
+🎉 16 tests passed.
