@@ -254,7 +254,7 @@ void main() {
           'table': 1, 'total': 650, 'discount': 50, 'registerSessionId': 123,
           'items': [
             {'productId': 'p1', 'name': 'Tavuk döner', 'price': 350,
-              'qty': 2, 'sent': true, 'kitchen': 3},
+              'qty': 2, 'unitCost': 0, 'sent': true, 'kitchen': 3},
           ],
           'payments': [
             {'method': 'Nakit', 'amount': 650, 'tendered': 700},
