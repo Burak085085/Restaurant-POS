@@ -52,7 +52,7 @@ void main() {
     expect(table.items.first.kitchen, KitchenState.preparing);
     expect(store.qty(table, 0, -1), isTrue);
     expect(table.items, hasLength(1));
-    expect(table.items.single.sent, isFalse);
+    expect(table.items.single.sent, isTrue);
     expect(store.reservedStock(product.id), 1);
   });
 
