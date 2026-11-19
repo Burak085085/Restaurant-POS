@@ -236,6 +236,15 @@ class Pos extends ChangeNotifier {
     save();
     return true;
   }
+  bool setKitchenLine(PosTable table, OrderLine line, KitchenState state) {
+    if (!can('kitchen') || !line.sent || line.kitchen == KitchenState.served ||
+        !table.items.contains(line)) return false;
+    line.kitchen = state;
+    table.kitchen = tableKitchenState(table);
+    log('Mutfak', 'Masa ${table.id}: ${line.name} → ${state.name}');
+    save();
+    return true;
+  }
   void setKitchen(PosTable t, KitchenState state) {
     if (!can('kitchen') || !t.items.any((line) => line.sent && line.kitchen != KitchenState.served)) return;
     for (final line in t.items.where((line) => line.sent && line.kitchen != KitchenState.served)) {
@@ -457,60 +466,68 @@ class _PaymentDialogState extends State<PaymentDialog> {
 class KitchenPage extends StatelessWidget {
   const KitchenPage({super.key});
 
+  String _label(KitchenState state) => switch (state) {
+    KitchenState.queued => 'Kuyrukta',
+    KitchenState.preparing => 'Hazırlanıyor',
+    KitchenState.ready => 'Hazır',
+    KitchenState.served => 'Servis edildi',
+  };
+
   @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: pos,
-      builder: (context, _) {
-        final activeTables = pos.tables.where((table) => table.items.any((item) => item.sent && item.kitchen != KitchenState.served)).toList();
-        return Scaffold(
-          appBar: AppBar(title: const Text('Mutfak sipariş kuyruğu')),
-          body: activeTables.isEmpty ? const Center(child: Text('Mutfakta bekleyen sipariş yok.')) : ListView.builder(
-            itemCount: activeTables.length,
-            itemBuilder: (context, index) {
-              final table = activeTables[index];
-              return Card(
-                margin: const EdgeInsets.all(8),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Masa ${table.id} · ${table.items.where((item) => item.sent && item.kitchen != KitchenState.served).length} ürün bekliyor',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-                      ),
-                      ...table.items.where((item) => item.sent && item.kitchen != KitchenState.served).map((item) => Text('${item.qty} × ${item.name} · ${item.kitchen == KitchenState.queued ? 'Kuyruk' : item.kitchen == KitchenState.preparing ? 'Hazırlanıyor' : 'Hazır'}')),
-                      Wrap(
-                        spacing: 8,
-                        children: [
-                          for (final state in KitchenState.values)
-                            OutlinedButton(
-                              onPressed: pos.can('kitchen')
-                                  ? () => pos.setKitchen(table, state)
-                                  : null,
-                              child: Text(
-                                state == KitchenState.queued
-                                    ? 'Kuyruk'
-                                    : state == KitchenState.preparing
-                                        ? 'Hazırlanıyor'
-                                        : state == KitchenState.ready
-                                            ? 'Hazır'
-                                            : 'Servis edildi',
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: pos,
+    builder: (context, _) {
+      final activeTables = pos.tables.where((table) =>
+        table.items.any((item) => item.sent && item.kitchen != KitchenState.served)).toList();
+      return Scaffold(
+        appBar: AppBar(title: const Text('Mutfak sipariş kuyruğu')),
+        body: activeTables.isEmpty
+          ? const Center(child: Text('Mutfakta bekleyen sipariş yok.'))
+          : ListView.builder(
+              padding: const EdgeInsets.all(8),
+              itemCount: activeTables.length,
+              itemBuilder: (context, index) {
+                final table = activeTables[index];
+                final activeLines = table.items.where((item) =>
+                  item.sent && item.kitchen != KitchenState.served).toList();
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Masa ${table.id} · ${activeLines.length} ürün bekliyor',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                        const Divider(),
+                        for (final line in activeLines)
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: Text('${line.qty} × ${line.name}',
+                              style: const TextStyle(fontWeight: FontWeight.w600)),
+                            subtitle: Text('Durum: ${_label(line.kitchen)}'),
+                            trailing: PopupMenuButton<KitchenState>(
+                              tooltip: 'Ürün durumunu değiştir',
+                              onSelected: (state) => pos.setKitchenLine(table, line, state),
+                              itemBuilder: (_) => [
+                                for (final state in KitchenState.values)
+                                  PopupMenuItem(value: state, child: Text(_label(state))),
+                              ],
+                              child: const Padding(
+                                padding: EdgeInsets.all(8),
+                                child: Icon(Icons.more_vert),
                               ),
                             ),
-                        ],
-                      ),
-                    ],
+                          ),
+                      ],
+                    ),
                   ),
-                ),
-              );
-            },
-          ),
-        );
-      },
-    );
-  }
+                );
+              },
+            ),
+      );
+    },
+  );
 }
 
 class InventoryPage extends StatelessWidget {
