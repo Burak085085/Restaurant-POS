@@ -76,7 +76,7 @@ void main() {
     test('staff roster persists and selected seller is recorded on checkout', () async {
       final repository = MemoryStoreRepository();
       final pos = Pos(repository: repository);
-      expect(pos.addStaff('Ayşe Yılmaz', 'Garson'), isTrue);
+      expect(pos.addStaff('Ayşe Yılmaz', 'Garson', '2468'), isTrue);
       await pos.flush();
       final restored = Pos(repository: repository);
       await restored.load();
