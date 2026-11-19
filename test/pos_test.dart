@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:restaurant_pos/storage.dart';
 import 'package:restaurant_pos/main.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   test('Azerbaijani manat formatting uses qəpik precision', () {
@@ -220,6 +223,88 @@ void main() {
     expect(store.checkout(table, [PaymentPart('Nakit', 300, tendered: 200)]), isFalse);
     expect(store.checkout(table, [PaymentPart('Bitcoin', 300)]), isFalse);
     expect(store.checkout(table, [PaymentPart('Kart', 300, tendered: 300)]), isTrue);
+  });
+
+
+  test('SQLite persists normalized POS tables and reconstructs the full state', () async {
+    SharedPreferences.setMockInitialValues({});
+    final directory = await Directory.systemTemp.createTemp('restaurant-pos-sqlite-');
+    final repository = SqliteStoreRepository(
+      databasePath: '\${directory.path}/pos.sqlite3',
+      backupDirectoryPath: directory.path,
+    );
+    final payload = {
+      'products': [
+        {'id': 'p1', 'category': 'Dönerler', 'name': 'Tavuk döner',
+          'price': 350, 'stock': 12, 'lowAt': 3, 'active': true},
+      ],
+      'tables': [
+        {'id': 1, 'kitchen': 1, 'discount': 50, 'discountPercent': false,
+          'discountReason': 'Sadakat', 'items': [
+            {'productId': 'p1', 'name': 'Tavuk döner', 'price': 350,
+              'qty': 2, 'sent': true, 'kitchen': 1},
+            {'productId': 'p1', 'name': 'Tavuk döner', 'price': 350,
+              'qty': 1, 'sent': false, 'kitchen': 0},
+          ]},
+      ],
+      'sales': [
+        {'date': '2026-11-19', 'time': '12:30', 'staff': 'Admin',
+          'table': 1, 'total': 650, 'discount': 50,
+          'items': [
+            {'productId': 'p1', 'name': 'Tavuk döner', 'price': 350,
+              'qty': 2, 'sent': true, 'kitchen': 3},
+          ],
+          'payments': [
+            {'method': 'Nakit', 'amount': 650, 'tendered': 700},
+            {'method': 'Kart', 'amount': 0, 'tendered': 0},
+          ]},
+      ],
+      'staff': [
+        {'name': 'Admin', 'role': 'Yönetici', 'salt': 'salt-value',
+          'pinHash': 'hashed-pin', 'active': true},
+      ],
+      'audit': [
+        {'at': '19.11.2026 12:00', 'user': 'Admin',
+          'action': 'Test', 'detail': 'İlk kayıt'},
+        {'at': '19.11.2026 12:01', 'user': 'Admin',
+          'action': 'Test 2', 'detail': 'İkinci kayıt'},
+      ],
+      'currentUser': 'Admin',
+    };
+
+    try {
+      await repository.write(jsonEncode(payload));
+      final restored = jsonDecode((await repository.read())!) as Map<String, dynamic>;
+      expect(restored['products'], payload['products']);
+      expect(restored['tables'], payload['tables']);
+      expect(restored['sales'], payload['sales']);
+      expect(restored['staff'], payload['staff']);
+      expect(restored['audit'], payload['audit']);
+      expect(restored['currentUser'], 'Admin');
+    } finally {
+      await repository.close();
+      await directory.delete(recursive: true);
+    }
+  });
+
+  test('legacy SharedPreferences payload is read without premature migration', () async {
+    SharedPreferences.setMockInitialValues({
+      legacyStoreKey: '{"products":[],"tables":[],"sales":[],"staff":[],"audit":[]}',
+    });
+    final directory = await Directory.systemTemp.createTemp('restaurant-pos-legacy-');
+    final repository = SqliteStoreRepository(
+      databasePath: '\${directory.path}/pos.sqlite3',
+      backupDirectoryPath: directory.path,
+    );
+    try {
+      expect(await repository.read(),
+          '{"products":[],"tables":[],"sales":[],"staff":[],"audit":[]}');
+      final preferences = await SharedPreferences.getInstance();
+      expect(preferences.getString(legacyStoreKey), isNotNull);
+    } finally {
+      await repository.close();
+      await directory.delete(recursive: true);
+    }
   });
 
 }
