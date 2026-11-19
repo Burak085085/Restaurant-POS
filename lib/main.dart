@@ -858,6 +858,15 @@ class ReportsPage extends StatelessWidget {
       final monthStart=DateTime(azNow().year,azNow().month,1);
       final monthSales=pos.sales.where((s){final d=DateTime.tryParse(s.date);return d!=null&&!d.isBefore(monthStart);}).toList();
       final monthExpenses=pos.expenses.where((e){final d=DateTime.tryParse(e.date);return d!=null&&!d.isBefore(monthStart);}).toList();
+      final salesByStaff = <String, List<Sale>>{};
+      for (final sale in pos.sales) {
+        (salesByStaff[sale.staff] ??= <Sale>[]).add(sale);
+      }
+      final staffRows = salesByStaff.entries.toList()
+        ..sort((a, b) => b.value.fold<int>(0, (sum, sale) => sum + sale.total)
+            .compareTo(a.value.fold<int>(0, (sum, sale) => sum + sale.total)));
+      final recentShifts = pos.registerSessions.reversed.take(10).toList();
+
       int revenue(List<Sale> xs)=>xs.fold(0,(sum,s)=>sum+s.total);
       int cost(List<Sale> xs)=>xs.fold(0,(sum,s)=>sum+pos.costOfSale(s));
       int expenseTotal(List<Expense> xs)=>xs.fold(0,(sum,e)=>sum+e.amount);
@@ -887,6 +896,42 @@ class ReportsPage extends StatelessWidget {
           const Text('En çok satılan ürünler', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
           if (topProducts.isEmpty) const ListTile(title: Text('Henüz satış verisi yok.')),
           for (final item in topProducts.take(5)) ListTile(leading: const Icon(Icons.trending_up), title: Text(item.key), trailing: Text('${item.value} adet')),
+          const Divider(),
+          const Text('Personel performansı', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          if (staffRows.isEmpty) const ListTile(title: Text('Personel bazlı satış kaydı bulunmuyor.')),
+          for (final entry in staffRows)
+            Builder(builder: (_) {
+              final staffSales = entry.value;
+              final total = staffSales.fold<int>(0, (sum, sale) => sum + sale.total);
+              final unitsSold = staffSales.expand((sale) => sale.items)
+                  .fold<int>(0, (sum, item) => sum + item.qty);
+              final cashTotal = staffSales.expand((sale) => sale.payments)
+                  .where((part) => part.method == 'Nakit')
+                  .fold<int>(0, (sum, part) => sum + part.amount);
+              final cardTotal = staffSales.expand((sale) => sale.payments)
+                  .where((part) => part.method == 'Kart')
+                  .fold<int>(0, (sum, part) => sum + part.amount);
+              return Card(child: ExpansionTile(
+                title: Text(entry.key),
+                subtitle: Text('${staffSales.length} satış · Ciro ${money(total)}'),
+                children: [
+                  ListTile(title: const Text('Satılan ürün'), trailing: Text('$unitsSold adet')),
+                  ListTile(title: const Text('Ortalama fiş'), trailing: Text(money(total ~/ staffSales.length))),
+                  ListTile(title: const Text('Nakit / Kart'), trailing: Text('${money(cashTotal)} / ${money(cardTotal)}')),
+                ],
+              ));
+            }),
+          const SizedBox(height: 12),
+          const Text('Kasa vardiyası özeti', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          if (recentShifts.isEmpty) const ListTile(title: Text('Henüz vardiya kaydı yok.')),
+          for (final shift in recentShifts)
+            Card(child: ListTile(
+              leading: Icon(shift.isOpen ? Icons.lock_open : Icons.lock),
+              title: Text('${stamp(DateTime.parse(shift.openedAt).toLocal())} · ${shift.isOpen ? 'Açık' : 'Kapalı'}'),
+              subtitle: Text('Açılış ${money(shift.openingCash)} · Beklenen ${money(shift.expectedCash ?? pos.expectedRegisterCash(shift))}'),
+              trailing: shift.closingCash == null || shift.expectedCash == null
+                ? null : Text('Fark ${money(shift.closingCash! - shift.expectedCash!)}'),
+            )),
           const Divider(),
           const Text('Kârlılık raporları',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),profitCard('Bugün',todaySales,todayExpenses),profitCard('Son 7 gün',weekSales,weekExpenses),profitCard('Bu ay',monthSales,monthExpenses),OutlinedButton.icon(onPressed:()=>_addExpense(context),icon:const Icon(Icons.add_card),label:const Text('İşletme gideri ekle')),OutlinedButton.icon(onPressed:()=>_exportCsv(context),icon:const Icon(Icons.download),label:const Text('Raporları CSV dışa aktar')),for(final expense in pos.expenses.reversed.take(30))ListTile(dense:true,title:Text('${expense.category} · ${money(expense.amount)}'),subtitle:Text('${expense.date} · ${expense.note}')),const Text('Satış geçmişi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
           for (final sale in pos.sales.reversed) Card(child: ExpansionTile(
