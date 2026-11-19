@@ -162,7 +162,7 @@ class SqliteStoreRepository implements StoreRepository {
     }
 
     final staffRows = await db.query('staff', orderBy: 'name');
-    final auditRows = await db.query('audit', orderBy: 'position DESC');
+    final auditRows = await db.query('audit', orderBy: 'position');
     final currentUserRows = await db.query('app_meta', columns: ['value'],
         where: 'key = ?', whereArgs: ['currentUser'], limit: 1);
     return {
