@@ -580,7 +580,7 @@ class Pos extends ChangeNotifier {
     save();
     return true;
   }
-  bool addStaff(String name,String role) { final clean=name.trim(); if(!can('staff')||clean.isEmpty||clean.toLowerCase()=='admin'||staff.any((x)=>x.name.toLowerCase()==clean.toLowerCase())||!['Garson','Kasiyer','Mutfak'].contains(role))return false; staff.add(Staff(clean,role)); log('Personel','Personel eklendi: $clean ($role)'); save(); return true; }
+  bool addStaff(String name,String role,String pin) { final clean=name.trim(); if(!can('staff')||clean.isEmpty||clean.toLowerCase()=='admin'||staff.any((x)=>x.name.toLowerCase()==clean.toLowerCase())||!['Garson','Kasiyer','Mutfak'].contains(role)||!RegExp(r'^[0-9]{4}$').hasMatch(pin)||pin=='1234')return false; staff.add(Staff(clean,role,pin:pin)); log('Personel','Personel eklendi: $clean ($role)'); save(); return true; }
   bool setStaffActive(Staff member,bool active) { if(!can('staff')||member.name=='Admin')return false; member.active=active; log('Personel','${member.name}: ${active?'aktif':'pasif'}'); save(); return true; }
   int get lowStock=>products.where((p)=>p.active&&p.stock<=p.lowAt).length;
 }
@@ -785,6 +785,7 @@ class PaymentDialog extends StatefulWidget {
 
 class _PaymentDialogState extends State<PaymentDialog> {
   final amount = TextEditingController();
+  final staffPin = TextEditingController();
   String? staffName;
   final parts = <PaymentPart>[];
   @override void initState(){super.initState();staffName=pos.currentUser;}
@@ -793,6 +794,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
   @override
   void dispose() {
     amount.dispose();
+    staffPin.dispose();
     super.dispose();
   }
 
@@ -814,7 +816,8 @@ class _PaymentDialogState extends State<PaymentDialog> {
     content: SingleChildScrollView(
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Text('Kalan: ${money(remaining)}'),
-        DropdownButtonFormField<String>(initialValue:staffName,decoration:const InputDecoration(labelText:'Satışı yapan personel'),items:pos.staff.where((member)=>member.active).map((member)=>DropdownMenuItem(value:member.name,child:Text('${member.name} · ${member.role}'))).toList(),onChanged:(value)=>setState(()=>staffName=value)),
+        DropdownButtonFormField<String>(initialValue:staffName,decoration:const InputDecoration(labelText:'Satışı yapan personel'),items:pos.staff.where((member)=>member.active).map((member)=>DropdownMenuItem(value:member.name,child:Text('${member.name} · ${member.role}'))).toList(),onChanged:(value)=>setState(()=>{staffName=value;staffPin.clear();})),
+        TextField(controller:staffPin,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'Personel PIN doğrulaması'),onChanged:(_)=>setState((){})),
         TextField(
           controller: amount,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -833,7 +836,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
     actions: [
       TextButton(onPressed: () => Navigator.pop(context), child: const Text('İptal')),
       FilledButton(
-        onPressed: remaining == 0 && staffName != null
+        onPressed: remaining == 0 && staffName != null && pos.staff.any((member)=>member.name==staffName&&member.active&&member.verifyPin(staffPin.text.trim()))
           ? () => Navigator.pop(context, PaymentResult(List<PaymentPart>.from(parts), staffName!)) : null,
         child: const Text('Ödemeyi tamamla'),
       ),
@@ -1274,13 +1277,15 @@ Widget _metric(String title,String value)=>SizedBox(width:160,child:Card(child:P
 class StaffManagerPage extends StatefulWidget { const StaffManagerPage({super.key}); @override State<StaffManagerPage> createState()=>_StaffManagerPageState(); }
 class _StaffManagerPageState extends State<StaffManagerPage>{
   Future<void> _add() async {
-    final name=TextEditingController(); String role='Garson';
+    final name=TextEditingController(),pin=TextEditingController(),confirm=TextEditingController(); String role='Garson';
     final ok=await showDialog<bool>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,set)=>AlertDialog(title:const Text('Personel ekle'),content:Column(mainAxisSize:MainAxisSize.min,children:[
       TextField(controller:name,decoration:const InputDecoration(labelText:'Ad soyad')),
       DropdownButtonFormField<String>(initialValue:role,decoration:const InputDecoration(labelText:'Görev'),items:const ['Garson','Kasiyer','Mutfak'].map((r)=>DropdownMenuItem(value:r,child:Text(r))).toList(),onChanged:(v)=>set(()=>role=v??'Garson')),
+      TextField(controller:pin,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'Personel PIN (4 rakam)')),
+      TextField(controller:confirm,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'PIN tekrar')),
     ]),actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Ekle'))])));
-    if(ok==true&&!pos.addStaff(name.text,role)&&mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Personel adı boş veya zaten kayıtlı.')));
-    name.dispose();
+    if(ok==true&&(pin.text.trim()!=confirm.text.trim()||!pos.addStaff(name.text,role,pin.text.trim()))&&mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Ad benzersiz olmalı; PIN eşleşmeli ve 1234 dışında 4 rakam olmalı.')));
+    name.dispose();pin.dispose();confirm.dispose();
   }
   @override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(context,_)=>Scaffold(appBar:AppBar(title:const Text('Personel listesi'),actions:[IconButton(onPressed:_add,icon:const Icon(Icons.person_add))]),body:ListView(children:[
     for(final member in pos.staff.where((x)=>x.name!='Admin'))ListTile(title:Text(member.name),subtitle:Text(member.role),trailing:Switch(value:member.active,onChanged:(v)=>pos.setStaffActive(member,v))),
