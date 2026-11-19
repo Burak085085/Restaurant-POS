@@ -14,9 +14,11 @@ Offline-first Flutter point-of-sale application for **Android and Windows**.
 
 ## Storage, migration and backups
 
-- Primary storage is SQLite. State writes are committed in a database transaction.
-- SQLite uses WAL journaling and `synchronous=FULL` for stronger crash durability.
-- Existing `restaurant_pos_v2` SharedPreferences data is migrated automatically on first launch. The old key is removed only after the SQLite write succeeds.
+- Primary storage is normalized SQLite tables: `products`, `pos_tables`, `order_lines`, `sales`, `sale_items`, `payments`, `staff`, `audit` and `app_meta`.
+- Order lines, sale items and payments use foreign keys and explicit positions so item and transaction order survives reloads.
+- State writes replace the normalized records inside one database transaction. SQLite uses WAL journaling, `synchronous=FULL` and foreign-key enforcement.
+- Existing version-1 `app_state` JSON and `restaurant_pos_v2` SharedPreferences data remain readable. They are converted to normalized records on the first successful save; the old SharedPreferences key is removed only after the SQLite transaction commits.
+- The database is upgraded to schema version 2 without discarding the previous JSON payload.
 - A daily JSON snapshot is written under the app documents directory in `backups/`. The seven most recent daily backups are retained.
 - Corrupt legacy JSON is preserved as a separate recovery file before the app starts with safe defaults.
 - Android and Windows devices keep separate local databases. This is not cloud synchronization.
