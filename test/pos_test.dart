@@ -50,7 +50,10 @@ void main() {
     expect(store.sendKitchen(table), isTrue);
     expect(table.items.last.kitchen, KitchenState.queued);
     expect(table.items.first.kitchen, KitchenState.preparing);
-    expect(store.qty(table, 0, -1), isFalse);
+    expect(store.qty(table, 0, -1), isTrue);
+    expect(table.items, hasLength(1));
+    expect(table.items.single.sent, isFalse);
+    expect(store.reservedStock(product.id), 1);
   });
 
   test('kitchen dispatch state survives JSON round trip', () {
