@@ -639,6 +639,15 @@ class ReportsPage extends StatelessWidget {
       final productTotals = <String, int>{};
       for (final sale in weekSales) { for (final item in sale.items) { productTotals[item.name] = (productTotals[item.name] ?? 0) + item.qty; } }
       final topProducts = productTotals.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+      final todayExpenses=pos.expenses.where((e)=>e.date==today).toList();
+      final weekExpenses=pos.expenses.where((e){final d=DateTime.tryParse(e.date);return d!=null&&!d.isBefore(DateTime(weekStart.year,weekStart.month,weekStart.day));}).toList();
+      final monthStart=DateTime(azNow().year,azNow().month,1);
+      final monthSales=pos.sales.where((s){final d=DateTime.tryParse(s.date);return d!=null&&!d.isBefore(monthStart);}).toList();
+      final monthExpenses=pos.expenses.where((e){final d=DateTime.tryParse(e.date);return d!=null&&!d.isBefore(monthStart);}).toList();
+      int revenue(List<Sale> xs)=>xs.fold(0,(sum,s)=>sum+s.total);
+      int cost(List<Sale> xs)=>xs.fold(0,(sum,s)=>sum+pos.costOfSale(s));
+      int expenseTotal(List<Expense> xs)=>xs.fold(0,(sum,e)=>sum+e.amount);
+      Widget profitCard(String label,List<Sale> sales,List<Expense> expenses)=>Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:const TextStyle(fontWeight:FontWeight.bold,fontSize:16)),Wrap(spacing:8,runSpacing:8,children:[_metric('Ciro',money(revenue(sales))),_metric('Ürün maliyeti',money(cost(sales))),_metric('Brüt kâr',money(revenue(sales)-cost(sales))),_metric('Gider',money(expenseTotal(expenses))),_metric('Net kâr',money(revenue(sales)-cost(sales)-expenseTotal(expenses)))])])));
       return Scaffold(
         appBar: AppBar(title: const Text('Satış ve performans raporu')),
         body: pos.can('reports') ? ListView(padding: const EdgeInsets.all(12), children: [
@@ -665,7 +674,7 @@ class ReportsPage extends StatelessWidget {
           if (topProducts.isEmpty) const ListTile(title: Text('Henüz satış verisi yok.')),
           for (final item in topProducts.take(5)) ListTile(leading: const Icon(Icons.trending_up), title: Text(item.key), trailing: Text('${item.value} adet')),
           const Divider(),
-          const Text('Kârlılık özeti',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),Wrap(spacing:8,runSpacing:8,children:[_metric('Ürün maliyeti',money(pos.totalCostOfSales)),_metric('Brüt kâr',money(pos.sales.fold(0,(s,x)=>s+x.total-pos.costOfSale(x)))),_metric('Toplam gider',money(pos.totalExpenses)),_metric('Net kâr',money(pos.netProfit))]),OutlinedButton.icon(onPressed:()=>_addExpense(context),icon:const Icon(Icons.add_card),label:const Text('İşletme gideri ekle')),OutlinedButton.icon(onPressed:()=>_exportCsv(context),icon:const Icon(Icons.download),label:const Text('Raporları CSV dışa aktar')),for(final expense in pos.expenses.reversed.take(30))ListTile(dense:true,title:Text('${expense.category} · ${money(expense.amount)}'),subtitle:Text('${expense.date} · ${expense.note}')),const Text('Satış geçmişi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          const Text('Kârlılık raporları',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),profitCard('Bugün',todaySales,todayExpenses),profitCard('Son 7 gün',weekSales,weekExpenses),profitCard('Bu ay',monthSales,monthExpenses),OutlinedButton.icon(onPressed:()=>_addExpense(context),icon:const Icon(Icons.add_card),label:const Text('İşletme gideri ekle')),OutlinedButton.icon(onPressed:()=>_exportCsv(context),icon:const Icon(Icons.download),label:const Text('Raporları CSV dışa aktar')),for(final expense in pos.expenses.reversed.take(30))ListTile(dense:true,title:Text('${expense.category} · ${money(expense.amount)}'),subtitle:Text('${expense.date} · ${expense.note}')),const Text('Satış geçmişi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
           for (final sale in pos.sales.reversed) Card(child: ExpansionTile(
             title: Text('${sale.date} · ${sale.time} · Masa ${sale.table} · ${money(sale.total)}'),
             subtitle: Text('İndirim: ${money(sale.discount)}'),
