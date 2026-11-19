@@ -834,6 +834,11 @@ class InventoryPage extends StatelessWidget {
             title: const Text('Stok yönetimi'),
             actions: [
               IconButton(tooltip:'Stok hareket geçmişi',onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const StockHistoryPage())),icon:const Icon(Icons.history)),
+              IconButton(tooltip: 'Reçeteler ve malzemeler',
+                onPressed: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const RecipePage())),
+                icon: const Icon(Icons.restaurant_menu)),
+
               IconButton(
                 onPressed: pos.can('inventory') ? () => _editProduct(context) : null,
                 icon: const Icon(Icons.add),
@@ -905,6 +910,139 @@ class InventoryPage extends StatelessWidget {
       ));
     }
   }
+}
+
+class RecipePage extends StatelessWidget {
+  const RecipePage({super.key});
+
+  Future<void> _addIngredient(BuildContext context) async {
+    final name = TextEditingController();
+    final unit = TextEditingController(text: 'adet');
+    final stock = TextEditingController(text: '0');
+    final low = TextEditingController(text: '0');
+    final cost = TextEditingController(text: '0');
+    final ok = await showDialog<bool>(context: context, builder: (dialogContext) =>
+      AlertDialog(
+        title: const Text('Yeni malzeme'),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: name, decoration: const InputDecoration(labelText: 'Malzeme adı')),
+            TextField(controller: unit, decoration: const InputDecoration(labelText: 'Birim (gram, ml, adet)')),
+            TextField(controller: stock, keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Mevcut miktar')),
+            TextField(controller: low, keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Kritik stok miktarı')),
+            TextField(controller: cost, keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'Birim maliyet (₼)')),
+          ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('İptal')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Kaydet')),
+        ],
+      ));
+    if (ok == true) {
+      final item = Ingredient(id: DateTime.now().microsecondsSinceEpoch.toString(),
+        name: name.text.trim(), unit: unit.text.trim(),
+        stock: int.tryParse(stock.text) ?? -1, lowAt: int.tryParse(low.text) ?? -1,
+        costPerUnit: parseMoney(cost.text));
+      if (!pos.addIngredient(item) && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Malzeme bilgileri geçersiz.')));
+      }
+    }
+    name.dispose(); unit.dispose(); stock.dispose(); low.dispose(); cost.dispose();
+  }
+
+  Future<void> _editRecipe(BuildContext context, Product product) async {
+    final lines = List<RecipeLine>.from(pos.recipes[product.id] ?? const []);
+    String? selectedId;
+    final amount = TextEditingController(text: '1');
+    final result = await showDialog<List<RecipeLine>>(context: context,
+      builder: (dialogContext) => StatefulBuilder(builder: (dialogContext, setDialogState) =>
+        AlertDialog(
+          title: Text('${product.name} reçetesi'),
+          content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min,
+            children: [
+              if (lines.isEmpty) const Text('Bu ürün için henüz malzeme tanımlanmadı.'),
+              for (final line in lines)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(pos.ingredients.firstWhere((item) => item.id == line.ingredientId).name),
+                  subtitle: Text('${line.quantity} ${pos.ingredients.firstWhere((item) => item.id == line.ingredientId).unit} / ürün'),
+                  trailing: IconButton(icon: const Icon(Icons.delete_outline),
+                    onPressed: () => setDialogState(() => lines.remove(line))),
+                ),
+              const Divider(),
+              DropdownButtonFormField<String>(
+                value: selectedId,
+                decoration: const InputDecoration(labelText: 'Malzeme seç'),
+                items: pos.ingredients.map((item) => DropdownMenuItem(
+                  value: item.id, child: Text('${item.name} (${item.unit})'))).toList(),
+                onChanged: (value) => setDialogState(() => selectedId = value),
+              ),
+              TextField(controller: amount, keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Ürün başına miktar')),
+              Align(alignment: Alignment.centerRight, child: TextButton.icon(
+                onPressed: selectedId == null || int.tryParse(amount.text) == null ||
+                    int.parse(amount.text) <= 0 || lines.any((line) => line.ingredientId == selectedId)
+                  ? null : () => setDialogState(() {
+                    lines.add(RecipeLine(ingredientId: selectedId!, quantity: int.parse(amount.text)));
+                    selectedId = null; amount.text = '1';
+                  }),
+                icon: const Icon(Icons.add), label: const Text('Malzeme ekle'))),
+            ])),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('İptal')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, lines), child: const Text('Reçeteyi kaydet')),
+          ],
+        )));
+    if (result != null && !pos.setRecipe(product, result) && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reçete kaydedilemedi.')));
+    }
+    amount.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: pos,
+    builder: (context, _) => Scaffold(
+      appBar: AppBar(title: const Text('Malzemeler ve ürün reçeteleri'),
+        actions: [IconButton(onPressed: pos.can('inventory') ? () => _addIngredient(context) : null,
+          icon: const Icon(Icons.add), tooltip: 'Malzeme ekle')]),
+      body: pos.can('inventory') ? ListView(padding: const EdgeInsets.all(12), children: [
+        const Text('Malzeme stokları', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        if (pos.ingredients.isEmpty) const ListTile(title: Text('Henüz malzeme eklenmedi.')),
+        for (final ingredient in pos.ingredients)
+          Card(child: ListTile(
+            leading: Icon(Icons.inventory_2,
+              color: ingredient.stock - pos.reservedIngredientStock(ingredient.id) <= ingredient.lowAt ? red : green),
+            title: Text(ingredient.name),
+            subtitle: Text('${ingredient.stock} ${ingredient.unit} · Birim maliyet ${money(ingredient.costPerUnit)} · Rezerve ${pos.reservedIngredientStock(ingredient.id)}'),
+            trailing: Wrap(mainAxisSize: MainAxisSize.min, children: [
+              IconButton(onPressed: () => pos.adjustIngredient(ingredient, -1), icon: const Icon(Icons.remove)),
+              IconButton(onPressed: () => pos.adjustIngredient(ingredient, 1), icon: const Icon(Icons.add)),
+            ]),
+          )),
+        const Divider(),
+        const Text('Ürün reçeteleri', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        for (final product in pos.products.where((item) => item.active))
+          Card(child: ListTile(
+            title: Text(product.name),
+            subtitle: Text((pos.recipes[product.id] ?? const <RecipeLine>[])
+              .map((line) {
+                final ingredient = pos.ingredients.where((item) => item.id == line.ingredientId);
+                return ingredient.isEmpty ? 'Silinmiş malzeme' : '${ingredient.first.name}: ${line.quantity} ${ingredient.first.unit}';
+              }).join(' · ').isEmpty ? 'Reçete tanımlanmamış' :
+              (pos.recipes[product.id] ?? const <RecipeLine>[])
+                .map((line) {
+                  final ingredient = pos.ingredients.where((item) => item.id == line.ingredientId);
+                  return ingredient.isEmpty ? 'Silinmiş malzeme' : '${ingredient.first.name}: ${line.quantity} ${ingredient.first.unit}';
+                }).join(' · ')),
+            trailing: IconButton(icon: const Icon(Icons.edit),
+              onPressed: () => _editRecipe(context, product)),
+          )),
+      ]) : const Center(child: Text('Malzeme yönetimi için yönetici girişi gerekir.')),
+    ),
+  );
 }
 
 class StockHistoryPage extends StatelessWidget {
