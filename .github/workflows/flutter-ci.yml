@@ -1,7 +1,7 @@
 name: Flutter CI
 on:
   push:
-    branches: [main]
+    branches: [main, 'migrate/**']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -9,8 +9,7 @@ concurrency:
   group: restaurant-pos-ci-${{ github.ref }}
   cancel-in-progress: true
 permissions:
-  contents: read
-  pull-requests: write
+  contents: write
 env:
   FLUTTER_VERSION: "3.50.0"
 jobs:
@@ -67,13 +66,13 @@ jobs:
           name: restaurant-pos-android-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
-      - name: Post CI report on the pull request
-        if: always() && github.event_name == 'pull_request'
+      - name: Publish CI report to the ci-reports branch
+        if: always()
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: bash .github/scripts/comment.sh "Android job"
+          JOB_STATUS: ${{ job.status }}
+        run: bash .github/scripts/publish.sh android
   windows:
     name: Analyze, test and build Windows desktop app
     runs-on: windows-latest
@@ -129,10 +128,10 @@ jobs:
           name: restaurant-pos-windows
           path: build/windows/x64/runner/Release/
           if-no-files-found: error
-      - name: Post CI report on the pull request
-        if: always() && github.event_name == 'pull_request'
+      - name: Publish CI report to the ci-reports branch
+        if: always()
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: bash .github/scripts/comment.sh "Windows job"
+          JOB_STATUS: ${{ job.status }}
+        run: bash .github/scripts/publish.sh windows
