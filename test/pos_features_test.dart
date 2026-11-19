@@ -73,6 +73,23 @@ void main() {
       await pos.flush();
     });
 
+    test('staff roster persists and selected seller is recorded on checkout', () async {
+      final repository = MemoryStoreRepository();
+      final pos = Pos(repository: repository);
+      expect(pos.addStaff('Ayşe Yılmaz', 'Garson'), isTrue);
+      await pos.flush();
+      final restored = Pos(repository: repository);
+      await restored.load();
+      expect(restored.staff.any((member) => member.name == 'Ayşe Yılmaz' && member.active), isTrue);
+      final table = restored.tables.first;
+      final product = restored.products.first;
+      expect(restored.add(table, product), isTrue);
+      expect(restored.sendKitchen(table), isTrue);
+      expect(restored.checkout(table, [PaymentPart('Nakit', product.price)], staffName: 'Ayşe Yılmaz'), isTrue);
+      expect(restored.sales.single.staff, 'Ayşe Yılmaz');
+      await restored.flush();
+    });
+
     test('integrity check reports a clean new store', () async {
       final pos = Pos(repository: MemoryStoreRepository());
       expect(await pos.integrityCheck(), isEmpty);
