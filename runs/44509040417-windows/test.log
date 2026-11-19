@@ -1,0 +1,21 @@
+
+::group::✅ Passing tests
+✅ D:/a/Restaurant-POS/Restaurant-POS/test/pos_test.dart: Azerbaijani manat formatting uses qəpik precision
+✅ D:/a/Restaurant-POS/Restaurant-POS/test/pos_test.dart: money parser converts comma decimals to qəpik
+✅ D:/a/Restaurant-POS/Restaurant-POS/test/pos_test.dart: stock is reserved across all open tables
+✅ D:/a/Restaurant-POS/Restaurant-POS/test/pos_test.dart: kitchen dispatch tracks only sent lines and preserves earlier batches
+✅ D:/a/Restaurant-POS/Restaurant-POS/test/pos_test.dart: kitchen dispatch state survives JSON round trip
+✅ D:/a/Restaurant-POS/Restaurant-POS/test/pos_test.dart: legacy order lines migrate as already sent to kitchen
+✅ D:/a/Restaurant-POS/Restaurant-POS/test/pos_test.dart: cash overpayment records change and checkout consumes stock
+✅ D:/a/Restaurant-POS/Restaurant-POS/test/pos_test.dart: discount requires reason and respects total
+✅ D:/a/Restaurant-POS/Restaurant-POS/test/pos_test.dart: staff PIN is salted and never serialized as plaintext
+✅ D:/a/Restaurant-POS/Restaurant-POS/test/pos_test.dart: waiter permissions do not include management actions
+✅ D:/a/Restaurant-POS/Restaurant-POS/test/pos_test.dart: unknown and inactive users receive no permissions
+✅ D:/a/Restaurant-POS/Restaurant-POS/test/pos_test.dart: removing the last order line clears discount and kitchen state
+✅ D:/a/Restaurant-POS/Restaurant-POS/test/pos_test.dart: product edits preserve inactive state and reject stock below reservations
+✅ D:/a/Restaurant-POS/Restaurant-POS/test/pos_test.dart: corrupt local data is backed up before defaults are restored
+✅ D:/a/Restaurant-POS/Restaurant-POS/test/pos_test.dart: money parser rejects non-finite values
+✅ D:/a/Restaurant-POS/Restaurant-POS/test/widget_test.dart: POS requires admin PIN setup before opening the app
+::endgroup::
+
+🎉 16 tests passed.
