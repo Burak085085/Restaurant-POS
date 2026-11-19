@@ -1,0 +1,19 @@
+# Build and tooling output
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.idea/
+*.iml
+
+# Secrets and signing material must never be committed
+.env
+.env.*
+*.jks
+*.keystore
+key.properties
+local.properties
+analyze.log
+test.log
+build.log
