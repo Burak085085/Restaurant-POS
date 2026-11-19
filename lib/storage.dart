@@ -7,7 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 const String legacyStoreKey = 'restaurant_pos_v2';
-const int storeDatabaseVersion = 2;
+const int storeDatabaseVersion = 3;
 
 bool isDailyBackupFileName(String name) {
   final match = RegExp(r'^restaurant-pos-[0-9]{4}-[0-9]{2}-[0-9]{2}[.]json').firstMatch(name);
@@ -65,6 +65,12 @@ class SqliteStoreRepository implements StoreRepository {
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) await _createNormalizedSchema(db);
+        if (oldVersion < 3) {
+          final columns = await db.rawQuery('PRAGMA table_info(sales)');
+          if (!columns.any((column) => column['name'] == 'register_session_id')) {
+            await db.execute('ALTER TABLE sales ADD COLUMN register_session_id INTEGER REFERENCES register_sessions(id)');
+          }
+        }
       },
     );
     return _database!;
@@ -75,7 +81,9 @@ class SqliteStoreRepository implements StoreRepository {
     await db.execute('CREATE TABLE IF NOT EXISTS products (id TEXT PRIMARY KEY, category TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, stock INTEGER NOT NULL, low_at INTEGER NOT NULL, active INTEGER NOT NULL)');
     await db.execute('CREATE TABLE IF NOT EXISTS pos_tables (id INTEGER PRIMARY KEY, kitchen INTEGER NOT NULL, discount INTEGER NOT NULL, discount_percent INTEGER NOT NULL, discount_reason TEXT NOT NULL)');
     await db.execute('CREATE TABLE IF NOT EXISTS order_lines (id INTEGER PRIMARY KEY AUTOINCREMENT, table_id INTEGER NOT NULL REFERENCES pos_tables(id) ON DELETE CASCADE, position INTEGER NOT NULL, product_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, qty INTEGER NOT NULL, sent INTEGER NOT NULL, kitchen INTEGER NOT NULL, UNIQUE(table_id, position))');
-    await db.execute('CREATE TABLE IF NOT EXISTS sales (position INTEGER PRIMARY KEY, date TEXT NOT NULL, time TEXT NOT NULL, staff TEXT NOT NULL, table_id INTEGER NOT NULL, total INTEGER NOT NULL, discount INTEGER NOT NULL)');
+    await db.execute('CREATE TABLE IF NOT EXISTS register_sessions (id INTEGER PRIMARY KEY, opened_at TEXT NOT NULL, closed_at TEXT, opening_cash INTEGER NOT NULL, closing_cash INTEGER, expected_cash INTEGER, note TEXT NOT NULL)');
+    await db.execute('CREATE TABLE IF NOT EXISTS cash_movements (id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL REFERENCES register_sessions(id) ON DELETE CASCADE, at TEXT NOT NULL, type TEXT NOT NULL, amount INTEGER NOT NULL, note TEXT NOT NULL)');
+    await db.execute('CREATE TABLE IF NOT EXISTS sales (position INTEGER PRIMARY KEY, date TEXT NOT NULL, time TEXT NOT NULL, staff TEXT NOT NULL, table_id INTEGER NOT NULL, total INTEGER NOT NULL, discount INTEGER NOT NULL, register_session_id INTEGER REFERENCES register_sessions(id))');
     await db.execute('CREATE TABLE IF NOT EXISTS sale_items (id INTEGER PRIMARY KEY AUTOINCREMENT, sale_position INTEGER NOT NULL REFERENCES sales(position) ON DELETE CASCADE, position INTEGER NOT NULL, product_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, qty INTEGER NOT NULL, sent INTEGER NOT NULL, kitchen INTEGER NOT NULL, UNIQUE(sale_position, position))');
     await db.execute('CREATE TABLE IF NOT EXISTS payments (id INTEGER PRIMARY KEY AUTOINCREMENT, sale_position INTEGER NOT NULL REFERENCES sales(position) ON DELETE CASCADE, position INTEGER NOT NULL, method TEXT NOT NULL, amount INTEGER NOT NULL, tendered INTEGER NOT NULL, UNIQUE(sale_position, position))');
     await db.execute('CREATE TABLE IF NOT EXISTS staff (name TEXT PRIMARY KEY, role TEXT NOT NULL, salt TEXT NOT NULL, pin_hash TEXT NOT NULL, active INTEGER NOT NULL)');
@@ -130,6 +138,8 @@ class SqliteStoreRepository implements StoreRepository {
       });
     }
 
+    final sessionRows = await db.query('register_sessions', orderBy: 'opened_at');
+    final movementRows = await db.query('cash_movements', orderBy: 'at');
     final saleRows = await db.query('sales', orderBy: 'position');
     final sales = <Map<String, dynamic>>[];
     for (final sale in saleRows) {
@@ -145,6 +155,7 @@ class SqliteStoreRepository implements StoreRepository {
         'table': _int(sale['table_id']),
         'total': _int(sale['total']),
         'discount': _int(sale['discount']),
+        'registerSessionId': sale['register_session_id'],
         'items': items.map((line) => {
           'productId': _string(line['product_id']),
           'name': _string(line['name']),
@@ -177,6 +188,23 @@ class SqliteStoreRepository implements StoreRepository {
       }).toList(),
       'tables': tables,
       'sales': sales,
+      'registerSessions': sessionRows.map((session) => {
+        'id': _int(session['id']),
+        'openedAt': _string(session['opened_at']),
+        'closedAt': session['closed_at'],
+        'openingCash': _int(session['opening_cash']),
+        'closingCash': session['closing_cash'] == null ? null : _int(session['closing_cash']),
+        'expectedCash': session['expected_cash'] == null ? null : _int(session['expected_cash']),
+        'note': _string(session['note']),
+      }).toList(),
+      'cashMovements': movementRows.map((movement) => {
+        'id': _int(movement['id']),
+        'sessionId': _int(movement['session_id']),
+        'at': _string(movement['at']),
+        'type': _string(movement['type']),
+        'amount': _int(movement['amount']),
+        'note': _string(movement['note']),
+      }).toList(),
       'staff': staffRows.map((member) => {
         'name': _string(member['name']),
         'role': _string(member['role']),
@@ -205,6 +233,8 @@ class SqliteStoreRepository implements StoreRepository {
       await transaction.delete('payments');
       await transaction.delete('sale_items');
       await transaction.delete('sales');
+      await transaction.delete('cash_movements');
+      await transaction.delete('register_sessions');
       await transaction.delete('order_lines');
       await transaction.delete('pos_tables');
       await transaction.delete('products');
@@ -258,6 +288,36 @@ class SqliteStoreRepository implements StoreRepository {
         }
       }
 
+      final sessions = decoded['registerSessions'];
+      if (sessions is List) {
+        for (final raw in sessions) {
+          final session = Map<String, dynamic>.from(raw as Map);
+          await transaction.insert('register_sessions', {
+            'id': _int(session['id']),
+            'opened_at': _string(session['openedAt']),
+            'closed_at': session['closedAt'],
+            'opening_cash': _int(session['openingCash']),
+            'closing_cash': session['closingCash'] == null ? null : _int(session['closingCash']),
+            'expected_cash': session['expectedCash'] == null ? null : _int(session['expectedCash']),
+            'note': _string(session['note']),
+          });
+        }
+      }
+      final movements = decoded['cashMovements'];
+      if (movements is List) {
+        for (final raw in movements) {
+          final movement = Map<String, dynamic>.from(raw as Map);
+          await transaction.insert('cash_movements', {
+            'id': _int(movement['id']),
+            'session_id': _int(movement['sessionId']),
+            'at': _string(movement['at']),
+            'type': _string(movement['type']),
+            'amount': _int(movement['amount']),
+            'note': _string(movement['note']),
+          });
+        }
+      }
+
       final sales = decoded['sales'];
       if (sales is List) {
         for (var index = 0; index < sales.length; index++) {
@@ -270,6 +330,7 @@ class SqliteStoreRepository implements StoreRepository {
             'table_id': _int(sale['table']),
             'total': _int(sale['total']),
             'discount': _int(sale['discount']),
+            'register_session_id': sale['registerSessionId'],
           });
           final items = sale['items'];
           if (items is List) {
