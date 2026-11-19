@@ -152,7 +152,7 @@ class Pos extends ChangeNotifier {
   List<Product> products=[Product('p1','Dönerler','Tavuk döner',300),Product('p2','Dönerler','Dana döner',500),Product('p3','Dönerler','Dürüm döner',400),Product('p4','Dönerler','Porsiyon döner',700),Product('p5','İçecekler','Kola',200),Product('p6','İçecekler','Fanta',200),Product('p7','İçecekler','Ayran',100),Product('p8','İçecekler','Su',50),Product('p9','Ekstra','Patates',200),Product('p10','Ekstra','Ketçap',50),Product('p11','Ekstra','Mayonez',50)];
   List<PosTable> tables=List.generate(kTableCount,(i)=>PosTable(i+1)); List<Sale> sales=[]; List<RegisterSession> registerSessions=[]; List<CashMovement> cashMovements=[]; List<Expense> expenses=[]; List<StockMovement> stockMovements=[]; List<Ingredient> ingredients=[]; Map<String,List<RecipeLine>> recipes={}; List<Staff> staff=[Staff('Admin','Yönetici')]; List<Audit> audit=[]; String currentUser='Admin'; final StoreRepository _repository; Future<void> _queue=Future.value();
   Pos({StoreRepository? repository}) : _repository = repository ?? SqliteStoreRepository();
-  Future<void> load() async { final raw=await _repository.read(); if(raw==null)return; try { final j=jsonDecode(raw) as Map<String,dynamic>; products=(j['products'] as List? ?? []).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList(); tables=List.generate(kTableCount,(i)=>PosTable(i+1)); for(final x in (j['tables'] as List? ?? [])){final m=Map<String,dynamic>.from(x); final id=m['id'] as int; if(id<1||id>kTableCount)continue; final t=tables[id-1]; t.items=(m['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(); t.kitchen=KitchenState.values[(m['kitchen']??0).clamp(0,3).toInt()]; final rawItems=(m['items'] as List? ?? []); for(var lineIndex=0;lineIndex<t.items.length;lineIndex++){final rawLine=Map<String,dynamic>.from(rawItems[lineIndex]);if(!rawLine.containsKey('kitchen'))t.items[lineIndex].kitchen=t.kitchen;} t.discount=m['discount']??0;t.discountPercent=m['discountPercent']??false;t.discountReason=m['discountReason']??'';} sales=(j['sales'] as List? ?? []).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList(); expenses=(j['expenses'] as List? ?? []).map((e)=>Expense.fromJson(Map<String,dynamic>.from(e))).toList(); stockMovements=(j['stockMovements'] as List? ?? []).map((e)=>StockMovement.fromJson(Map<String,dynamic>.from(e))).toList(); ingredients=(j['ingredients'] as List? ?? []).map((e)=>Ingredient.fromJson(Map<String,dynamic>.from(e))).toList(); recipes=(j['recipes'] as Map? ?? {}).map((key,value)=>MapEntry(key.toString(),(value as List).map((e)=>RecipeLine.fromJson(Map<String,dynamic>.from(e))).toList())); registerSessions=(j['registerSessions'] as List? ?? []).map((e)=>RegisterSession.fromJson(Map<String,dynamic>.from(e))).toList(); cashMovements=(j['cashMovements'] as List? ?? []).map((e)=>CashMovement.fromJson(Map<String,dynamic>.from(e))).toList(); final legacyStaff=(j['staff'] as List? ?? []).map((e)=>Staff.fromJson(Map<String,dynamic>.from(e))).toList(); final admins=legacyStaff.where((member)=>member.name=='Admin').toList(); final admin=admins.isNotEmpty ? admins.first : Staff('Admin','Yönetici'); admin.active=true; staff=[admin]; audit=(j['audit'] as List? ?? []).map((e)=>Audit.fromJson(Map<String,dynamic>.from(e))).toList(); currentUser='Admin'; } catch (_) { await _repository.backupCorrupt(raw); products=[Product('p1','Dönerler','Tavuk döner',300),Product('p2','Dönerler','Dana döner',500),Product('p3','Dönerler','Dürüm döner',400),Product('p4','Dönerler','Porsiyon döner',700),Product('p5','İçecekler','Kola',200),Product('p6','İçecekler','Fanta',200),Product('p7','İçecekler','Ayran',100),Product('p8','İçecekler','Su',50),Product('p9','Ekstra','Patates',200),Product('p10','Ekstra','Ketçap',50),Product('p11','Ekstra','Mayonez',50)]; tables=List.generate(kTableCount,(i)=>PosTable(i+1)); sales=[]; registerSessions=[]; cashMovements=[]; expenses=[]; stockMovements=[]; staff=[Staff('Admin','Yönetici')]; audit=[]; currentUser='Admin'; } }
+  Future<void> load() async { final raw=await _repository.read(); if(raw==null)return; try { final j=jsonDecode(raw) as Map<String,dynamic>; products=(j['products'] as List? ?? []).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList(); tables=List.generate(kTableCount,(i)=>PosTable(i+1)); for(final x in (j['tables'] as List? ?? [])){final m=Map<String,dynamic>.from(x); final id=m['id'] as int; if(id<1||id>kTableCount)continue; final t=tables[id-1]; t.items=(m['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(); t.kitchen=KitchenState.values[(m['kitchen']??0).clamp(0,3).toInt()]; final rawItems=(m['items'] as List? ?? []); for(var lineIndex=0;lineIndex<t.items.length;lineIndex++){final rawLine=Map<String,dynamic>.from(rawItems[lineIndex]);if(!rawLine.containsKey('kitchen'))t.items[lineIndex].kitchen=t.kitchen;} t.discount=m['discount']??0;t.discountPercent=m['discountPercent']??false;t.discountReason=m['discountReason']??'';} sales=(j['sales'] as List? ?? []).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList(); expenses=(j['expenses'] as List? ?? []).map((e)=>Expense.fromJson(Map<String,dynamic>.from(e))).toList(); stockMovements=(j['stockMovements'] as List? ?? []).map((e)=>StockMovement.fromJson(Map<String,dynamic>.from(e))).toList(); ingredients=(j['ingredients'] as List? ?? []).map((e)=>Ingredient.fromJson(Map<String,dynamic>.from(e))).toList(); recipes=(j['recipes'] as Map? ?? {}).map((key,value)=>MapEntry(key.toString(),(value as List).map((e)=>RecipeLine.fromJson(Map<String,dynamic>.from(e))).toList())); registerSessions=(j['registerSessions'] as List? ?? []).map((e)=>RegisterSession.fromJson(Map<String,dynamic>.from(e))).toList(); cashMovements=(j['cashMovements'] as List? ?? []).map((e)=>CashMovement.fromJson(Map<String,dynamic>.from(e))).toList(); final legacyStaff=(j['staff'] as List? ?? []).map((e)=>Staff.fromJson(Map<String,dynamic>.from(e))).toList(); final admins=legacyStaff.where((member)=>member.name=='Admin').toList(); final admin=admins.isNotEmpty ? admins.first : Staff('Admin','Yönetici'); admin.active=true; final names=<String>{'admin'}; staff=[admin,...legacyStaff.where((member)=>member.name!='Admin'&&member.name.trim().isNotEmpty&&names.add(member.name.trim().toLowerCase()))]; audit=(j['audit'] as List? ?? []).map((e)=>Audit.fromJson(Map<String,dynamic>.from(e))).toList(); currentUser='Admin'; } catch (_) { await _repository.backupCorrupt(raw); products=[Product('p1','Dönerler','Tavuk döner',300),Product('p2','Dönerler','Dana döner',500),Product('p3','Dönerler','Dürüm döner',400),Product('p4','Dönerler','Porsiyon döner',700),Product('p5','İçecekler','Kola',200),Product('p6','İçecekler','Fanta',200),Product('p7','İçecekler','Ayran',100),Product('p8','İçecekler','Su',50),Product('p9','Ekstra','Patates',200),Product('p10','Ekstra','Ketçap',50),Product('p11','Ekstra','Mayonez',50)]; tables=List.generate(kTableCount,(i)=>PosTable(i+1)); sales=[]; registerSessions=[]; cashMovements=[]; expenses=[]; stockMovements=[]; staff=[Staff('Admin','Yönetici')]; audit=[]; currentUser='Admin'; } }
 
   String _snapshot() => jsonEncode({
     'products': products.map((e) => e.toJson()).toList(),
@@ -580,10 +580,8 @@ class Pos extends ChangeNotifier {
     save();
     return true;
   }
-  bool setStaffActive(Staff member, bool active) {
-    if (!can('staff') || (member.name == currentUser && !active)) return false;
-    member.active = active; log('Personel', '${member.name}: ${active ? 'aktif' : 'pasif'}'); save(); return true;
-  }
+  bool addStaff(String name,String role) { final clean=name.trim(); if(!can('staff')||clean.isEmpty||clean.toLowerCase()=='admin'||staff.any((x)=>x.name.toLowerCase()==clean.toLowerCase())||!['Garson','Kasiyer','Mutfak'].contains(role))return false; staff.add(Staff(clean,role)); log('Personel','Personel eklendi: $clean ($role)'); save(); return true; }
+  bool setStaffActive(Staff member,bool active) { if(!can('staff')||member.name=='Admin')return false; member.active=active; log('Personel','${member.name}: ${active?'aktif':'pasif'}'); save(); return true; }
   int get lowStock=>products.where((p)=>p.active&&p.stock<=p.lowAt).length;
 }
 final pos=Pos();
@@ -787,14 +785,14 @@ class PaymentDialog extends StatefulWidget {
 
 class _PaymentDialogState extends State<PaymentDialog> {
   final amount = TextEditingController();
-  late final staffName = TextEditingController(text: widget.initialStaff);
+  String? staffName;
   final parts = <PaymentPart>[];
+  @override void initState(){super.initState();staffName=pos.currentUser;}
   late int remaining = widget.total;
 
   @override
   void dispose() {
     amount.dispose();
-    staffName.dispose();
     super.dispose();
   }
 
@@ -816,11 +814,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
     content: SingleChildScrollView(
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Text('Kalan: ${money(remaining)}'),
-        TextField(
-          controller: staffName,
-          textCapitalization: TextCapitalization.words,
-          decoration: const InputDecoration(labelText: 'Satışı yapan personel'),
-        ),
+        DropdownButtonFormField<String>(value:staffName,decoration:const InputDecoration(labelText:'Satışı yapan personel'),items:pos.staff.where((member)=>member.active).map((member)=>DropdownMenuItem(value:member.name,child:Text('${member.name} · ${member.role}'))).toList(),onChanged:(value)=>setState(()=>staffName=value)),
         TextField(
           controller: amount,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -839,8 +833,8 @@ class _PaymentDialogState extends State<PaymentDialog> {
     actions: [
       TextButton(onPressed: () => Navigator.pop(context), child: const Text('İptal')),
       FilledButton(
-        onPressed: remaining == 0 && staffName.text.trim().isNotEmpty
-          ? () => Navigator.pop(context, PaymentResult(List<PaymentPart>.from(parts), staffName.text.trim())) : null,
+        onPressed: remaining == 0 && staffName != null
+          ? () => Navigator.pop(context, PaymentResult(List<PaymentPart>.from(parts), staffName!)) : null,
         child: const Text('Ödemeyi tamamla'),
       ),
     ],
@@ -1277,6 +1271,23 @@ class ReportsPage extends StatelessWidget {
 
 Widget _metric(String title,String value)=>SizedBox(width:160,child:Card(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(title),Text(value,style:const TextStyle(fontWeight:FontWeight.bold,fontSize:19))]))));
 
+class StaffManagerPage extends StatefulWidget { const StaffManagerPage({super.key}); @override State<StaffManagerPage> createState()=>_StaffManagerPageState(); }
+class _StaffManagerPageState extends State<StaffManagerPage>{
+  Future<void> _add() async {
+    final name=TextEditingController(); String role='Garson';
+    final ok=await showDialog<bool>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,set)=>AlertDialog(title:const Text('Personel ekle'),content:Column(mainAxisSize:MainAxisSize.min,children:[
+      TextField(controller:name,decoration:const InputDecoration(labelText:'Ad soyad')),
+      DropdownButtonFormField<String>(value:role,decoration:const InputDecoration(labelText:'Görev'),items:const ['Garson','Kasiyer','Mutfak'].map((r)=>DropdownMenuItem(value:r,child:Text(r))).toList(),onChanged:(v)=>set(()=>role=v??'Garson')),
+    ]),actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Ekle'))])));
+    if(ok==true&&!pos.addStaff(name.text,role)&&mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Personel adı boş veya zaten kayıtlı.')));
+    name.dispose();
+  }
+  @override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(context,_)=>Scaffold(appBar:AppBar(title:const Text('Personel listesi'),actions:[IconButton(onPressed:_add,icon:const Icon(Icons.person_add))]),body:ListView(children:[
+    for(final member in pos.staff.where((x)=>x.name!='Admin'))ListTile(title:Text(member.name),subtitle:Text(member.role),trailing:Switch(value:member.active,onChanged:(v)=>pos.setStaffActive(member,v))),
+    if(pos.staff.length==1)const ListTile(title:Text('Henüz personel eklenmedi.')),
+  ])));
+}
+
 class AdminPage extends StatelessWidget {
   const AdminPage({super.key});
   @override
@@ -1285,7 +1296,8 @@ class AdminPage extends StatelessWidget {
     builder: (context, _) => Scaffold(
       appBar: AppBar(title: const Text('Yönetim ve güvenlik')),
       body: ListView(padding: const EdgeInsets.all(12), children: [
-        const Card(child: ListTile(leading: Icon(Icons.admin_panel_settings), title: Text('Tek kullanıcı: Yönetici'), subtitle: Text('Personel hesabı ve kullanıcı değiştirme kapalıdır.'))),
+        const Card(child: ListTile(leading: Icon(Icons.admin_panel_settings),title:Text('Yönetici kontrolü'),subtitle:Text('Personel listesini yönetin ve satışları personele atayın.'))),
+        OutlinedButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const StaffManagerPage())),icon:const Icon(Icons.groups),label:const Text('Personel listesi ve yönetimi')),
         OutlinedButton.icon(onPressed: () => _changePin(context), icon: const Icon(Icons.lock_reset), label: const Text('Yönetici PIN kodunu değiştir')),
         OutlinedButton.icon(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BackupManagerPage())), icon: const Icon(Icons.restore), label: const Text('Yedekleri görüntüle ve geri yükle')),
         OutlinedButton.icon(onPressed: () => _runIntegrityCheck(context), icon: const Icon(Icons.fact_check), label: const Text('Veri bütünlüğünü denetle')),
