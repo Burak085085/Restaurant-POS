@@ -1268,59 +1268,33 @@ class StaffManagerPage extends StatefulWidget {
 }
 class _StaffManagerPageState extends State<StaffManagerPage>{
   Future<void> _add() async {
-    final name=TextEditingController(), pin=TextEditingController(), confirm=TextEditingController();
-    String role='Garson';
-    final result=await showDialog<bool>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,set)=>AlertDialog(
-      title:const Text('Yeni personel hesabı'),
-      content:Column(mainAxisSize:MainAxisSize.min,children:[
-        TextField(controller:name,decoration:const InputDecoration(labelText:'Ad soyad')),
-        DropdownButtonFormField<String>(value:role,decoration:const InputDecoration(labelText:'Görev'),items:const ['Garson','Kasiyer','Mutfak'].map((r)=>DropdownMenuItem(value:r,child:Text(r))).toList(),onChanged:(v)=>set(()=>role=v??'Garson')),
-        TextField(controller:pin,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'4 haneli PIN')),
-        TextField(controller:confirm,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'PIN tekrar')),
-      ]),
-      actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Oluştur'))],
-    )));
-    if(result==true){
-      final value=pin.text.trim();
-      if(value!=confirm.text.trim()||!pos.addStaff(name.text,role,value)){
-        if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Ad benzersiz olmalı; PIN iki alanda eşleşmeli, 1234 dışında 4 rakam olmalı.')));
-      }
-    }
+    final name=TextEditingController(),pin=TextEditingController(),confirm=TextEditingController(); String role='Garson';
+    final result=await showDialog<bool>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,set)=>AlertDialog(title:const Text('Yeni personel hesabı'),content:Column(mainAxisSize:MainAxisSize.min,children:[
+      TextField(controller:name,decoration:const InputDecoration(labelText:'Ad soyad')),
+      DropdownButtonFormField<String>(value:role,decoration:const InputDecoration(labelText:'Görev'),items:const ['Garson','Kasiyer','Mutfak'].map((r)=>DropdownMenuItem(value:r,child:Text(r))).toList(),onChanged:(v)=>set(()=>role=v??'Garson')),
+      TextField(controller:pin,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'4 haneli PIN')),
+      TextField(controller:confirm,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'PIN tekrar')),
+    ]),actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Oluştur'))])));
+    if(result==true&&(pin.text.trim()!=confirm.text.trim()||!pos.addStaff(name.text,role,pin.text.trim()))&&mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Ad benzersiz olmalı; PIN eşleşmeli ve 1234 dışında 4 rakam olmalı.')));
     name.dispose();pin.dispose();confirm.dispose();
   }
   Future<void> _resetPin(Staff member) async {
     final pin=TextEditingController(),confirm=TextEditingController();
-    final result=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(
-      title:Text('${member.name} PIN yenile'),
-      content:Column(mainAxisSize:MainAxisSize.min,children:[
-        TextField(controller:pin,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'Yeni PIN')),
-        TextField(controller:confirm,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'Yeni PIN tekrar')),
-      ]),
-      actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Kaydet'))],
-    ));
-    if(result==true&&(pin.text.trim()!=confirm.text.trim()||!pos.resetStaffPin(member,pin.text.trim()))&&mounted){
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('PIN eşleşmiyor veya geçersiz.')));
-    }
+    final result=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(title:Text('${member.name} PIN yenile'),content:Column(mainAxisSize:MainAxisSize.min,children:[
+      TextField(controller:pin,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'Yeni PIN')),
+      TextField(controller:confirm,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'Yeni PIN tekrar')),
+    ]),actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Kaydet'))]));
+    if(result==true&&(pin.text.trim()!=confirm.text.trim()||!pos.resetStaffPin(member,pin.text.trim()))&&mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('PIN eşleşmiyor veya geçersiz.')));
     pin.dispose();confirm.dispose();
   }
-  @override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(context,_)=>Scaffold(
-    appBar:AppBar(title:const Text('Personel hesapları'),actions:[IconButton(onPressed:_add,icon:const Icon(Icons.person_add),tooltip:'Personel ekle')]),
-    body:ListView(padding:const EdgeInsets.all(12),children:[
-      const Text('Her personelin kendi 4 haneli PIN kodu bulunur. Satışlar oturum açan personele otomatik yazılır.',style:TextStyle(color:Colors.black54)),
-      const SizedBox(height:8),
-      for(final member in pos.staff.where((item)=>item.name!='Admin'))
-        Card(child:ListTile(
-          leading:CircleAvatar(child:Text(member.name.isNotEmpty?member.name[0].toUpperCase():'?')),
-          title:Text(member.name),
-          subtitle:Text('${member.role} · ${member.active?'Aktif':'Pasif'}'),
-          trailing:Wrap(mainAxisSize:MainAxisSize.min,children:[
-            IconButton(tooltip:'PIN yenile',onPressed:()=>_resetPin(member),icon:const Icon(Icons.lock_reset)),
-            Switch(value:member.active,onChanged:(value){if(!pos.setStaffActive(member,value))ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Personel durumu değiştirilemedi.')));}),
-          ]),
-        )),
-      if(pos.staff.length==1)const ListTile(title:Text('Henüz personel hesabı eklenmedi.')),
-    ]),
-  ));
+  @override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(context,_)=>Scaffold(appBar:AppBar(title:const Text('Personel hesapları'),actions:[IconButton(onPressed:_add,icon:const Icon(Icons.person_add),tooltip:'Personel ekle')]),body:ListView(padding:const EdgeInsets.all(12),children:[
+    const Text('Personelin kendi PIN kodu bulunur. Satışlar oturum açan kullanıcıya otomatik atanır.'),
+    for(final member in pos.staff.where((item)=>item.name!='Admin'))Card(child:ListTile(title:Text(member.name),subtitle:Text('${member.role} · ${member.active?'Aktif':'Pasif'}'),trailing:Wrap(mainAxisSize:MainAxisSize.min,children:[
+      IconButton(tooltip:'PIN yenile',onPressed:()=>_resetPin(member),icon:const Icon(Icons.lock_reset)),
+      Switch(value:member.active,onChanged:(value){if(!pos.setStaffActive(member,value))ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Personel durumu değiştirilemedi.')));}),
+    ]))),
+    if(pos.staff.length==1)const ListTile(title:Text('Henüz personel hesabı eklenmedi.')),
+  ])));
 }
 
 class AdminPage extends StatelessWidget {
@@ -1331,7 +1305,7 @@ class AdminPage extends StatelessWidget {
     builder: (context, _) => Scaffold(
       appBar: AppBar(title: const Text('Yönetim ve güvenlik')),
       body: ListView(padding: const EdgeInsets.all(12), children: [
-        Card(child: ListTile(leading: const Icon(Icons.admin_panel_settings), title: const Text('Oturum: Yönetici'), subtitle: Text('${pos.staff.where((member)=>member.name!='Admin'&&member.active).length} aktif personel hesabı'))),
+        Card(child: ListTile(leading: const Icon(Icons.admin_panel_settings), title: const Text('Yönetici oturumu'), subtitle: Text('${pos.staff.where((member)=>member.name!='Admin'&&member.active).length} aktif personel hesabı'))),
         OutlinedButton.icon(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StaffManagerPage())), icon: const Icon(Icons.groups), label: const Text('Personel hesaplarını yönet')),
         OutlinedButton.icon(onPressed: () => _changePin(context), icon: const Icon(Icons.lock_reset), label: const Text('Yönetici PIN kodunu değiştir')),
         OutlinedButton.icon(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BackupManagerPage())), icon: const Icon(Icons.restore), label: const Text('Yedekleri görüntüle ve geri yükle')),
@@ -1480,7 +1454,7 @@ class PinGate extends StatefulWidget {
   @override State<PinGate> createState() => _PinGateState();
 }
 class _PinGateState extends State<PinGate> {
-  final pin=TextEditingController(), confirm=TextEditingController();
+  final pin=TextEditingController(),confirm=TextEditingController();
   String? error; String selectedStaff='Admin'; int failedAttempts=0; DateTime? lockedUntil;
   Staff get selected=>pos.staff.firstWhere((s)=>s.name==selectedStaff);
   Staff get admin=>pos.staff.firstWhere((s)=>s.name=='Admin');
@@ -1505,7 +1479,6 @@ class _PinGateState extends State<PinGate> {
     SizedBox(width:double.infinity,child:FilledButton(onPressed:submit,child:Text(setupRequired?'PIN oluştur ve devam et':'Giriş yap')))
   ]))))));
 }
-
 
 class RegisterPage extends StatelessWidget {
   const RegisterPage({super.key});
@@ -1668,7 +1641,6 @@ class RegisterPage extends StatelessWidget {
   );
 }
 ).hasMatch(pin)||pin=='1234')return false; staff.add(Staff(clean,role,pin:pin)); log('Personel','Hesap oluşturuldu: $clean ($role)'); save(); return true; }
-  bool setStaffActive(Staff member,bool active) { if(!can('staff')||member.name=='Admin'||!staff.contains(member))return false; member.active=active; log('Personel','${member.name}: ${active?'aktif':'pasif'}'); save(); return true; }
   bool resetStaffPin(Staff member,String pin) { if(!can('staff')||member.name=='Admin'||!staff.contains(member)||!RegExp(r'^[0-9]{4}
   int get todayTotal=>sales.where((s)=>s.date==dayKey(azNow())).fold(0,(a,s)=>a+s.total); int get todayCount=>sales.where((s)=>s.date==dayKey(azNow())).length;
   int reservedStock(String productId) => tables.fold(0, (sum, table) =>
