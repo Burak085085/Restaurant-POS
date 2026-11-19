@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -230,7 +231,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final directory = await Directory.systemTemp.createTemp('restaurant-pos-sqlite-');
     final repository = SqliteStoreRepository(
-      databasePath: '\${directory.path}/pos.sqlite3',
+      databasePath: '${directory.path}/pos.sqlite3',
       backupDirectoryPath: directory.path,
     );
     final payload = {
@@ -293,7 +294,7 @@ void main() {
     });
     final directory = await Directory.systemTemp.createTemp('restaurant-pos-legacy-');
     final repository = SqliteStoreRepository(
-      databasePath: '\${directory.path}/pos.sqlite3',
+      databasePath: '${directory.path}/pos.sqlite3',
       backupDirectoryPath: directory.path,
     );
     try {
