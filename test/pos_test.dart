@@ -130,7 +130,7 @@ void main() {
     final repository = MemoryStoreRepository(value: '{"products":[{"id":"old","category":"Test","name":"Old","price":100,"stock":5,"lowAt":1,"active":true}],"tables":[],"sales":[],"staff":[],"audit":[]}');
     final store = Pos(repository: repository);
     await store.load();
-    final backup = '{"products":[{"id":"new","category":"Test","name":"Restored","price":250,"stock":8,"lowAt":2,"active":true}],"tables":[],"sales":[],"staff":[],"audit":[]}';
+    const backup = '{"products":[{"id":"new","category":"Test","name":"Restored","price":250,"stock":8,"lowAt":2,"active":true}],"tables":[],"sales":[],"staff":[],"audit":[]}';
 
     expect(await store.restoreBackup(backup), isTrue);
     expect(store.products.single.name, 'Restored');
