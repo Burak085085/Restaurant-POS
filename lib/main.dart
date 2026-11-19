@@ -116,7 +116,7 @@ class Pos extends ChangeNotifier {
       if (candidateRepository.corruptBackup != null) return false;
 
       await _repository.backupBeforeRestore(_snapshot());
-      await _repository.write(payload);
+      await _repository.write(candidate._snapshot());
       await load();
       log('Yedek geri yüklendi', 'Yerel yedek dosyasından veriler geri yüklendi');
       save();
