@@ -477,7 +477,7 @@ class Pos extends ChangeNotifier {
   bool addExpense(int amount,String category,String note){if(!can('reports')||amount<=0||category.trim().isEmpty||note.trim().isEmpty)return false;expenses.add(Expense(id:DateTime.now().microsecondsSinceEpoch,amount:amount,category:category.trim(),note:note.trim(),date:dayKey(azNow())));log('Gider','${category.trim()} · ${money(amount)} · ${note.trim()}');save();return true;}
   int costOfSale(Sale sale)=>sale.items.fold(0,(s,item)=>s+item.unitCost*item.qty);int get totalExpenses=>expenses.fold(0,(s,e)=>s+e.amount);int get totalCostOfSales=>sales.fold(0,(s,e)=>s+costOfSale(e));int get netProfit=>sales.fold(0,(s,e)=>s+e.total-costOfSale(e))-totalExpenses;
   String buildCsv(){String q(Object? v)=>'"${v.toString().replaceAll('"','""')}"';final b=StringBuffer('Tarih;Tür;Açıklama;Adet;Ciro/Gider;Maliyet\\r\\n');for(final sale in sales){b.writeln([q(sale.date),q('Satış'),q('Masa ${sale.table}'),q(sale.items.fold<int>(0,(int n,OrderLine x)=>n+x.qty)),q(sale.total/100),q(costOfSale(sale)/100)].join(';'));}for(final e in expenses){b.writeln([q(e.date),q('Gider'),q('${e.category}: ${e.note}'),q(1),q(e.amount/100),q(0)].join(';'));}return b.toString();}
-  bool checkout(PosTable t, List<PaymentPart> payments) {
+  bool checkout(PosTable t, List<PaymentPart> payments, {String? staffName}) {
     if (!can('orders') || t.items.isEmpty || t.items.any((line) => !line.sent)) return false;
     final total = t.total;
     if (payments.isEmpty || payments.any((part) => !part.isValid) || payments.fold(0, (sum, part) => sum + part.amount) != total) return false;
@@ -509,7 +509,9 @@ class Pos extends ChangeNotifier {
       final ingredient = ingredients.firstWhere((item) => item.id == entry.key);
       ingredient.stock -= entry.value;
     }
-    sales.add(Sale(dayKey(now), stamp(now), currentUser, t.id, total, t.subtotal-total,
+    final seller = (staffName ?? currentUser).trim();
+    if (seller.isEmpty) return false;
+    sales.add(Sale(dayKey(now), stamp(now), seller, t.id, total, t.subtotal-total,
       t.items.map((e) { final product=products.firstWhere((p)=>p.id==e.productId); return OrderLine(e.productId,e.name,e.price,e.qty,unitCost:product.costPrice + recipeCost(product)); }).toList(), payments,
       registerSessionId: activeRegister?.id));
     log('Ödeme', 'Masa ${t.id}: ${money(total)}');
@@ -768,9 +770,16 @@ int? _addPart(List<PaymentPart> parts, String method, TextEditingController ctrl
   return remaining - received;
 }
 
+class PaymentResult {
+  final List<PaymentPart> payments;
+  final String staffName;
+  const PaymentResult(this.payments, this.staffName);
+}
+
 class PaymentDialog extends StatefulWidget {
   final int total;
-  const PaymentDialog({super.key, required this.total});
+  final String initialStaff;
+  const PaymentDialog({super.key, required this.total, required this.initialStaff});
 
   @override
   State<PaymentDialog> createState() => _PaymentDialogState();
@@ -778,12 +787,14 @@ class PaymentDialog extends StatefulWidget {
 
 class _PaymentDialogState extends State<PaymentDialog> {
   final amount = TextEditingController();
+  late final staffName = TextEditingController(text: widget.initialStaff);
   final parts = <PaymentPart>[];
   late int remaining = widget.total;
 
   @override
   void dispose() {
     amount.dispose();
+    staffName.dispose();
     super.dispose();
   }
 
@@ -806,6 +817,11 @@ class _PaymentDialogState extends State<PaymentDialog> {
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Text('Kalan: ${money(remaining)}'),
         TextField(
+          controller: staffName,
+          textCapitalization: TextCapitalization.words,
+          decoration: const InputDecoration(labelText: 'Satışı yapan personel'),
+        ),
+        TextField(
           controller: amount,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: const InputDecoration(labelText: 'Tutar (örn. 12,50)'),
@@ -823,7 +839,8 @@ class _PaymentDialogState extends State<PaymentDialog> {
     actions: [
       TextButton(onPressed: () => Navigator.pop(context), child: const Text('İptal')),
       FilledButton(
-        onPressed: remaining == 0 ? () => Navigator.pop(context, parts) : null,
+        onPressed: remaining == 0 && staffName.text.trim().isNotEmpty
+          ? () => Navigator.pop(context, PaymentResult(List<PaymentPart>.from(parts), staffName.text.trim())) : null,
         child: const Text('Ödemeyi tamamla'),
       ),
     ],
