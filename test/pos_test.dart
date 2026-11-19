@@ -126,6 +126,28 @@ void main() {
     expect(store.can('reports'), isTrue);
   });
 
+  test('backup restore preserves the current state before replacing it', () async {
+    final repository = MemoryStoreRepository(value: '{"products":[{"id":"old","category":"Test","name":"Old","price":100,"stock":5,"lowAt":1,"active":true}],"tables":[],"sales":[],"staff":[],"audit":[]}');
+    final store = Pos(repository: repository);
+    await store.load();
+    final backup = '{"products":[{"id":"new","category":"Test","name":"Restored","price":250,"stock":8,"lowAt":2,"active":true}],"tables":[],"sales":[],"staff":[],"audit":[]}';
+
+    expect(await store.restoreBackup(backup), isTrue);
+    expect(store.products.single.name, 'Restored');
+    expect(repository.backupFiles, hasLength(1));
+    expect(repository.backupFiles.values.single, contains('"Old"'));
+  });
+
+  test('invalid backup cannot replace current data', () async {
+    final repository = MemoryStoreRepository(value: '{"products":[{"id":"old","category":"Test","name":"Old","price":100,"stock":5,"lowAt":1,"active":true}],"tables":[],"sales":[],"staff":[],"audit":[]}');
+    final store = Pos(repository: repository);
+    await store.load();
+
+    expect(await store.restoreBackup('{broken-json'), isFalse);
+    expect(store.products.single.name, 'Old');
+    expect(repository.backupFiles, isEmpty);
+  });
+
   test('backup retention matches only dated daily JSON files', () {
     expect(isDailyBackupFileName('restaurant-pos-2026-11-19.json'), isTrue);
     expect(isDailyBackupFileName('restaurant-pos-corrupt-2026-11-19T12-00-00.json'), isFalse);
