@@ -66,6 +66,7 @@ class SqliteStoreRepository implements StoreRepository {
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) await _createNormalizedSchema(db);
         if (oldVersion < 3) {
+          await _createNormalizedSchema(db);
           final columns = await db.rawQuery('PRAGMA table_info(sales)');
           if (!columns.any((column) => column['name'] == 'register_session_id')) {
             await db.execute('ALTER TABLE sales ADD COLUMN register_session_id INTEGER REFERENCES register_sessions(id)');
