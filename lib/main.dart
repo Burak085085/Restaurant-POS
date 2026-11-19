@@ -245,6 +245,63 @@ class Pos extends ChangeNotifier {
     save();
     return true;
   }
+  bool moveTable(PosTable source, PosTable destination) {
+    if (!can('orders') || source == destination || source.items.isEmpty ||
+        destination.items.isNotEmpty) return false;
+    destination.items.addAll(source.items);
+    destination.discount = source.discount;
+    destination.discountPercent = source.discountPercent;
+    destination.discountReason = source.discountReason;
+    destination.kitchen = tableKitchenState(destination);
+    source.items.clear();
+    source.discount = 0; source.discountPercent = false; source.discountReason = '';
+    source.kitchen = KitchenState.queued;
+    log('Masa taşıma', 'Masa ${source.id} → Masa ${destination.id}');
+    save();
+    return true;
+  }
+
+  bool mergeTables(PosTable source, PosTable destination) {
+    if (!can('orders') || source == destination || source.items.isEmpty ||
+        destination.items.isEmpty) return false;
+    int discountOf(PosTable table) => table.discountPercent
+        ? table.subtotal * table.discount ~/ 100 : table.discount;
+    final combinedSubtotal = source.subtotal + destination.subtotal;
+    final combinedDiscount = discountOf(source) + discountOf(destination);
+    if (combinedDiscount >= combinedSubtotal) return false;
+    destination.items.addAll(source.items);
+    destination.discount = combinedDiscount;
+    destination.discountPercent = false;
+    destination.discountReason = [destination.discountReason, source.discountReason]
+        .where((reason) => reason.trim().isNotEmpty).join(' + ');
+    destination.kitchen = tableKitchenState(destination);
+    source.items.clear();
+    source.discount = 0; source.discountPercent = false; source.discountReason = '';
+    source.kitchen = KitchenState.queued;
+    log('Masa birleştirme', 'Masa ${source.id} → Masa ${destination.id}');
+    save();
+    return true;
+  }
+
+  bool splitTable(PosTable source, PosTable destination,
+      {required int lineIndex, required int quantity}) {
+    if (!can('orders') || source == destination || source.items.isEmpty ||
+        destination.items.isNotEmpty || source.discount != 0 ||
+        destination.discount != 0 || lineIndex < 0 ||
+        lineIndex >= source.items.length) return false;
+    final line = source.items[lineIndex];
+    if (quantity <= 0 || quantity > line.qty) return false;
+    destination.items.add(OrderLine(line.productId, line.name, line.price, quantity,
+        sent: line.sent, kitchen: line.kitchen, unitCost: line.unitCost));
+    line.qty -= quantity;
+    if (line.qty == 0) source.items.removeAt(lineIndex);
+    destination.kitchen = tableKitchenState(destination);
+    source.kitchen = tableKitchenState(source);
+    log('Masa bölme', 'Masa ${source.id} → Masa ${destination.id}: ${line.name} × $quantity');
+    save();
+    return true;
+  }
+
   void setKitchen(PosTable t, KitchenState state) {
     if (!can('kitchen') || !t.items.any((line) => line.sent && line.kitchen != KitchenState.served)) return;
     for (final line in t.items.where((line) => line.sent && line.kitchen != KitchenState.served)) {
@@ -363,7 +420,145 @@ class PosApp extends StatelessWidget {const PosApp({super.key});@override Widget
 class Home extends StatefulWidget {const Home({super.key});@override State<Home> createState()=>_HomeState();}
 class _HomeState extends State<Home>{int tab=0;bool authenticated=false;@override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(context,_){if(!authenticated)return PinGate(onAuthenticated:()=>setState(()=>authenticated=true));final pages=[const TablesPage(),const KitchenPage(),const InventoryPage(),const ReportsPage(),const AdminPage()];return Scaffold(body:SafeArea(child:pages[tab]),bottomNavigationBar:NavigationBar(selectedIndex:tab,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:const [NavigationDestination(icon:Icon(Icons.table_restaurant),label:'Masalar'),NavigationDestination(icon:Icon(Icons.soup_kitchen),label:'Mutfak'),NavigationDestination(icon:Icon(Icons.inventory_2),label:'Stok'),NavigationDestination(icon:Icon(Icons.bar_chart),label:'Rapor'),NavigationDestination(icon:Icon(Icons.settings),label:'Yönetim') ]));});}
 
-class TablesPage extends StatelessWidget{const TablesPage({super.key});@override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(leading: const Padding(padding: EdgeInsets.all(6), child: PosLogo(size: 40)),title:const Text('Restaurant POS'),actions:[Padding(padding:const EdgeInsets.all(12),child:Center(child:Text(pos.currentUser))) ]),body:Column(children:[Padding(padding:const EdgeInsets.all(12),child:Wrap(spacing:16,children:[Text('Tarih: ${stamp(azNow())}'),if(pos.can('reports')) Text('Bugünkü ciro: ${money(pos.todayTotal)}',style:const TextStyle(fontWeight:FontWeight.bold)),Text('Düşük stok: ${pos.lowStock}') ])),Expanded(child:LayoutBuilder(builder:(c,b){final cols=(b.maxWidth/155).floor().clamp(2,8).toInt();return GridView.builder(padding:const EdgeInsets.all(12),gridDelegate:SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount:cols,mainAxisSpacing:10,crossAxisSpacing:10,childAspectRatio:b.maxWidth < 600 ? 1.0 : 0.85),itemCount:pos.tables.length,itemBuilder:(c,i){final t=pos.tables[i];final status=tableKitchenState(t);final color=t.items.isEmpty?green:status==KitchenState.ready?green:status==KitchenState.preparing?amber:red;return Card(child:InkWell(borderRadius:BorderRadius.circular(12),onTap:()=>Navigator.push(c,MaterialPageRoute(builder:(_)=>OrderPage(table:t))),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[Text('Masa ${t.id}',style:const TextStyle(fontWeight:FontWeight.bold,fontSize:17)),Text(kitchenLabel(t)),Text(money(t.total),style:const TextStyle(fontSize:19,fontWeight:FontWeight.bold)),Container(height:5,color:color)]))));});}))]));}
+class TablesPage extends StatelessWidget {
+  const TablesPage({super.key});
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: pos,
+    builder: (context, _) => Scaffold(
+      appBar: AppBar(title: const Text('Restaurant POS'),
+        leading: const Padding(padding: EdgeInsets.all(6), child: PosLogo(size: 40)),
+        actions: [Padding(padding: const EdgeInsets.all(12),
+          child: Center(child: Text(pos.currentUser)))]),
+      body: Column(children: [
+        Padding(padding: const EdgeInsets.all(12), child: Wrap(spacing: 16, children: [
+          Text('Tarih: ${stamp(azNow())}'),
+          if (pos.can('reports')) Text('Bugünkü ciro: ${money(pos.todayTotal)}',
+            style: const TextStyle(fontWeight: FontWeight.bold)),
+          Text('Düşük stok: ${pos.lowStock}'),
+        ])),
+        Expanded(child: LayoutBuilder(builder: (c, b) {
+          final cols = (b.maxWidth / 155).floor().clamp(2, 8).toInt();
+          return GridView.builder(
+            padding: const EdgeInsets.all(12),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: cols, mainAxisSpacing: 10, crossAxisSpacing: 10,
+              childAspectRatio: b.maxWidth < 600 ? 1.0 : 0.85),
+            itemCount: pos.tables.length,
+            itemBuilder: (c, i) {
+              final t = pos.tables[i];
+              final status = tableKitchenState(t);
+              final color = t.items.isEmpty ? green : status == KitchenState.ready
+                  ? green : status == KitchenState.preparing ? amber : red;
+              return Card(child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => Navigator.push(c,
+                  MaterialPageRoute(builder: (_) => OrderPage(table: t))),
+                onLongPress: () => showDialog<void>(context: c,
+                  builder: (_) => TableOperationsDialog(source: t)),
+                child: Padding(padding: const EdgeInsets.all(12),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                      Row(children: [
+                        Expanded(child: Text('Masa ${t.id}',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17))),
+                        const Icon(Icons.swap_horiz, size: 18, color: Colors.black45),
+                      ]),
+                      Text(kitchenLabel(t)),
+                      Text(money(t.total), style: const TextStyle(
+                        fontSize: 19, fontWeight: FontWeight.bold)),
+                      Container(height: 5, color: color),
+                    ])),
+              ));
+            },
+          );
+        })),
+      ]),
+    ),
+  );
+}
+
+class TableOperationsDialog extends StatefulWidget {
+  final PosTable source;
+  const TableOperationsDialog({super.key, required this.source});
+  @override
+  State<TableOperationsDialog> createState() => _TableOperationsDialogState();
+}
+class _TableOperationsDialogState extends State<TableOperationsDialog> {
+  String mode = 'Taşı';
+  int? targetId;
+  int? lineIndex;
+  final quantity = TextEditingController(text: '1');
+  @override
+  void dispose() { quantity.dispose(); super.dispose(); }
+  @override
+  Widget build(BuildContext context) {
+    final source = widget.source;
+    final targets = pos.tables.where((table) => table.id != source.id &&
+      (mode == 'Birleştir' ? table.items.isNotEmpty : table.items.isEmpty)).toList();
+    if (targetId != null && !targets.any((table) => table.id == targetId)) targetId = null;
+    return AlertDialog(
+      title: Text('Masa ${source.id} işlemleri'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min,
+        children: [
+          DropdownButtonFormField<String>(
+            value: mode,
+            decoration: const InputDecoration(labelText: 'İşlem'),
+            items: const [
+              DropdownMenuItem(value: 'Taşı', child: Text('Siparişi başka masaya taşı')),
+              DropdownMenuItem(value: 'Birleştir', child: Text('Masaları birleştir')),
+              DropdownMenuItem(value: 'Böl', child: Text('Siparişi böl')),
+            ],
+            onChanged: (value) => setState(() { mode = value ?? 'Taşı'; targetId = null; }),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<int>(
+            value: targetId,
+            decoration: const InputDecoration(labelText: 'Hedef masa'),
+            items: targets.map((table) => DropdownMenuItem(
+              value: table.id, child: Text('Masa ${table.id}'))).toList(),
+            onChanged: (value) => setState(() => targetId = value),
+          ),
+          if (mode == 'Böl') ...[
+            const SizedBox(height: 12),
+            DropdownButtonFormField<int>(
+              value: lineIndex,
+              decoration: const InputDecoration(labelText: 'Bölünecek ürün'),
+              items: [for (var i = 0; i < source.items.length; i++)
+                DropdownMenuItem(value: i,
+                  child: Text('${source.items[i].name} (×${source.items[i].qty})'))],
+              onChanged: (value) => setState(() => lineIndex = value),
+            ),
+            TextField(controller: quantity, keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Hedef masaya aktarılacak adet')),
+          ],
+          if (mode == 'Böl' && (source.discount > 0))
+            const Text('İndirimli masa bölünmeden önce indirim kaldırılmalıdır.',
+              style: TextStyle(color: red)),
+          if (mode == 'Böl' && source.items.isEmpty)
+            const Text('Bölünecek ürün bulunmuyor.'),
+        ])),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('İptal')),
+        FilledButton(
+          onPressed: targetId == null || source.items.isEmpty ? null : () {
+            final target = pos.tables.firstWhere((table) => table.id == targetId);
+            final success = switch (mode) {
+              'Taşı' => pos.moveTable(source, target),
+              'Birleştir' => pos.mergeTables(source, target),
+              _ => lineIndex != null && pos.splitTable(source, target,
+                lineIndex: lineIndex!, quantity: int.tryParse(quantity.text) ?? 0),
+            };
+            if (success) Navigator.pop(context);
+            else ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('İşlem yapılamadı. Masa durumunu ve indirimleri kontrol edin.')));
+          },
+          child: const Text('Uygula'),
+        ),
+      ],
+    );
+  }
+}
 
 class OrderPage extends StatefulWidget{final PosTable table;const OrderPage({super.key,required this.table});@override State<OrderPage> createState()=>_OrderPageState();}
 class _OrderPageState extends State<OrderPage>{String category='Tümü';PosTable get t=>widget.table;@override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(c,_){final cats=['Tümü',...pos.products.map((p)=>p.category).toSet()];final items=pos.products.where((p)=>p.active&&(category=='Tümü'||p.category==category)).toList();return Scaffold(appBar:AppBar(title:Text('Masa ${t.id}')),body:Column(children:[SingleChildScrollView(scrollDirection:Axis.horizontal,child:Row(children:cats.map((x)=>Padding(padding:const EdgeInsets.all(4),child:ChoiceChip(label:Text(x),selected:category==x,onSelected:(_)=>setState(()=>category=x)))).toList())),Expanded(child:LayoutBuilder(builder:(c,b){final wide=b.maxWidth>700;return wide?Row(children:[Expanded(child:_products(items)),SizedBox(width:420,child:_ticket())]):Column(children:[Expanded(child:_products(items)),SizedBox(height:b.maxHeight*.48,child:_ticket())]);} ))]));});
