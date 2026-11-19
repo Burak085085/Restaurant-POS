@@ -17,6 +17,26 @@ void main() {
       await pos.flush();
     });
 
+    test('sent kitchen order line can be reduced or cancelled and stock reservation is released', () async {
+      final pos = Pos(repository: MemoryStoreRepository());
+      final table = pos.tables.first;
+      final product = pos.products.first;
+
+      expect(pos.add(table, product), isTrue);
+      expect(pos.add(table, product), isTrue);
+      expect(pos.sendKitchen(table), isTrue);
+      expect(pos.reservedStock(product.id), 2);
+
+      expect(pos.qty(table, 0, -1), isTrue);
+      expect(table.items.single.qty, 1);
+      expect(pos.reservedStock(product.id), 1);
+
+      expect(pos.qty(table, 0, -1), isTrue);
+      expect(table.items, isEmpty);
+      expect(pos.reservedStock(product.id), 0);
+      await pos.flush();
+    });
+
     test('table move, merge and partial split preserve order quantities', () async {
       final pos = Pos(repository: MemoryStoreRepository());
       final first = pos.tables[0];
