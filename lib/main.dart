@@ -59,7 +59,45 @@ String kitchenLabel(PosTable table) {
 }
 
 class PaymentPart { String method; int amount; int tendered; PaymentPart(this.method,this.amount,{int? tendered}):tendered=tendered??amount; int get change=>method=='Nakit'?(tendered-amount).clamp(0,1<<30).toInt():0; bool get isValid => amount > 0 && (method == 'Nakit' ? tendered >= amount : method == 'Kart' && tendered == amount); Map<String,dynamic> toJson()=>{'method':method,'amount':amount,'tendered':tendered}; }
-class Sale { String date,time,staff; int table,total,discount; List<OrderLine> items; List<PaymentPart> payments; Sale(this.date,this.time,this.staff,this.table,this.total,this.discount,this.items,this.payments); Map<String,dynamic> toJson()=>{'date':date,'time':time,'staff':staff,'table':table,'total':total,'discount':discount,'items':items.map((e)=>e.toJson()).toList(),'payments':payments.map((e)=>e.toJson()).toList()}; factory Sale.fromJson(Map<String,dynamic> j)=>Sale(j['date']??'',j['time']??'',j['staff']??'Admin',j['table']??0,j['total']??0,j['discount']??0,(j['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(),(j['payments'] as List? ?? []).map((e)=>PaymentPart(e['method']??'Nakit',e['amount']??0,tendered:e['tendered']??e['amount']??0)).toList()); }
+class RegisterSession {
+  int id;
+  String openedAt;
+  String? closedAt;
+  int openingCash;
+  int? closingCash;
+  int? expectedCash;
+  String note;
+  RegisterSession({required this.id, required this.openedAt, required this.openingCash,
+    this.closedAt, this.closingCash, this.expectedCash, this.note = ''});
+  bool get isOpen => closedAt == null;
+  Map<String, dynamic> toJson() => {
+    'id': id, 'openedAt': openedAt, 'closedAt': closedAt,
+    'openingCash': openingCash, 'closingCash': closingCash,
+    'expectedCash': expectedCash, 'note': note,
+  };
+  factory RegisterSession.fromJson(Map<String, dynamic> j) => RegisterSession(
+    id: j['id'] ?? 0, openedAt: j['openedAt'] ?? '',
+    openingCash: j['openingCash'] ?? 0, closedAt: j['closedAt'],
+    closingCash: j['closingCash'], expectedCash: j['expectedCash'],
+    note: j['note'] ?? '',
+  );
+}
+class CashMovement {
+  int id, sessionId, amount;
+  String at, type, note;
+  CashMovement({required this.id, required this.sessionId, required this.at,
+    required this.type, required this.amount, required this.note});
+  Map<String, dynamic> toJson() => {
+    'id': id, 'sessionId': sessionId, 'at': at,
+    'type': type, 'amount': amount, 'note': note,
+  };
+  factory CashMovement.fromJson(Map<String, dynamic> j) => CashMovement(
+    id: j['id'] ?? 0, sessionId: j['sessionId'] ?? 0,
+    at: j['at'] ?? '', type: j['type'] ?? '',
+    amount: j['amount'] ?? 0, note: j['note'] ?? '',
+  );
+}
+class Sale { String date,time,staff; int table,total,discount; List<OrderLine> items; List<PaymentPart> payments; int? registerSessionId; Sale(this.date,this.time,this.staff,this.table,this.total,this.discount,this.items,this.payments,{this.registerSessionId}); Map<String,dynamic> toJson()=>{'date':date,'time':time,'staff':staff,'table':table,'total':total,'discount':discount,'registerSessionId':registerSessionId,'items':items.map((e)=>e.toJson()).toList(),'payments':payments.map((e)=>e.toJson()).toList()}; factory Sale.fromJson(Map<String,dynamic> j)=>Sale(j['date']??'',j['time']??'',j['staff']??'Admin',j['table']??0,j['total']??0,j['discount']??0,(j['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(),(j['payments'] as List? ?? []).map((e)=>PaymentPart(e['method']??'Nakit',e['amount']??0,tendered:e['tendered']??e['amount']??0)).toList(),registerSessionId:j['registerSessionId']); }
 class Staff {
   String name, role, salt, pinHash;
   bool active;
@@ -87,14 +125,16 @@ class Audit { String at,user,action,detail; Audit(this.at,this.user,this.action,
 
 class Pos extends ChangeNotifier {
   List<Product> products=[Product('p1','Dönerler','Tavuk döner',300),Product('p2','Dönerler','Dana döner',500),Product('p3','Dönerler','Dürüm döner',400),Product('p4','Dönerler','Porsiyon döner',700),Product('p5','İçecekler','Kola',200),Product('p6','İçecekler','Fanta',200),Product('p7','İçecekler','Ayran',100),Product('p8','İçecekler','Su',50),Product('p9','Ekstra','Patates',200),Product('p10','Ekstra','Ketçap',50),Product('p11','Ekstra','Mayonez',50)];
-  List<PosTable> tables=List.generate(kTableCount,(i)=>PosTable(i+1)); List<Sale> sales=[]; List<Staff> staff=[Staff('Admin','Yönetici')]; List<Audit> audit=[]; String currentUser='Admin'; final StoreRepository _repository; Future<void> _queue=Future.value();
+  List<PosTable> tables=List.generate(kTableCount,(i)=>PosTable(i+1)); List<Sale> sales=[]; List<RegisterSession> registerSessions=[]; List<CashMovement> cashMovements=[]; List<Staff> staff=[Staff('Admin','Yönetici')]; List<Audit> audit=[]; String currentUser='Admin'; final StoreRepository _repository; Future<void> _queue=Future.value();
   Pos({StoreRepository? repository}) : _repository = repository ?? SqliteStoreRepository();
-  Future<void> load() async { final raw=await _repository.read(); if(raw==null)return; try { final j=jsonDecode(raw) as Map<String,dynamic>; products=(j['products'] as List? ?? []).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList(); tables=List.generate(kTableCount,(i)=>PosTable(i+1)); for(final x in (j['tables'] as List? ?? [])){final m=Map<String,dynamic>.from(x); final id=m['id'] as int; if(id<1||id>kTableCount)continue; final t=tables[id-1]; t.items=(m['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(); t.kitchen=KitchenState.values[(m['kitchen']??0).clamp(0,3).toInt()]; final rawItems=(m['items'] as List? ?? []); for(var lineIndex=0;lineIndex<t.items.length;lineIndex++){final rawLine=Map<String,dynamic>.from(rawItems[lineIndex]);if(!rawLine.containsKey('kitchen'))t.items[lineIndex].kitchen=t.kitchen;} t.discount=m['discount']??0;t.discountPercent=m['discountPercent']??false;t.discountReason=m['discountReason']??'';} sales=(j['sales'] as List? ?? []).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList(); final legacyStaff=(j['staff'] as List? ?? []).map((e)=>Staff.fromJson(Map<String,dynamic>.from(e))).toList(); final admins=legacyStaff.where((member)=>member.name=='Admin').toList(); final admin=admins.isNotEmpty ? admins.first : Staff('Admin','Yönetici'); admin.active=true; staff=[admin]; audit=(j['audit'] as List? ?? []).map((e)=>Audit.fromJson(Map<String,dynamic>.from(e))).toList(); currentUser='Admin'; } catch (_) { await _repository.backupCorrupt(raw); products=[Product('p1','Dönerler','Tavuk döner',300),Product('p2','Dönerler','Dana döner',500),Product('p3','Dönerler','Dürüm döner',400),Product('p4','Dönerler','Porsiyon döner',700),Product('p5','İçecekler','Kola',200),Product('p6','İçecekler','Fanta',200),Product('p7','İçecekler','Ayran',100),Product('p8','İçecekler','Su',50),Product('p9','Ekstra','Patates',200),Product('p10','Ekstra','Ketçap',50),Product('p11','Ekstra','Mayonez',50)]; tables=List.generate(kTableCount,(i)=>PosTable(i+1)); sales=[]; staff=[Staff('Admin','Yönetici')]; audit=[]; currentUser='Admin'; } }
+  Future<void> load() async { final raw=await _repository.read(); if(raw==null)return; try { final j=jsonDecode(raw) as Map<String,dynamic>; products=(j['products'] as List? ?? []).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList(); tables=List.generate(kTableCount,(i)=>PosTable(i+1)); for(final x in (j['tables'] as List? ?? [])){final m=Map<String,dynamic>.from(x); final id=m['id'] as int; if(id<1||id>kTableCount)continue; final t=tables[id-1]; t.items=(m['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(); t.kitchen=KitchenState.values[(m['kitchen']??0).clamp(0,3).toInt()]; final rawItems=(m['items'] as List? ?? []); for(var lineIndex=0;lineIndex<t.items.length;lineIndex++){final rawLine=Map<String,dynamic>.from(rawItems[lineIndex]);if(!rawLine.containsKey('kitchen'))t.items[lineIndex].kitchen=t.kitchen;} t.discount=m['discount']??0;t.discountPercent=m['discountPercent']??false;t.discountReason=m['discountReason']??'';} sales=(j['sales'] as List? ?? []).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList(); registerSessions=(j['registerSessions'] as List? ?? []).map((e)=>RegisterSession.fromJson(Map<String,dynamic>.from(e))).toList(); cashMovements=(j['cashMovements'] as List? ?? []).map((e)=>CashMovement.fromJson(Map<String,dynamic>.from(e))).toList(); final legacyStaff=(j['staff'] as List? ?? []).map((e)=>Staff.fromJson(Map<String,dynamic>.from(e))).toList(); final admins=legacyStaff.where((member)=>member.name=='Admin').toList(); final admin=admins.isNotEmpty ? admins.first : Staff('Admin','Yönetici'); admin.active=true; staff=[admin]; audit=(j['audit'] as List? ?? []).map((e)=>Audit.fromJson(Map<String,dynamic>.from(e))).toList(); currentUser='Admin'; } catch (_) { await _repository.backupCorrupt(raw); products=[Product('p1','Dönerler','Tavuk döner',300),Product('p2','Dönerler','Dana döner',500),Product('p3','Dönerler','Dürüm döner',400),Product('p4','Dönerler','Porsiyon döner',700),Product('p5','İçecekler','Kola',200),Product('p6','İçecekler','Fanta',200),Product('p7','İçecekler','Ayran',100),Product('p8','İçecekler','Su',50),Product('p9','Ekstra','Patates',200),Product('p10','Ekstra','Ketçap',50),Product('p11','Ekstra','Mayonez',50)]; tables=List.generate(kTableCount,(i)=>PosTable(i+1)); sales=[]; registerSessions=[]; cashMovements=[]; staff=[Staff('Admin','Yönetici')]; audit=[]; currentUser='Admin'; } }
 
   String _snapshot() => jsonEncode({
     'products': products.map((e) => e.toJson()).toList(),
     'tables': tables.map((e) => e.toJson()).toList(),
     'sales': sales.map((e) => e.toJson()).toList(),
+    'registerSessions': registerSessions.map((e) => e.toJson()).toList(),
+    'cashMovements': cashMovements.map((e) => e.toJson()).toList(),
     'staff': staff.map((e) => e.toJson()).toList(),
     'audit': audit.map((e) => e.toJson()).toList(),
     'currentUser': currentUser,
@@ -133,6 +173,8 @@ class Pos extends ChangeNotifier {
       'products': products.map((e) => e.toJson()).toList(),
       'tables': tables.map((e) => e.toJson()).toList(),
       'sales': sales.map((e) => e.toJson()).toList(),
+      'registerSessions': registerSessions.map((e) => e.toJson()).toList(),
+      'cashMovements': cashMovements.map((e) => e.toJson()).toList(),
       'staff': staff.map((e) => e.toJson()).toList(),
       'audit': audit.map((e) => e.toJson()).toList(),
       'currentUser': currentUser,
@@ -223,10 +265,73 @@ class Pos extends ChangeNotifier {
     final now = azNow();
     for (final line in t.items) { products.firstWhere((product) => product.id == line.productId).stock -= line.qty; }
     sales.add(Sale(dayKey(now), stamp(now), currentUser, t.id, total, t.subtotal-total,
-      t.items.map((e) => OrderLine(e.productId, e.name, e.price, e.qty)).toList(), payments));
+      t.items.map((e) => OrderLine(e.productId, e.name, e.price, e.qty)).toList(), payments,
+      registerSessionId: activeRegister?.id));
     log('Ödeme', 'Masa ${t.id}: ${money(total)}');
     t.items = []; t.discount = 0; t.discountPercent = false; t.discountReason = ''; t.kitchen = KitchenState.queued;
     save(); return true;
+  }
+  RegisterSession? get activeRegister {
+    for (final session in registerSessions.reversed) {
+      if (session.isOpen) return session;
+    }
+    return null;
+  }
+  int cashSalesForSession(int sessionId) => sales
+      .where((sale) => sale.registerSessionId == sessionId)
+      .fold(0, (sum, sale) => sum + sale.payments
+          .where((part) => part.method == 'Nakit')
+          .fold(0, (value, part) => value + part.amount));
+  int cashMovementsForSession(int sessionId) => cashMovements
+      .where((movement) => movement.sessionId == sessionId)
+      .fold(0, (sum, movement) => sum +
+          (movement.type == 'Giriş' ? movement.amount : -movement.amount));
+  int expectedRegisterCash(RegisterSession session) =>
+      session.openingCash + cashSalesForSession(session.id) +
+      cashMovementsForSession(session.id);
+  bool openRegister(int openingCash, {String note = ''}) {
+    if (!can('register') || activeRegister != null || openingCash < 0) return false;
+    final now = azNow();
+    registerSessions.add(RegisterSession(
+      id: now.microsecondsSinceEpoch,
+      openedAt: now.toIso8601String(),
+      openingCash: openingCash,
+      note: note.trim(),
+    ));
+    log('Kasa açıldı', 'Açılış nakdi: ${money(openingCash)}');
+    save();
+    return true;
+  }
+  bool addCashMovement(String type, int amount, String note) {
+    final session = activeRegister;
+    if (!can('register') || session == null ||
+        (type != 'Giriş' && type != 'Çıxış') || amount <= 0 ||
+        note.trim().isEmpty) return false;
+    if (type == 'Çıxış' && expectedRegisterCash(session) < amount) return false;
+    cashMovements.add(CashMovement(
+      id: DateTime.now().microsecondsSinceEpoch,
+      sessionId: session.id,
+      at: azNow().toIso8601String(),
+      type: type,
+      amount: amount,
+      note: note.trim(),
+    ));
+    log(type == 'Giriş' ? 'Kasaya nakit girişi' : 'Kasadan nakit çıkışı',
+      '${money(amount)} · ${note.trim()}');
+    save();
+    return true;
+  }
+  bool closeRegister(int countedCash, {String note = ''}) {
+    final session = activeRegister;
+    if (!can('register') || session == null || countedCash < 0) return false;
+    session.expectedCash = expectedRegisterCash(session);
+    session.closingCash = countedCash;
+    session.closedAt = azNow().toIso8601String();
+    if (note.trim().isNotEmpty) session.note = note.trim();
+    final difference = countedCash - session.expectedCash!;
+    log('Kasa bağlandı', 'Beklenen: ${money(session.expectedCash!)} · Sayılan: ${money(countedCash)} · Fark: ${money(difference)}');
+    save();
+    return true;
   }
   bool setStaffActive(Staff member, bool active) {
     if (!can('staff') || (member.name == currentUser && !active)) return false;
