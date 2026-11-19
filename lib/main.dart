@@ -1,9 +1,9 @@
-// ignore_for_file: deprecated_member_use, curly_braces_in_flow_control_structures
+// ignore_for_file: curly_braces_in_flow_control_structures
 
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:crypto/crypto.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 final GlobalKey<ScaffoldMessengerState> appMessengerKey = GlobalKey<ScaffoldMessengerState>();
