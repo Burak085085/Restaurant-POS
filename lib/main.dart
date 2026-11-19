@@ -259,7 +259,7 @@ class Pos extends ChangeNotifier {
   bool stockChange(Product p, int delta, {String note='Manuel stok düzeltmesi'}) { if(!can('inventory')||delta==0||note.trim().isEmpty)return false;final before=p.stock;final next=(before+delta).clamp(0,1000000).toInt();if(next<reservedStock(p.id)||next==before)return false;p.stock=next;stockMovements.add(StockMovement(id:DateTime.now().microsecondsSinceEpoch,productId:p.id,productName:p.name,type:delta>0?'Giriş':'Çıkış',quantity:delta.abs(),beforeStock:before,afterStock:next,productCost:p.costPrice,at:azNow().toIso8601String(),note:note.trim()));log('Stok','${p.name}: $before → $next · ${note.trim()}');save();return true;}
   bool addExpense(int amount,String category,String note){if(!can('reports')||amount<=0||category.trim().isEmpty||note.trim().isEmpty)return false;expenses.add(Expense(id:DateTime.now().microsecondsSinceEpoch,amount:amount,category:category.trim(),note:note.trim(),date:dayKey(azNow())));log('Gider','${category.trim()} · ${money(amount)} · ${note.trim()}');save();return true;}
   int costOfSale(Sale sale)=>sale.items.fold(0,(s,item)=>s+item.unitCost*item.qty);int get totalExpenses=>expenses.fold(0,(s,e)=>s+e.amount);int get totalCostOfSales=>sales.fold(0,(s,e)=>s+costOfSale(e));int get netProfit=>sales.fold(0,(s,e)=>s+e.total-costOfSale(e))-totalExpenses;
-  String buildCsv(){String q(Object? v)=>'"${v.toString().replaceAll('"','""')}"';final b=StringBuffer('Tarih;Tür;Açıklama;Adet;Ciro/Gider;Maliyet\\r\\n');for(final sale in sales){b.writeln([q(sale.date),q('Satış'),q('Masa ${sale.table}'),q(sale.items.fold(0,(n,x)=>n+x.qty)),q(sale.total/100),q(costOfSale(sale)/100)].join(';'));}for(final e in expenses){b.writeln([q(e.date),q('Gider'),q('${e.category}: ${e.note}'),q(1),q(e.amount/100),q(0)].join(';'));}return b.toString();}
+  String buildCsv(){String q(Object? v)=>'"${v.toString().replaceAll('"','""')}"';final b=StringBuffer('Tarih;Tür;Açıklama;Adet;Ciro/Gider;Maliyet\\r\\n');for(final sale in sales){b.writeln([q(sale.date),q('Satış'),q('Masa ${sale.table}'),q(sale.items.fold<int>(0,(int n,OrderLine x)=>n+x.qty)),q(sale.total/100),q(costOfSale(sale)/100)].join(';'));}for(final e in expenses){b.writeln([q(e.date),q('Gider'),q('${e.category}: ${e.note}'),q(1),q(e.amount/100),q(0)].join(';'));}return b.toString();}
   bool checkout(PosTable t, List<PaymentPart> payments) {
     if (!can('orders') || t.items.isEmpty || t.items.any((line) => !line.sent)) return false;
     final total = t.total;
@@ -594,7 +594,30 @@ class InventoryPage extends StatelessWidget {
   }
 }
 
-class StockHistoryPage extends StatelessWidget {const StockHistoryPage({super.key});@override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(context,_)=>Scaffold(appBar:AppBar(title:const Text('Stok hareket geçmişi')),body:pos.stockMovements.isEmpty?const Center(child:Text('Henüz stok hareketi yok.')):ListView.builder(itemCount:pos.stockMovements.length,itemBuilder:(c,i){final x=pos.stockMovements[pos.stockMovements.length-1-i];return ListTile(title:Text('${x.productName} · ${x.type} · ${x.quantity} adet'),subtitle:Text('${x.beforeStock} → ${x.afterStock} · ${x.note}'),trailing:Text(money(x.productCost*x.quantity)));})));}}
+class StockHistoryPage extends StatelessWidget {
+  const StockHistoryPage({super.key});
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: pos,
+    builder: (context, _) => Scaffold(
+      appBar: AppBar(title: const Text('Stok hareket geçmişi')),
+      body: pos.stockMovements.isEmpty
+        ? const Center(child: Text('Henüz stok hareketi yok.'))
+        : ListView.builder(
+            itemCount: pos.stockMovements.length,
+            itemBuilder: (context, index) {
+              final movement = pos.stockMovements[pos.stockMovements.length - 1 - index];
+              return ListTile(
+                title: Text('${movement.productName} · ${movement.type} · ${movement.quantity} adet'),
+                subtitle: Text('${movement.beforeStock} → ${movement.afterStock} · ${movement.note}'),
+                trailing: Text(money(movement.productCost * movement.quantity)),
+              );
+            },
+          ),
+    ),
+  );
+}
 class ReportsPage extends StatelessWidget {
   const ReportsPage({super.key});
   Future<void> _addExpense(BuildContext context) async {final amount=TextEditingController(),category=TextEditingController(text:'Diğer'),note=TextEditingController();final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('İşletme gideri ekle'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Tutar (₼)')),TextField(controller:category,decoration:const InputDecoration(labelText:'Kategori')),TextField(controller:note,decoration:const InputDecoration(labelText:'Açıklama'))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Kaydet'))]));if(ok==true&&!pos.addExpense(parseMoney(amount.text),category.text,note.text)&&context.mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Gider kaydedilemedi.')));amount.dispose();category.dispose();note.dispose();}
