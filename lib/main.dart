@@ -674,7 +674,7 @@ class _TableOperationsDialogState extends State<TableOperationsDialog> {
       content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min,
         children: [
           DropdownButtonFormField<String>(
-            value: mode,
+            initialValue: mode,
             decoration: const InputDecoration(labelText: 'İşlem'),
             items: const [
               DropdownMenuItem(value: 'Taşı', child: Text('Siparişi başka masaya taşı')),
@@ -685,7 +685,7 @@ class _TableOperationsDialogState extends State<TableOperationsDialog> {
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<int>(
-            value: targetId,
+            initialValue: targetId,
             decoration: const InputDecoration(labelText: 'Hedef masa'),
             items: targets.map((table) => DropdownMenuItem(
               value: table.id, child: Text('Masa ${table.id}'))).toList(),
@@ -694,7 +694,7 @@ class _TableOperationsDialogState extends State<TableOperationsDialog> {
           if (mode == 'Böl') ...[
             const SizedBox(height: 12),
             DropdownButtonFormField<int>(
-              value: lineIndex,
+              initialValue: lineIndex,
               decoration: const InputDecoration(labelText: 'Bölünecek ürün'),
               items: [for (var i = 0; i < source.items.length; i++)
                 DropdownMenuItem(value: i,
@@ -1046,7 +1046,7 @@ class RecipePage extends StatelessWidget {
                 ),
               const Divider(),
               DropdownButtonFormField<String>(
-                value: selectedId,
+                initialValue: selectedId,
                 decoration: const InputDecoration(labelText: 'Malzeme seç'),
                 items: pos.ingredients.map((item) => DropdownMenuItem(
                   value: item.id, child: Text('${item.name} (${item.unit})'))).toList(),
@@ -1090,7 +1090,7 @@ class RecipePage extends StatelessWidget {
               color: ingredient.stock - pos.reservedIngredientStock(ingredient.id) <= ingredient.lowAt ? red : green),
             title: Text(ingredient.name),
             subtitle: Text('${ingredient.stock} ${ingredient.unit} · Birim maliyet ${money(ingredient.costPerUnit)} · Rezerve ${pos.reservedIngredientStock(ingredient.id)}'),
-            trailing: Wrap(mainAxisSize: MainAxisSize.min, children: [
+            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
               IconButton(onPressed: () => pos.adjustIngredient(ingredient, -1), icon: const Icon(Icons.remove)),
               IconButton(onPressed: () => pos.adjustIngredient(ingredient, 1), icon: const Icon(Icons.add)),
             ]),
