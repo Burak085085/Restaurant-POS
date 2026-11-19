@@ -90,6 +90,43 @@ class Pos extends ChangeNotifier {
   List<PosTable> tables=List.generate(kTableCount,(i)=>PosTable(i+1)); List<Sale> sales=[]; List<Staff> staff=[Staff('Admin','Yönetici')]; List<Audit> audit=[]; String currentUser='Admin'; final StoreRepository _repository; Future<void> _queue=Future.value();
   Pos({StoreRepository? repository}) : _repository = repository ?? SqliteStoreRepository();
   Future<void> load() async { final raw=await _repository.read(); if(raw==null)return; try { final j=jsonDecode(raw) as Map<String,dynamic>; products=(j['products'] as List? ?? []).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList(); tables=List.generate(kTableCount,(i)=>PosTable(i+1)); for(final x in (j['tables'] as List? ?? [])){final m=Map<String,dynamic>.from(x); final id=m['id'] as int; if(id<1||id>kTableCount)continue; final t=tables[id-1]; t.items=(m['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(); t.kitchen=KitchenState.values[(m['kitchen']??0).clamp(0,3).toInt()]; final rawItems=(m['items'] as List? ?? []); for(var lineIndex=0;lineIndex<t.items.length;lineIndex++){final rawLine=Map<String,dynamic>.from(rawItems[lineIndex]);if(!rawLine.containsKey('kitchen'))t.items[lineIndex].kitchen=t.kitchen;} t.discount=m['discount']??0;t.discountPercent=m['discountPercent']??false;t.discountReason=m['discountReason']??'';} sales=(j['sales'] as List? ?? []).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList(); final legacyStaff=(j['staff'] as List? ?? []).map((e)=>Staff.fromJson(Map<String,dynamic>.from(e))).toList(); final admins=legacyStaff.where((member)=>member.name=='Admin').toList(); final admin=admins.isNotEmpty ? admins.first : Staff('Admin','Yönetici'); admin.active=true; staff=[admin]; audit=(j['audit'] as List? ?? []).map((e)=>Audit.fromJson(Map<String,dynamic>.from(e))).toList(); currentUser='Admin'; } catch (_) { await _repository.backupCorrupt(raw); products=[Product('p1','Dönerler','Tavuk döner',300),Product('p2','Dönerler','Dana döner',500),Product('p3','Dönerler','Dürüm döner',400),Product('p4','Dönerler','Porsiyon döner',700),Product('p5','İçecekler','Kola',200),Product('p6','İçecekler','Fanta',200),Product('p7','İçecekler','Ayran',100),Product('p8','İçecekler','Su',50),Product('p9','Ekstra','Patates',200),Product('p10','Ekstra','Ketçap',50),Product('p11','Ekstra','Mayonez',50)]; tables=List.generate(kTableCount,(i)=>PosTable(i+1)); sales=[]; staff=[Staff('Admin','Yönetici')]; audit=[]; currentUser='Admin'; } }
+
+  String _snapshot() => jsonEncode({
+    'products': products.map((e) => e.toJson()).toList(),
+    'tables': tables.map((e) => e.toJson()).toList(),
+    'sales': sales.map((e) => e.toJson()).toList(),
+    'staff': staff.map((e) => e.toJson()).toList(),
+    'audit': audit.map((e) => e.toJson()).toList(),
+    'currentUser': currentUser,
+  });
+
+  Future<List<BackupFile>> listBackups() => _repository.listBackups();
+  Future<String?> readBackup(String name) => _repository.readBackup(name);
+
+  Future<bool> restoreBackup(String payload) async {
+    try {
+      final decoded = jsonDecode(payload);
+      if (decoded is! Map<String, dynamic>) return false;
+      for (final key in ['products', 'tables', 'sales']) {
+        if (decoded[key] is! List) return false;
+      }
+      final candidateRepository = MemoryStoreRepository(value: payload);
+      final candidate = Pos(repository: candidateRepository);
+      await candidate.load();
+      if (candidateRepository.corruptBackup != null) return false;
+
+      await _repository.backupBeforeRestore(_snapshot());
+      await _repository.write(payload);
+      await load();
+      log('Yedek geri yüklendi', 'Yerel yedek dosyasından veriler geri yüklendi');
+      save();
+      await flush();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> flush()=>_queue;
   void save() {
     final snapshot = jsonEncode({
@@ -507,6 +544,7 @@ class AdminPage extends StatelessWidget {
       body: ListView(padding: const EdgeInsets.all(12), children: [
         const Card(child: ListTile(leading: Icon(Icons.admin_panel_settings), title: Text('Tek kullanıcı: Yönetici'), subtitle: Text('Personel hesabı ve kullanıcı değiştirme kapalıdır.'))),
         OutlinedButton.icon(onPressed: () => _changePin(context), icon: const Icon(Icons.lock_reset), label: const Text('Yönetici PIN kodunu değiştir')),
+        OutlinedButton.icon(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BackupManagerPage())), icon: const Icon(Icons.restore), label: const Text('Yedekleri görüntüle ve geri yükle')),
         const SizedBox(height: 12),
         const Text('Veri güvenliği', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
         const ListTile(leading: Icon(Icons.storage), title: Text('SQLite yerel veritabanı'), subtitle: Text('İşlemler atomik kayıtla saklanır. Eski yerel kayıt ilk açılışta otomatik taşınır.')),
@@ -538,6 +576,92 @@ class AdminPage extends StatelessWidget {
     }
     oldPin.dispose(); newPin.dispose(); confirmPin.dispose();
   }
+}
+
+class BackupManagerPage extends StatefulWidget {
+  const BackupManagerPage({super.key});
+  @override
+  State<BackupManagerPage> createState() => _BackupManagerPageState();
+}
+
+class _BackupManagerPageState extends State<BackupManagerPage> {
+  late Future<List<BackupFile>> backups;
+  bool busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    backups = pos.listBackups();
+  }
+
+  Future<void> _restore(BackupFile backup) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Yedek geri yüklensin mi?'),
+        content: Text('${backup.name} dosyasındaki veriler mevcut kayıtların yerine geçecek. Önce mevcut veriler ayrıca güvenlik yedeğine alınacak.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('İptal')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Geri yükle')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => busy = true);
+    var success = false;
+    try {
+      final payload = await pos.readBackup(backup.name);
+      if (payload != null) success = await pos.restoreBackup(payload);
+    } catch (_) {
+      success = false;
+    }
+    if (!mounted) return;
+    setState(() {
+      busy = false;
+      backups = pos.listBackups();
+    });
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(success ? 'Yedek başarıyla geri yüklendi.' : 'Yedek geri yüklenemedi. Mevcut veriler korundu.'),
+    ));
+    if (success) Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Yedekler')),
+    body: FutureBuilder<List<BackupFile>>(
+      future: backups,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return const Center(child: Text('Yedek listesi okunamadı.'));
+        }
+        final files = snapshot.data ?? [];
+        if (files.isEmpty) {
+          return const Center(child: Text('Henüz geri yüklenebilir yedek bulunmuyor.'));
+        }
+        return ListView.builder(
+          padding: const EdgeInsets.all(12),
+          itemCount: files.length,
+          itemBuilder: (context, index) {
+            final file = files[index];
+            return Card(child: ListTile(
+              leading: const Icon(Icons.backup),
+              title: Text(file.name),
+              subtitle: Text('${stamp(file.modifiedAt.toLocal())} · ${(file.sizeBytes / 1024).toStringAsFixed(1)} KB'),
+              trailing: busy ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator()) : IconButton(
+                tooltip: 'Geri yükle',
+                icon: const Icon(Icons.restore),
+                onPressed: () => _restore(file),
+              ),
+            ));
+          },
+        );
+      },
+    ),
+  );
 }
 
 class PinGate extends StatefulWidget {
