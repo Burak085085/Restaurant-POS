@@ -26,6 +26,8 @@ jobs:
       - name: Generate Android and Windows runners
         run: flutter create --platforms=android,windows --project-name restaurant_pos .
       - run: flutter pub get
+      - name: Generate branded app icons
+        run: dart run flutter_launcher_icons
       - name: Flutter analyze
         shell: bash
         run: |
