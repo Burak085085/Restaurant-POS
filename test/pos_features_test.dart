@@ -60,6 +60,19 @@ void main() {
       await pos.flush();
     });
 
+    test('checkout records the selected staff member for performance reports', () async {
+      final pos = Pos(repository: MemoryStoreRepository());
+      final table = pos.tables.first;
+      final product = pos.products.first;
+      expect(pos.add(table, product), isTrue);
+      expect(pos.sendKitchen(table), isTrue);
+
+      expect(pos.checkout(table, [PaymentPart('Nakit', product.price)],
+        staffName: 'Ayşe Yılmaz'), isTrue);
+      expect(pos.sales.single.staff, 'Ayşe Yılmaz');
+      await pos.flush();
+    });
+
     test('integrity check reports a clean new store', () async {
       final pos = Pos(repository: MemoryStoreRepository());
       expect(await pos.integrityCheck(), isEmpty);
