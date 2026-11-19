@@ -250,7 +250,7 @@ void main() {
       ],
       'sales': [
         {'date': '2026-11-19', 'time': '12:30', 'staff': 'Admin',
-          'table': 1, 'total': 650, 'discount': 50,
+          'table': 1, 'total': 650, 'discount': 50, 'registerSessionId': 123,
           'items': [
             {'productId': 'p1', 'name': 'Tavuk döner', 'price': 350,
               'qty': 2, 'sent': true, 'kitchen': 3},
@@ -259,6 +259,15 @@ void main() {
             {'method': 'Nakit', 'amount': 650, 'tendered': 700},
             {'method': 'Kart', 'amount': 0, 'tendered': 0},
           ]},
+      ],
+      'registerSessions': [
+        {'id': 123, 'openedAt': '2026-11-19T08:00:00.000',
+          'closedAt': null, 'openingCash': 1000, 'closingCash': null,
+          'expectedCash': null, 'note': 'Səhər növbəsi'},
+      ],
+      'cashMovements': [
+        {'id': 456, 'sessionId': 123, 'at': '2026-11-19T09:00:00.000',
+          'type': 'Giriş', 'amount': 250, 'note': 'Xırda pul'},
       ],
       'staff': [
         {'name': 'Admin', 'role': 'Yönetici', 'salt': 'salt-value',
@@ -279,6 +288,8 @@ void main() {
       expect(restored['products'], payload['products']);
       expect(restored['tables'], payload['tables']);
       expect(restored['sales'], payload['sales']);
+      expect(restored['registerSessions'], payload['registerSessions']);
+      expect(restored['cashMovements'], payload['cashMovements']);
       expect(restored['staff'], payload['staff']);
       expect(restored['audit'], payload['audit']);
       expect(restored['currentUser'], 'Admin');
@@ -307,5 +318,48 @@ void main() {
       await directory.delete(recursive: true);
     }
   });
+
+  test('cash register reconciles opening float, sales and cash movements', () {
+    final store = Pos(repository: MemoryStoreRepository());
+    expect(store.openRegister(10000), isTrue);
+    final session = store.activeRegister!;
+    expect(store.openRegister(5000), isFalse);
+
+    final product = Product('register-test', 'Test', 'Test item', 300, stock: 3);
+    store.products = [product];
+    final table = store.tables.first;
+    expect(store.add(table, product), isTrue);
+    expect(store.sendKitchen(table), isTrue);
+    expect(store.checkout(table, [PaymentPart('Nakit', 300)]), isTrue);
+    expect(store.sales.single.registerSessionId, session.id);
+
+    expect(store.addCashMovement('Giriş', 5000, 'Xırda pul'), isTrue);
+    expect(store.addCashMovement('Çıxış', 2000, 'Təchizat'), isTrue);
+    expect(store.expectedRegisterCash(session), 13300);
+    expect(store.addCashMovement('Çıxış', 20000, 'Həddən artıq'), isFalse);
+
+    expect(store.closeRegister(13000), isTrue);
+    expect(store.activeRegister, isNull);
+    expect(session.expectedCash, 13300);
+    expect(session.closingCash, 13000);
+    expect(store.openRegister(5000), isTrue);
+  });
+
+  test('cash register and movement records survive POS JSON snapshot restore', () async {
+    final repository = MemoryStoreRepository();
+    final store = Pos(repository: repository);
+    expect(store.openRegister(7500, note: 'Gündüz'), isTrue);
+    expect(store.addCashMovement('Giriş', 1200, 'Xırda pul'), isTrue);
+    await store.flush();
+
+    final restored = Pos(repository: MemoryStoreRepository(value: repository.value));
+    await restored.load();
+    expect(restored.registerSessions, hasLength(1));
+    expect(restored.registerSessions.single.openingCash, 7500);
+    expect(restored.cashMovements, hasLength(1));
+    expect(restored.cashMovements.single.amount, 1200);
+    expect(restored.expectedRegisterCash(restored.activeRegister!), 8700);
+  });
+
 
 }
