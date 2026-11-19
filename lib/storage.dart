@@ -179,6 +179,15 @@ class SqliteStoreRepository implements StoreRepository {
     final auditRows = await db.query('audit', orderBy: 'position');
     final currentUserRows = await db.query('app_meta', columns: ['value'],
         where: 'key = ?', whereArgs: ['currentUser'], limit: 1);
+    final ingredientRows = await db.query('app_meta', columns: ['value'],
+        where: 'key = ?', whereArgs: ['ingredients_json'], limit: 1);
+    final recipeRows = await db.query('app_meta', columns: ['value'],
+        where: 'key = ?', whereArgs: ['recipes_json'], limit: 1);
+    final ingredientData = ingredientRows.isEmpty ? <dynamic>[] :
+        (jsonDecode(_string(ingredientRows.first['value'])) as List? ?? <dynamic>[]);
+    final recipeData = recipeRows.isEmpty ? <String, dynamic>{} :
+        (jsonDecode(_string(recipeRows.first['value'])) as Map? ?? <String, dynamic>{});
+
     return {
       'products': products.map((product) => {
         'id': _string(product['id']),
@@ -224,6 +233,9 @@ class SqliteStoreRepository implements StoreRepository {
         'detail': _string(entry['detail']),
       }).toList(),
       'currentUser': currentUserRows.isEmpty ? 'Admin' : _string(currentUserRows.first['value'], 'Admin'),
+      'ingredients': ingredientData,
+      'recipes': recipeData,
+
     };
   }
 
@@ -235,6 +247,14 @@ class SqliteStoreRepository implements StoreRepository {
     }
     final db = await _open();
     await db.transaction((transaction) async {
+      await transaction.insert('app_meta', {
+        'key': 'ingredients_json',
+        'value': jsonEncode(decoded['ingredients'] ?? <dynamic>[]),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await transaction.insert('app_meta', {
+        'key': 'recipes_json',
+        'value': jsonEncode(decoded['recipes'] ?? <String, dynamic>{}),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
       await transaction.delete('payments');
       await transaction.delete('sale_items');
       await transaction.delete('sales');
