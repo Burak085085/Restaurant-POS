@@ -35,9 +35,12 @@ abstract class StoreRepository {
 }
 
 class SqliteStoreRepository implements StoreRepository {
-  SqliteStoreRepository({String? databasePath}) : _databasePath = databasePath;
+  SqliteStoreRepository({String? databasePath, String? backupDirectoryPath})
+      : _databasePath = databasePath,
+        _backupDirectoryPath = backupDirectoryPath;
 
   final String? _databasePath;
+  final String? _backupDirectoryPath;
   Database? _database;
 
   Future<Database> _open() async {
@@ -347,8 +350,8 @@ class SqliteStoreRepository implements StoreRepository {
   }
 
   Future<Directory> _backupDirectory() async {
-    final documents = await getApplicationDocumentsDirectory();
-    final directory = Directory(path.join(documents.path, 'backups'));
+    final root = _backupDirectoryPath ?? (await getApplicationDocumentsDirectory()).path;
+    final directory = Directory(path.join(root, 'backups'));
     if (!await directory.exists()) await directory.create(recursive: true);
     return directory;
   }
@@ -356,7 +359,7 @@ class SqliteStoreRepository implements StoreRepository {
   Future<void> _writeRotatingBackup(String payload) async {
     final directory = await _backupDirectory();
     final date = DateTime.now().toUtc().toIso8601String().substring(0, 10);
-    final file = File(path.join(directory.path, 'restaurant-pos-\$date.json'));
+    final file = File(path.join(directory.path, 'restaurant-pos-$date.json'));
     await file.writeAsString(payload, flush: true);
     final backups = await directory.list()
         .where((entry) => entry is File && isDailyBackupFileName(path.basename(entry.path)))
@@ -371,7 +374,7 @@ class SqliteStoreRepository implements StoreRepository {
   Future<void> backupBeforeRestore(String payload) async {
     final directory = await _backupDirectory();
     final stamp = DateTime.now().toUtc().toIso8601String().replaceAll(':', '-');
-    final file = File(path.join(directory.path, 'restaurant-pos-pre-restore-\$stamp.json'));
+    final file = File(path.join(directory.path, 'restaurant-pos-pre-restore-$stamp.json'));
     await file.writeAsString(payload, flush: true);
   }
 
@@ -401,7 +404,7 @@ class SqliteStoreRepository implements StoreRepository {
   Future<void> backupCorrupt(String payload) async {
     final directory = await _backupDirectory();
     final stamp = DateTime.now().toUtc().toIso8601String().replaceAll(':', '-');
-    await File(path.join(directory.path, 'restaurant-pos-corrupt-\$stamp.json'))
+    await File(path.join(directory.path, 'restaurant-pos-corrupt-$stamp.json'))
         .writeAsString(payload, flush: true);
     final db = await _open();
     await db.delete('app_state', where: 'id = ?', whereArgs: [1]);
@@ -429,7 +432,7 @@ class MemoryStoreRepository implements StoreRepository {
 
   @override
   Future<void> backupBeforeRestore(String payload) async {
-    backupFiles['restaurant-pos-pre-restore-\${DateTime.now().microsecondsSinceEpoch}.json'] = payload;
+    backupFiles['restaurant-pos-pre-restore-${DateTime.now().microsecondsSinceEpoch}.json'] = payload;
   }
 
   @override
