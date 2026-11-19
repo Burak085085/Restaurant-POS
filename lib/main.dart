@@ -787,7 +787,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
   final amount = TextEditingController();
   String? staffName;
   final parts = <PaymentPart>[];
-  @override void initState(){super.initState();staffName=pos.currentUser;}
+  @override void initState(){super.initState();staffName=widget.initialStaff;}
   late int remaining = widget.total;
 
   @override
