@@ -30,7 +30,8 @@ for i in 1 2 3 4 5; do
   git clone --quiet --depth 1 --branch ci-reports "$repo_url" "$tmp/repo" || { echo "Could not clone ci-reports"; exit 0; }
   mkdir -p "$tmp/repo/runs"
   cp -r "$tmp/$name" "$tmp/repo/runs/"
-  if (cd "$tmp/repo" && git add runs && git commit -q -m "CI report: $job run ${GITHUB_RUN_ID}" && git push -q origin ci-reports); then
+  # -f: the repository .gitignore ignores *.log files, which would silently drop the logs.
+  if (cd "$tmp/repo" && git add -f runs && git commit -q -m "CI report: $job run ${GITHUB_RUN_ID}" && git push -q origin ci-reports); then
     echo "Published CI report $name"
     break
   fi
