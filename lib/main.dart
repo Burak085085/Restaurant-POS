@@ -603,8 +603,7 @@ class TablesPage extends StatelessWidget {
     builder: (context, _) => Scaffold(
       appBar: AppBar(title: const Text('Restaurant POS'),
         leading: const Padding(padding: EdgeInsets.all(6), child: PosLogo(size: 40)),
-        actions: [Padding(padding: const EdgeInsets.all(12),
-          child: Center(child: Text(pos.currentUser)))]),
+        actions: [Padding(padding: const EdgeInsets.all(8),child: Center(child: Text(pos.currentUser))), IconButton(tooltip:'Oturumu kapat',onPressed:pos.logout,icon:const Icon(Icons.logout))]),
       body: Column(children: [
         Padding(padding: const EdgeInsets.all(12), child: Wrap(spacing: 16, children: [
           Text('Tarih: ${stamp(azNow())}'),
@@ -1263,6 +1262,67 @@ class ReportsPage extends StatelessWidget {
 
 Widget _metric(String title,String value)=>SizedBox(width:160,child:Card(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(title),Text(value,style:const TextStyle(fontWeight:FontWeight.bold,fontSize:19))]))));
 
+class StaffManagerPage extends StatefulWidget {
+  const StaffManagerPage({super.key});
+  @override State<StaffManagerPage> createState()=>_StaffManagerPageState();
+}
+class _StaffManagerPageState extends State<StaffManagerPage>{
+  Future<void> _add() async {
+    final name=TextEditingController(), pin=TextEditingController(), confirm=TextEditingController();
+    String role='Garson';
+    final result=await showDialog<bool>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,set)=>AlertDialog(
+      title:const Text('Yeni personel hesabı'),
+      content:Column(mainAxisSize:MainAxisSize.min,children:[
+        TextField(controller:name,decoration:const InputDecoration(labelText:'Ad soyad')),
+        DropdownButtonFormField<String>(value:role,decoration:const InputDecoration(labelText:'Görev'),items:const ['Garson','Kasiyer','Mutfak'].map((r)=>DropdownMenuItem(value:r,child:Text(r))).toList(),onChanged:(v)=>set(()=>role=v??'Garson')),
+        TextField(controller:pin,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'4 haneli PIN')),
+        TextField(controller:confirm,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'PIN tekrar')),
+      ]),
+      actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Oluştur'))],
+    )));
+    if(result==true){
+      final value=pin.text.trim();
+      if(value!=confirm.text.trim()||!pos.addStaff(name.text,role,value)){
+        if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Ad benzersiz olmalı; PIN iki alanda eşleşmeli, 1234 dışında 4 rakam olmalı.')));
+      }
+    }
+    name.dispose();pin.dispose();confirm.dispose();
+  }
+  Future<void> _resetPin(Staff member) async {
+    final pin=TextEditingController(),confirm=TextEditingController();
+    final result=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(
+      title:Text('${member.name} PIN yenile'),
+      content:Column(mainAxisSize:MainAxisSize.min,children:[
+        TextField(controller:pin,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'Yeni PIN')),
+        TextField(controller:confirm,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'Yeni PIN tekrar')),
+      ]),
+      actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Kaydet'))],
+    ));
+    if(result==true&&(pin.text.trim()!=confirm.text.trim()||!pos.resetStaffPin(member,pin.text.trim()))&&mounted){
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('PIN eşleşmiyor veya geçersiz.')));
+    }
+    pin.dispose();confirm.dispose();
+  }
+  @override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(context,_)=>Scaffold(
+    appBar:AppBar(title:const Text('Personel hesapları'),actions:[IconButton(onPressed:_add,icon:const Icon(Icons.person_add),tooltip:'Personel ekle')]),
+    body:ListView(padding:const EdgeInsets.all(12),children:[
+      const Text('Her personelin kendi 4 haneli PIN kodu bulunur. Satışlar oturum açan personele otomatik yazılır.',style:TextStyle(color:Colors.black54)),
+      const SizedBox(height:8),
+      for(final member in pos.staff.where((item)=>item.name!='Admin'))
+        Card(child:ListTile(
+          leading:CircleAvatar(child:Text(member.name.isNotEmpty?member.name[0].toUpperCase():'?')),
+          title:Text(member.name),
+          subtitle:Text('${member.role} · ${member.active?'Aktif':'Pasif'}'),
+          trailing:Wrap(mainAxisSize:MainAxisSize.min,children:[
+            IconButton(tooltip:'PIN yenile',onPressed:()=>_resetPin(member),icon:const Icon(Icons.lock_reset)),
+            Switch(value:member.active,onChanged:(value){if(!pos.setStaffActive(member,value))ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Personel durumu değiştirilemedi.')));}),
+          ]),
+        )),
+      if(pos.staff.length==1)const ListTile(title:Text('Henüz personel hesabı eklenmedi.')),
+    ]),
+  ));
+}
+
 class AdminPage extends StatelessWidget {
   const AdminPage({super.key});
   @override
@@ -1271,7 +1331,8 @@ class AdminPage extends StatelessWidget {
     builder: (context, _) => Scaffold(
       appBar: AppBar(title: const Text('Yönetim ve güvenlik')),
       body: ListView(padding: const EdgeInsets.all(12), children: [
-        const Card(child: ListTile(leading: Icon(Icons.admin_panel_settings), title: Text('Tek kullanıcı: Yönetici'), subtitle: Text('Personel hesabı ve kullanıcı değiştirme kapalıdır.'))),
+        Card(child: ListTile(leading: const Icon(Icons.admin_panel_settings), title: const Text('Oturum: Yönetici'), subtitle: Text('${pos.staff.where((member)=>member.name!='Admin'&&member.active).length} aktif personel hesabı'))),
+        OutlinedButton.icon(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StaffManagerPage())), icon: const Icon(Icons.groups), label: const Text('Personel hesaplarını yönet')),
         OutlinedButton.icon(onPressed: () => _changePin(context), icon: const Icon(Icons.lock_reset), label: const Text('Yönetici PIN kodunu değiştir')),
         OutlinedButton.icon(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BackupManagerPage())), icon: const Icon(Icons.restore), label: const Text('Yedekleri görüntüle ve geri yükle')),
         OutlinedButton.icon(onPressed: () => _runIntegrityCheck(context), icon: const Icon(Icons.fact_check), label: const Text('Veri bütünlüğünü denetle')),
