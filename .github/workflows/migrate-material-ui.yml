@@ -1,0 +1,56 @@
+name: One-off Material UI migration
+# Runs the official Flutter migration (dart fix --apply --code=migrate_design_widgets)
+# on branches named migrate/** and commits the result back. Removed before merge.
+on:
+  push:
+    branches: ['migrate/**']
+permissions:
+  contents: write
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Migrate with the official dart fix
+        shell: bash
+        run: |
+          mkdir -p ci-logs
+          log=ci-logs/migrate.log
+          {
+            echo '--- flutter --version'; flutter --version
+            echo '--- flutter pub get'; flutter pub get
+            echo '--- dart fix --dry-run (before)'; dart fix --dry-run
+            echo '--- flutter pub add material_ui'; flutter pub add material_ui
+            echo '--- dart fix --apply --code=migrate_design_widgets'; dart fix --apply --code=migrate_design_widgets
+          } > "$log" 2>&1 || true
+          echo '--- files still importing package:flutter/material.dart (before fallback):' >> "$log"
+          grep -rl "package:flutter/material.dart" lib test >> "$log" 2>&1 || echo '(none)' >> "$log"
+          # Fallback only if dart fix left imports behind; documented as equivalent by the material_ui README.
+          for f in $(grep -rl "package:flutter/material.dart" lib test || true); do
+            sed -i "s#package:flutter/material.dart#package:material_ui/material_ui.dart#" "$f"
+            echo "FALLBACK import rewrite used on $f" >> "$log"
+          done
+          # Remove the temporary deprecation suppressions.
+          sed -i 's/ignore_for_file: deprecated_member_use, /ignore_for_file: /' lib/main.dart
+          sed -i '/^\/\/ ignore_for_file: deprecated_member_use$/,+1d' test/widget_test.dart
+          {
+            echo '--- flutter pub get'; flutter pub get
+            echo '--- dart fix --dry-run (after)'; dart fix --dry-run
+            echo '--- flutter analyze'; flutter analyze --no-pub
+          } >> "$log" 2>&1 || true
+          echo '--- git diff --stat' >> "$log"
+          git diff --stat >> "$log" 2>&1 || true
+      - name: Commit result
+        if: always()
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pubspec.yaml pubspec.lock lib test ci-logs
+          git commit -m "Migrate to material_ui (dart fix --apply --code=migrate_design_widgets)" || echo "nothing to commit"
+          git push
