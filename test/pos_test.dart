@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:restaurant_pos/storage.dart';
 import 'package:restaurant_pos/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
   test('Azerbaijani manat formatting uses qəpik precision', () {
@@ -359,6 +360,40 @@ void main() {
     expect(restored.cashMovements, hasLength(1));
     expect(restored.cashMovements.single.amount, 1200);
     expect(restored.expectedRegisterCash(restored.activeRegister!), 8700);
+  });
+
+
+  test('version 2 SQLite database upgrades without losing its legacy payload', () async {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+    SharedPreferences.setMockInitialValues({});
+    final directory = await Directory.systemTemp.createTemp('restaurant-pos-v2-');
+    final databasePath = '\${directory.path}/pos.sqlite3';
+    const legacy = '{"products":[],"tables":[],"sales":[],"staff":[],"audit":[]}';
+    final oldDatabase = await openDatabase(
+      databasePath,
+      version: 2,
+      onCreate: (db, version) async {
+        await db.execute('CREATE TABLE app_state (id INTEGER PRIMARY KEY CHECK (id = 1), payload TEXT NOT NULL, updated_at TEXT NOT NULL)');
+        await db.insert('app_state', {
+          'id': 1, 'payload': legacy, 'updated_at': '2026-11-18T00:00:00.000',
+        });
+        await db.execute('CREATE TABLE sales (position INTEGER PRIMARY KEY, date TEXT NOT NULL, time TEXT NOT NULL, staff TEXT NOT NULL, table_id INTEGER NOT NULL, total INTEGER NOT NULL, discount INTEGER NOT NULL)');
+      },
+    );
+    await oldDatabase.close();
+    final repository = SqliteStoreRepository(
+      databasePath: databasePath,
+      backupDirectoryPath: directory.path,
+    );
+    try {
+      expect(await repository.read(), legacy);
+      await repository.write(legacy);
+      expect(jsonDecode((await repository.read())!)['products'], isEmpty);
+    } finally {
+      await repository.close();
+      await directory.delete(recursive: true);
+    }
   });
 
 
