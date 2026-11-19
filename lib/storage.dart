@@ -12,10 +12,24 @@ bool isDailyBackupFileName(String name) {
   return match != null && match.end == name.length;
 }
 
+bool isRestorableBackupFileName(String name) =>
+    isDailyBackupFileName(name) ||
+    (name.startsWith('restaurant-pos-pre-restore-') && name.endsWith('.json'));
+
+class BackupFile {
+  final String name;
+  final DateTime modifiedAt;
+  final int sizeBytes;
+  const BackupFile(this.name, this.modifiedAt, this.sizeBytes);
+}
+
 abstract class StoreRepository {
   Future<String?> read();
   Future<void> write(String payload);
   Future<void> backupCorrupt(String payload);
+  Future<void> backupBeforeRestore(String payload);
+  Future<List<BackupFile>> listBackups();
+  Future<String?> readBackup(String name);
 }
 
 class SqliteStoreRepository implements StoreRepository {
@@ -95,6 +109,36 @@ class SqliteStoreRepository implements StoreRepository {
   }
 
   @override
+  Future<void> backupBeforeRestore(String payload) async {
+    final directory = await _backupDirectory();
+    final stamp = DateTime.now().toUtc().toIso8601String().replaceAll(':', '-');
+    final file = File(path.join(directory.path, 'restaurant-pos-pre-restore-$stamp.json'));
+    await file.writeAsString(payload, flush: true);
+  }
+
+  @override
+  Future<List<BackupFile>> listBackups() async {
+    final directory = await _backupDirectory();
+    final files = await directory.list()
+        .where((entry) => entry is File && isRestorableBackupFileName(path.basename(entry.path)))
+        .cast<File>().toList();
+    final result = <BackupFile>[];
+    for (final file in files) {
+      result.add(BackupFile(path.basename(file.path), await file.lastModified(), await file.length()));
+    }
+    result.sort((a, b) => b.modifiedAt.compareTo(a.modifiedAt));
+    return result;
+  }
+
+  @override
+  Future<String?> readBackup(String name) async {
+    if (path.basename(name) != name || !isRestorableBackupFileName(name)) return null;
+    final file = File(path.join((await _backupDirectory()).path, name));
+    if (!await file.exists()) return null;
+    return file.readAsString();
+  }
+
+  @override
   Future<void> backupCorrupt(String payload) async {
     final directory = await _backupDirectory();
     final stamp = DateTime.now().toUtc().toIso8601String().replaceAll(':', '-');
@@ -121,6 +165,24 @@ class MemoryStoreRepository implements StoreRepository {
   Future<void> write(String payload) async {
     value = payload;
   }
+
+  final Map<String, String> backupFiles = {};
+
+  @override
+  Future<void> backupBeforeRestore(String payload) async {
+    backupFiles['restaurant-pos-pre-restore-${DateTime.now().microsecondsSinceEpoch}.json'] = payload;
+  }
+
+  @override
+  Future<List<BackupFile>> listBackups() async => backupFiles.entries
+      .map((entry) => BackupFile(entry.key, DateTime.fromMicrosecondsSinceEpoch(
+          int.tryParse(entry.key.split('-').last.replaceAll('.json', '')) ?? 0),
+          entry.value.length))
+      .toList()
+    ..sort((a, b) => b.modifiedAt.compareTo(a.modifiedAt));
+
+  @override
+  Future<String?> readBackup(String name) async => backupFiles[name];
 
   @override
   Future<void> backupCorrupt(String payload) async {
