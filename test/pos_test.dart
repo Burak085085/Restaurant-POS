@@ -117,6 +117,21 @@ void main() {
     expect(store.can('reports'), isFalse);
   });
 
+  test('legacy administrator is reactivated during migration', () async {
+    final repository = MemoryStoreRepository(value: '{"products":[],"tables":[],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"2468","active":false}],"audit":[]}');
+    final store = Pos(repository: repository);
+    await store.load();
+    expect(store.staff.single.name, 'Admin');
+    expect(store.staff.single.active, isTrue);
+    expect(store.can('reports'), isTrue);
+  });
+
+  test('backup retention matches only dated daily JSON files', () {
+    expect(isDailyBackupFileName('restaurant-pos-2026-11-19.json'), isTrue);
+    expect(isDailyBackupFileName('restaurant-pos-corrupt-2026-11-19T12-00-00.json'), isFalse);
+    expect(isDailyBackupFileName('restaurant-pos-not-a-date.json'), isFalse);
+  });
+
   test('unknown and inactive users receive no permissions', () {
     final store = Pos(repository: MemoryStoreRepository());
     store.currentUser = 'unknown';
