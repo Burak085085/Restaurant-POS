@@ -835,7 +835,7 @@ class RegisterPage extends StatelessWidget {
           decoration: InputDecoration(labelText: label)),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Ləğv et')),
+            child: const Text('İptal')),
           FilledButton(onPressed: () => Navigator.pop(dialogContext, parseMoney(controller.text)),
             child: const Text('Davam et')),
         ],
@@ -855,7 +855,7 @@ class RegisterPage extends StatelessWidget {
           decoration: const InputDecoration(labelText: 'Qeyd / səbəb')),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Ləğv et')),
+            child: const Text('İptal')),
           FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text),
             child: const Text('Yadda saxla')),
         ],
@@ -866,26 +866,26 @@ class RegisterPage extends StatelessWidget {
   }
 
   Future<void> _open(BuildContext context) async {
-    final amount = await _amountDialog(context, 'Kasanı aç', label: 'Açılış nağdı (₼)');
+    final amount = await _amountDialog(context, 'Kasayı aç', label: 'Açılış nakdi (₼)');
     if (!context.mounted || amount == null) return;
     final note = await _noteDialog(context, 'Açılış qeydi');
     if (!context.mounted || note == null) return;
     final success = pos.openRegister(amount, note: note);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(success ? 'Kasa açıldı.' : 'Kasa açıla bilmədi.')));
+      content: Text(success ? 'Kasa açıldı.' : 'Kasa açılamadı.')));
   }
 
   Future<void> _movement(BuildContext context, String type) async {
     final amount = await _amountDialog(context,
-      type == 'Giriş' ? 'Kasaya pul əlavə et' : 'Kasadan pul çıxar',
-      label: 'Məbləğ (₼)');
+      type == 'Giriş' ? 'Kasaya para ekle' : 'Kasadan para çıkar',
+      label: 'Tutar (₼)');
     if (!context.mounted || amount == null) return;
-    final note = await _noteDialog(context, 'Əməliyyatın səbəbi');
+    final note = await _noteDialog(context, 'İşlem açıklaması');
     if (!context.mounted || note == null) return;
     final success = pos.addCashMovement(type, amount, note);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(success ? 'Nağd əməliyyat qeydə alındı.' :
-        'Əməliyyat mümkün olmadı. Məbləği və kassa qalığını yoxlayın.')));
+      content: Text(success ? 'Nakit hareketi kaydedildi.' :
+        'İşlem yapılamadı. Tutarı ve kasa bakiyesini kontrol edin.')));
   }
 
   Future<void> _close(BuildContext context, RegisterSession session) async {
@@ -919,17 +919,17 @@ class RegisterPage extends StatelessWidget {
                   const SizedBox(height: 12),
                   FilledButton.icon(
                     onPressed: pos.can('register') ? () => _open(context) : null,
-                    icon: const Icon(Icons.lock_open), label: const Text('Kasanı aç')),
+                    icon: const Icon(Icons.lock_open), label: const Text('Kasayı aç')),
                 ])
               : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text('KASA AÇIQDIR',
+                  const Text('KASA AÇIK',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
                   Text('Açılış: ${stamp(DateTime.parse(session.openedAt).toLocal())}'),
                   const Divider(),
-                  _metric('Açılış nağdı', money(session.openingCash)),
-                  _metric('Nağd satış', money(pos.cashSalesForSession(session.id))),
+                  _metric('Açılış nakdi', money(session.openingCash)),
+                  _metric('Nakit satış', money(pos.cashSalesForSession(session.id))),
                   _metric('Nağd hərəkət', money(pos.cashMovementsForSession(session.id))),
-                  _metric('Gözlənilən nağd', money(pos.expectedRegisterCash(session))),
+                  _metric('Beklenen nakit', money(pos.expectedRegisterCash(session))),
                   const SizedBox(height: 8),
                   Wrap(spacing: 8, runSpacing: 8, children: [
                     OutlinedButton.icon(onPressed: () => _movement(context, 'Giriş'),
@@ -937,15 +937,15 @@ class RegisterPage extends StatelessWidget {
                     OutlinedButton.icon(onPressed: () => _movement(context, 'Çıxış'),
                       icon: const Icon(Icons.remove), label: const Text('Pul çıxışı')),
                     FilledButton.icon(onPressed: () => _close(context, session),
-                      icon: const Icon(Icons.lock), label: const Text('Növbəni bağla')),
+                      icon: const Icon(Icons.lock), label: const Text('Vardiyayı kapat')),
                   ]),
                 ]),
           )),
           const SizedBox(height: 12),
-          const Text('Nağd əməliyyatlar',
+          const Text('Nakit hareketleri',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
           if (session == null || !pos.cashMovements.any((m) => m.sessionId == session.id))
-            const ListTile(title: Text('Aktiv növbədə nağd hərəkət yoxdur.')),
+            const ListTile(title: Text('Aktiv növbədə nakit hareketi yoxdur.')),
           if (session != null)
             for (final movement in pos.cashMovements.where((m) => m.sessionId == session.id).toList().reversed)
               ListTile(
@@ -953,21 +953,21 @@ class RegisterPage extends StatelessWidget {
                 title: Text('${movement.type}: ${money(movement.amount)}'),
                 subtitle: Text('${movement.note} · ${stamp(DateTime.parse(movement.at).toLocal())}')),
           const Divider(),
-          const Text('Əvvəlki növbələr',
+          const Text('Önceki vardiyalar',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
           if (sessions.isEmpty)
-            const ListTile(title: Text('Hələ növbə qeydə alınmayıb.')),
+            const ListTile(title: Text('Henüz vardiya kaydı yok.')),
           for (final item in sessions)
             Card(child: ExpansionTile(
               title: Text('${stamp(DateTime.parse(item.openedAt).toLocal())} · ${item.isOpen ? 'Açıq' : 'Bağlı'}'),
-              subtitle: Text('Açılış ${money(item.openingCash)} · Nağd satış ${money(pos.cashSalesForSession(item.id))}'),
+              subtitle: Text('Açılış ${money(item.openingCash)} · Nakit satış ${money(pos.cashSalesForSession(item.id))}'),
               children: [
-                ListTile(title: const Text('Gözlənilən nağd'),
+                ListTile(title: const Text('Beklenen nakit'),
                   trailing: Text(money(item.expectedCash ?? pos.expectedRegisterCash(item)))),
                 if (item.closingCash != null)
-                  ListTile(title: const Text('Sayılmış nağd'), trailing: Text(money(item.closingCash!))),
+                  ListTile(title: const Text('Sayılan nakit'), trailing: Text(money(item.closingCash!))),
                 if (item.closingCash != null && item.expectedCash != null)
-                  ListTile(title: const Text('Kassa fərqi'),
+                  ListTile(title: const Text('Kasa farkı'),
                     trailing: Text(money(item.closingCash! - item.expectedCash!))),
                 for (final movement in pos.cashMovements.where((m) => m.sessionId == item.id))
                   ListTile(dense: true,
