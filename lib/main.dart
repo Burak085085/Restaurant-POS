@@ -814,7 +814,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
     content: SingleChildScrollView(
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Text('Kalan: ${money(remaining)}'),
-        DropdownButtonFormField<String>(value:staffName,decoration:const InputDecoration(labelText:'Satışı yapan personel'),items:pos.staff.where((member)=>member.active).map((member)=>DropdownMenuItem(value:member.name,child:Text('${member.name} · ${member.role}'))).toList(),onChanged:(value)=>setState(()=>staffName=value)),
+        DropdownButtonFormField<String>(initialValue:staffName,decoration:const InputDecoration(labelText:'Satışı yapan personel'),items:pos.staff.where((member)=>member.active).map((member)=>DropdownMenuItem(value:member.name,child:Text('${member.name} · ${member.role}'))).toList(),onChanged:(value)=>setState(()=>staffName=value)),
         TextField(
           controller: amount,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -1277,7 +1277,7 @@ class _StaffManagerPageState extends State<StaffManagerPage>{
     final name=TextEditingController(); String role='Garson';
     final ok=await showDialog<bool>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,set)=>AlertDialog(title:const Text('Personel ekle'),content:Column(mainAxisSize:MainAxisSize.min,children:[
       TextField(controller:name,decoration:const InputDecoration(labelText:'Ad soyad')),
-      DropdownButtonFormField<String>(value:role,decoration:const InputDecoration(labelText:'Görev'),items:const ['Garson','Kasiyer','Mutfak'].map((r)=>DropdownMenuItem(value:r,child:Text(r))).toList(),onChanged:(v)=>set(()=>role=v??'Garson')),
+      DropdownButtonFormField<String>(initialValue:role,decoration:const InputDecoration(labelText:'Görev'),items:const ['Garson','Kasiyer','Mutfak'].map((r)=>DropdownMenuItem(value:r,child:Text(r))).toList(),onChanged:(v)=>set(()=>role=v??'Garson')),
     ]),actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Ekle'))])));
     if(ok==true&&!pos.addStaff(name.text,role)&&mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Personel adı boş veya zaten kayıtlı.')));
     name.dispose();
