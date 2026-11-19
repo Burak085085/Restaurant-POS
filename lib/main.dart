@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'package:crypto/crypto.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'storage.dart';
 
 final GlobalKey<ScaffoldMessengerState> appMessengerKey = GlobalKey<ScaffoldMessengerState>();
 const int kTableCount = 20;
@@ -58,7 +58,7 @@ String kitchenLabel(PosTable table) {
   }
 }
 
-class PaymentPart { String method; int amount; int tendered; PaymentPart(this.method,this.amount,{int? tendered}):tendered=tendered??amount; int get change=>method=='Nakit'?(tendered-amount).clamp(0,1<<30).toInt():0; Map<String,dynamic> toJson()=>{'method':method,'amount':amount,'tendered':tendered}; }
+class PaymentPart { String method; int amount; int tendered; PaymentPart(this.method,this.amount,{int? tendered}):tendered=tendered??amount; int get change=>method=='Nakit'?(tendered-amount).clamp(0,1<<30).toInt():0; bool get isValid => amount > 0 && (method == 'Nakit' ? tendered >= amount : method == 'Kart' && tendered == amount); Map<String,dynamic> toJson()=>{'method':method,'amount':amount,'tendered':tendered}; }
 class Sale { String date,time,staff; int table,total,discount; List<OrderLine> items; List<PaymentPart> payments; Sale(this.date,this.time,this.staff,this.table,this.total,this.discount,this.items,this.payments); Map<String,dynamic> toJson()=>{'date':date,'time':time,'staff':staff,'table':table,'total':total,'discount':discount,'items':items.map((e)=>e.toJson()).toList(),'payments':payments.map((e)=>e.toJson()).toList()}; factory Sale.fromJson(Map<String,dynamic> j)=>Sale(j['date']??'',j['time']??'',j['staff']??'Admin',j['table']??0,j['total']??0,j['discount']??0,(j['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(),(j['payments'] as List? ?? []).map((e)=>PaymentPart(e['method']??'Nakit',e['amount']??0,tendered:e['tendered']??e['amount']??0)).toList()); }
 class Staff {
   String name, role, salt, pinHash;
@@ -87,8 +87,9 @@ class Audit { String at,user,action,detail; Audit(this.at,this.user,this.action,
 
 class Pos extends ChangeNotifier {
   List<Product> products=[Product('p1','Dönerler','Tavuk döner',300),Product('p2','Dönerler','Dana döner',500),Product('p3','Dönerler','Dürüm döner',400),Product('p4','Dönerler','Porsiyon döner',700),Product('p5','İçecekler','Kola',200),Product('p6','İçecekler','Fanta',200),Product('p7','İçecekler','Ayran',100),Product('p8','İçecekler','Su',50),Product('p9','Ekstra','Patates',200),Product('p10','Ekstra','Ketçap',50),Product('p11','Ekstra','Mayonez',50)];
-  List<PosTable> tables=List.generate(kTableCount,(i)=>PosTable(i+1)); List<Sale> sales=[]; List<Staff> staff=[Staff('Admin','Yönetici'),Staff('Garson','Garson'),Staff('Mutfak','Mutfak')]; List<Audit> audit=[]; String currentUser='Admin'; SharedPreferences? prefs; Future<void> _queue=Future.value();
-  Future<void> load() async { prefs=await SharedPreferences.getInstance(); final raw=prefs!.getString(kStoreKey); if(raw==null)return; try { final j=jsonDecode(raw) as Map<String,dynamic>; products=(j['products'] as List? ?? []).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList(); tables=List.generate(kTableCount,(i)=>PosTable(i+1)); for(final x in (j['tables'] as List? ?? [])){final m=Map<String,dynamic>.from(x); final id=m['id'] as int; if(id<1||id>kTableCount)continue; final t=tables[id-1]; t.items=(m['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(); t.kitchen=KitchenState.values[(m['kitchen']??0).clamp(0,3).toInt()]; final rawItems=(m['items'] as List? ?? []); for(var lineIndex=0;lineIndex<t.items.length;lineIndex++){final rawLine=Map<String,dynamic>.from(rawItems[lineIndex]);if(!rawLine.containsKey('kitchen'))t.items[lineIndex].kitchen=t.kitchen;} t.discount=m['discount']??0;t.discountPercent=m['discountPercent']??false;t.discountReason=m['discountReason']??'';} sales=(j['sales'] as List? ?? []).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList(); staff=(j['staff'] as List? ?? []).map((e)=>Staff.fromJson(Map<String,dynamic>.from(e))).toList(); if(staff.isEmpty)staff=[Staff('Admin','Yönetici')]; audit=(j['audit'] as List? ?? []).map((e)=>Audit.fromJson(Map<String,dynamic>.from(e))).toList(); currentUser=j['currentUser']??staff.first.name; } catch (_) { final backupKey='${kStoreKey}_corrupt_${DateTime.now().microsecondsSinceEpoch}'; await prefs!.setString(backupKey, raw); await prefs!.remove(kStoreKey); products=[Product('p1','Dönerler','Tavuk döner',300),Product('p2','Dönerler','Dana döner',500),Product('p3','Dönerler','Dürüm döner',400),Product('p4','Dönerler','Porsiyon döner',700),Product('p5','İçecekler','Kola',200),Product('p6','İçecekler','Fanta',200),Product('p7','İçecekler','Ayran',100),Product('p8','İçecekler','Su',50),Product('p9','Ekstra','Patates',200),Product('p10','Ekstra','Ketçap',50),Product('p11','Ekstra','Mayonez',50)]; tables=List.generate(kTableCount,(i)=>PosTable(i+1)); sales=[]; staff=[Staff('Admin','Yönetici')]; audit=[]; currentUser='Admin'; } }
+  List<PosTable> tables=List.generate(kTableCount,(i)=>PosTable(i+1)); List<Sale> sales=[]; List<Staff> staff=[Staff('Admin','Yönetici')]; List<Audit> audit=[]; String currentUser='Admin'; final StoreRepository _repository; Future<void> _queue=Future.value();
+  Pos({StoreRepository? repository}) : _repository = repository ?? SqliteStoreRepository();
+  Future<void> load() async { final raw=await _repository.read(); if(raw==null)return; try { final j=jsonDecode(raw) as Map<String,dynamic>; products=(j['products'] as List? ?? []).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList(); tables=List.generate(kTableCount,(i)=>PosTable(i+1)); for(final x in (j['tables'] as List? ?? [])){final m=Map<String,dynamic>.from(x); final id=m['id'] as int; if(id<1||id>kTableCount)continue; final t=tables[id-1]; t.items=(m['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(); t.kitchen=KitchenState.values[(m['kitchen']??0).clamp(0,3).toInt()]; final rawItems=(m['items'] as List? ?? []); for(var lineIndex=0;lineIndex<t.items.length;lineIndex++){final rawLine=Map<String,dynamic>.from(rawItems[lineIndex]);if(!rawLine.containsKey('kitchen'))t.items[lineIndex].kitchen=t.kitchen;} t.discount=m['discount']??0;t.discountPercent=m['discountPercent']??false;t.discountReason=m['discountReason']??'';} sales=(j['sales'] as List? ?? []).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList(); final legacyStaff=(j['staff'] as List? ?? []).map((e)=>Staff.fromJson(Map<String,dynamic>.from(e))).toList(); final admins=legacyStaff.where((member)=>member.name=='Admin').toList(); staff=[admins.isNotEmpty ? admins.first : Staff('Admin','Yönetici')]; audit=(j['audit'] as List? ?? []).map((e)=>Audit.fromJson(Map<String,dynamic>.from(e))).toList(); currentUser='Admin'; } catch (_) { await _repository.backupCorrupt(raw); products=[Product('p1','Dönerler','Tavuk döner',300),Product('p2','Dönerler','Dana döner',500),Product('p3','Dönerler','Dürüm döner',400),Product('p4','Dönerler','Porsiyon döner',700),Product('p5','İçecekler','Kola',200),Product('p6','İçecekler','Fanta',200),Product('p7','İçecekler','Ayran',100),Product('p8','İçecekler','Su',50),Product('p9','Ekstra','Patates',200),Product('p10','Ekstra','Ketçap',50),Product('p11','Ekstra','Mayonez',50)]; tables=List.generate(kTableCount,(i)=>PosTable(i+1)); sales=[]; staff=[Staff('Admin','Yönetici')]; audit=[]; currentUser='Admin'; } }
   Future<void> flush()=>_queue;
   void save() {
     final snapshot = jsonEncode({
@@ -101,8 +102,7 @@ class Pos extends ChangeNotifier {
     });
     _queue = _queue.catchError((Object _) {}).then((_) async {
       try {
-        final saved = await prefs?.setString(kStoreKey, snapshot);
-        if (saved == false) throw StateError('Yerel kayıt reddedildi.');
+        await _repository.write(snapshot);
       } catch (error) {
         appMessengerKey.currentState?.showSnackBar(SnackBar(
           content: Text('Veriler kaydedilemedi. Depolama alanını kontrol edin. ($error)'),
@@ -113,7 +113,7 @@ class Pos extends ChangeNotifier {
     notifyListeners();
   }
   void log(String action,String detail){audit.insert(0,Audit(stamp(azNow()),currentUser,action,detail)); if(audit.length>2000)audit.removeRange(2000,audit.length);}
-  bool can(String permission){final current=staff.where((e)=>e.name==currentUser&&e.active); if(current.isEmpty)return false; final role=current.first.role; if(role=='Yönetici')return true; if(role=='Mutfak')return permission=='kitchen'; if(role=='Garson')return ['orders','kitchen'].contains(permission); return false;}
+  bool can(String permission) => currentUser == 'Admin' && staff.any((member) => member.name == 'Admin' && member.active);
   int get todayTotal=>sales.where((s)=>s.date==dayKey(azNow())).fold(0,(a,s)=>a+s.total); int get todayCount=>sales.where((s)=>s.date==dayKey(azNow())).length;
   int reservedStock(String productId) => tables.fold(0, (sum, table) =>
       sum + table.items.where((line) => line.productId == productId).fold(0, (n, line) => n + line.qty));
@@ -178,7 +178,7 @@ class Pos extends ChangeNotifier {
   bool checkout(PosTable t, List<PaymentPart> payments) {
     if (!can('orders') || t.items.isEmpty || t.items.any((line) => !line.sent)) return false;
     final total = t.total;
-    if (payments.isEmpty || payments.fold(0, (sum, part) => sum + part.amount) != total) return false;
+    if (payments.isEmpty || payments.any((part) => !part.isValid) || payments.fold(0, (sum, part) => sum + part.amount) != total) return false;
     for (final line in t.items) {
       final matches = products.where((product) => product.id == line.productId);
       if (matches.isEmpty || matches.first.stock < line.qty) return false;
@@ -442,124 +442,101 @@ class InventoryPage extends StatelessWidget {
   }
 }
 
-class ReportsPage extends StatelessWidget{const ReportsPage({super.key});@override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(c,_) {final today=dayKey(azNow());final allSales=pos.sales.reversed.toList();final sales=pos.sales.where((s)=>s.date==today).toList();final cash=sales.fold(0,(a,s)=>a+s.payments.where((p)=>p.method=='Nakit').fold(0,(x,p)=>x+p.amount));final card=sales.fold(0,(a,s)=>a+s.payments.where((p)=>p.method=='Kart').fold(0,(x,p)=>x+p.amount));return Scaffold(appBar:AppBar(title:const Text('Günlük rapor ve satış geçmişi')),body:pos.can('reports')?ListView(padding:const EdgeInsets.all(12),children:[Wrap(spacing:8,runSpacing:8,children:[_metric('Ciro',money(sales.fold(0,(a,s)=>a+s.total))),_metric('Satış adedi','${sales.length}'),_metric('Nakit',money(cash)),_metric('Kart',money(card))]),const SizedBox(height:12),const Text('Satış geçmişi',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),for(final s in allSales)Card(child:ExpansionTile(title:Text('${s.time} · Masa ${s.table} · ${money(s.total)}'),subtitle:Text('Personel: ${s.staff} · İndirim: ${money(s.discount)}'),children:[for(final x in s.items)ListTile(dense:true,title:Text('${x.qty} × ${x.name}'),trailing:Text(money(x.qty*x.price))),Padding(padding:const EdgeInsets.all(12),child:Text('Ödeme: ${s.payments.map((p)=>p.method=='Nakit'?'Nakit ${money(p.amount)} (alınan ${money(p.tendered)}, para üstü ${money(p.change)})':'Kart ${money(p.amount)}').join(' + ')}'))]))]):const Center(child:Text('Raporlar için yönetici yetkisi gerekir.')));});}
+class ReportsPage extends StatelessWidget {
+  const ReportsPage({super.key});
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: pos,
+    builder: (context, _) {
+      final today = dayKey(azNow());
+      final todaySales = pos.sales.where((sale) => sale.date == today).toList();
+      final weekStart = azNow().subtract(const Duration(days: 6));
+      final weekSales = pos.sales.where((sale) {
+        final date = DateTime.tryParse(sale.date);
+        return date != null && !date.isBefore(DateTime(weekStart.year, weekStart.month, weekStart.day));
+      }).toList();
+      final cash = todaySales.fold(0, (sum, sale) => sum + sale.payments.where((part) => part.method == 'Nakit').fold(0, (value, part) => value + part.amount));
+      final card = todaySales.fold(0, (sum, sale) => sum + sale.payments.where((part) => part.method == 'Kart').fold(0, (value, part) => value + part.amount));
+      final units = weekSales.expand((sale) => sale.items).fold(0, (sum, item) => sum + item.qty);
+      final productTotals = <String, int>{};
+      for (final sale in weekSales) { for (final item in sale.items) { productTotals[item.name] = (productTotals[item.name] ?? 0) + item.qty; } }
+      final topProducts = productTotals.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+      return Scaffold(
+        appBar: AppBar(title: const Text('Satış ve performans raporu')),
+        body: pos.can('reports') ? ListView(padding: const EdgeInsets.all(12), children: [
+          const Text('Bugünkü kasa', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            _metric('Bugünkü ciro', money(todaySales.fold(0, (sum, sale) => sum + sale.total))),
+            _metric('Satış adedi', '${todaySales.length}'), _metric('Nakit', money(cash)), _metric('Kart', money(card)),
+          ]),
+          const SizedBox(height: 18),
+          const Text('Son 7 gün', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            _metric('7 günlük ciro', money(weekSales.fold(0, (sum, sale) => sum + sale.total))),
+            _metric('Satılan ürün', '$units adet'),
+          ]),
+          const SizedBox(height: 12),
+          const Text('En çok satılan ürünler', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          if (topProducts.isEmpty) const ListTile(title: Text('Henüz satış verisi yok.')),
+          for (final item in topProducts.take(5)) ListTile(leading: const Icon(Icons.trending_up), title: Text(item.key), trailing: Text('${item.value} adet')),
+          const Divider(),
+          const Text('Satış geçmişi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          for (final sale in pos.sales.reversed) Card(child: ExpansionTile(
+            title: Text('${sale.date} · ${sale.time} · Masa ${sale.table} · ${money(sale.total)}'),
+            subtitle: Text('İndirim: ${money(sale.discount)}'),
+            children: [
+              for (final item in sale.items) ListTile(dense: true, title: Text('${item.qty} × ${item.name}'), trailing: Text(money(item.qty * item.price))),
+              Padding(padding: const EdgeInsets.all(12), child: Text('Ödeme: ${sale.payments.map((part) => part.method == 'Nakit' ? 'Nakit ${money(part.amount)} (alınan ${money(part.tendered)}, para üstü ${money(part.change)})' : 'Kart ${money(part.amount)}').join(' + ')}')),
+            ],
+          )),
+        ]) : const Center(child: Text('Raporlar için yönetici girişi gerekir.')),
+      );
+    },
+  );
+}
+
 Widget _metric(String title,String value)=>SizedBox(width:160,child:Card(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(title),Text(value,style:const TextStyle(fontWeight:FontWeight.bold,fontSize:19))]))));
 
 class AdminPage extends StatelessWidget {
   const AdminPage({super.key});
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-        animation: pos,
-        builder: (context, _) => Scaffold(
-          appBar: AppBar(title: const Text('Yönetim · Personel · Kayıtlar')),
-          body: ListView(
-            padding: const EdgeInsets.all(12),
-            children: [
-              if (pos.can('staff')) OutlinedButton.icon(onPressed: () => _changePin(context), icon: const Icon(Icons.lock_reset), label: const Text('Yönetici PIN kodunu değiştir')),
-              ListTile(
-                title: const Text('Aktif personel'),
-                subtitle: Text(pos.currentUser),
-                trailing: DropdownButton<String>(
-                  value: pos.staff.any((s) => s.active && s.name == pos.currentUser) ? pos.currentUser : null,
-                  items: pos.staff.where((s) => s.active).map((s) => DropdownMenuItem(value: s.name, child: Text(s.name))).toList(),
-                  onChanged: (value) async {
-                    if (value == null) return;
-                    final target = pos.staff.firstWhere((s) => s.name == value);
-                    final pin = TextEditingController();
-                    final ok = await showDialog<bool>(
-                      context: context,
-                      builder: (dialogContext) => AlertDialog(
-                        title: Text('$value giriş'),
-                        content: TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, decoration: const InputDecoration(labelText: 'Personel PIN')),
-                        actions: [
-                          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('İptal')),
-                          FilledButton(onPressed: () => Navigator.pop(dialogContext, target.verifyPin(pin.text)), child: const Text('Giriş')),
-                        ],
-                      ),
-                    );
-                    if (ok == true) {
-                      pos.currentUser = value;
-                      pos.log('Oturum', 'Aktif kullanıcı: $value');
-                      pos.save();
-                    } else if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PIN hatalı veya giriş iptal edildi.')));
-                    }
-                  },
-                ),
-              ),
-              if (pos.can('staff'))
-                FilledButton.icon(onPressed: () => _staffDialog(context), icon: const Icon(Icons.person_add), label: const Text('Personel ekle')),
-              if (pos.can('staff')) const Divider(),
-              if (pos.can('staff')) const Text('Personel hesapları', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-              if (pos.can('staff'))
-                for (final member in pos.staff)
-                  ListTile(dense: true, title: Text(member.name), subtitle: Text(member.role),
-                    trailing: Switch(value: member.active, onChanged: member.name == pos.currentUser ? null : (value) => pos.setStaffActive(member, value))),
-              if (pos.can('staff')) const Text('İşlem geçmişi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-              if (pos.can('staff'))
-                for (final entry in pos.audit.take(100))
-                  ListTile(dense: true, title: Text('${entry.action}: ${entry.detail}'), subtitle: Text('${entry.at} · ${entry.user}')),
-              if (!pos.can('staff')) const Text('Personel yönetimi ve işlem kayıtları için yönetici yetkisi gerekir.'),
-            ],
-          ),
-        ),
-      );
-
-  Future<void> _changePin(BuildContext context) async {
-    final oldPin=TextEditingController();
-    final newPin=TextEditingController();
-    final confirmPin=TextEditingController();
-    final ok=await showDialog<bool>(context:context,builder:(dialogContext)=>AlertDialog(
-      title:const Text('Yönetici PIN değiştir'),
-      content:Column(mainAxisSize:MainAxisSize.min,children:[
-        TextField(controller:oldPin,obscureText:true,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Mevcut PIN')),
-        TextField(controller:newPin,obscureText:true,keyboardType:TextInputType.number,maxLength:4,decoration:const InputDecoration(labelText:'Yeni 4 haneli PIN')),
-        TextField(controller:confirmPin,obscureText:true,keyboardType:TextInputType.number,maxLength:4,decoration:const InputDecoration(labelText:'Yeni PIN tekrar')),
+    animation: pos,
+    builder: (context, _) => Scaffold(
+      appBar: AppBar(title: const Text('Yönetim ve güvenlik')),
+      body: ListView(padding: const EdgeInsets.all(12), children: [
+        const Card(child: ListTile(leading: Icon(Icons.admin_panel_settings), title: Text('Tek kullanıcı: Yönetici'), subtitle: Text('Personel hesabı ve kullanıcı değiştirme kapalıdır.'))),
+        OutlinedButton.icon(onPressed: () => _changePin(context), icon: const Icon(Icons.lock_reset), label: const Text('Yönetici PIN kodunu değiştir')),
+        const SizedBox(height: 12),
+        const Text('Veri güvenliği', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        const ListTile(leading: Icon(Icons.storage), title: Text('SQLite yerel veritabanı'), subtitle: Text('İşlemler atomik kayıtla saklanır. Eski yerel kayıt ilk açılışta otomatik taşınır.')),
+        const ListTile(leading: Icon(Icons.backup), title: Text('Otomatik yedekleme'), subtitle: Text('Günlük JSON yedeği alınır ve son 7 yedek saklanır. Yedekler cihazda kalır.')),
+        const Divider(),
+        const Text('Son işlemler', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        if (pos.audit.isEmpty) const ListTile(title: Text('Henüz işlem kaydı yok.')),
+        for (final entry in pos.audit.take(100)) ListTile(dense: true, title: Text('${entry.action}: ${entry.detail}'), subtitle: Text('${entry.at} · ${entry.user}')),
       ]),
-      actions:[TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(dialogContext,true),child:const Text('Değiştir'))],
+    ),
+  );
+  Future<void> _changePin(BuildContext context) async {
+    final oldPin = TextEditingController(), newPin = TextEditingController(), confirmPin = TextEditingController();
+    final ok = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
+      title: const Text('Yönetici PIN değiştir'),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: oldPin, obscureText: true, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Mevcut PIN')),
+        TextField(controller: newPin, obscureText: true, keyboardType: TextInputType.number, maxLength: 4, decoration: const InputDecoration(labelText: 'Yeni 4 haneli PIN')),
+        TextField(controller: confirmPin, obscureText: true, keyboardType: TextInputType.number, maxLength: 4, decoration: const InputDecoration(labelText: 'Yeni PIN tekrar')),
+      ]),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('İptal')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Değiştir'))],
     ));
-    if(ok==true){
-      final admin=pos.staff.firstWhere((member)=>member.name=='Admin');
-      final value=newPin.text.trim();
-      final valid=admin.verifyPin(oldPin.text.trim())&&value.length==4&&int.tryParse(value)!=null&&value!='1234'&&value==confirmPin.text.trim();
-      if(valid){admin.setPin(value);pos.log('Güvenlik','Yönetici PIN kodu değiştirildi');pos.save();}
-      else if(context.mounted){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Mevcut PIN yanlış veya yeni PIN geçersiz.')));}
+    if (ok == true) {
+      final admin = pos.staff.firstWhere((member) => member.name == 'Admin');
+      final value = newPin.text.trim();
+      final valid = admin.verifyPin(oldPin.text.trim()) && RegExp(r'^[0-9]{4}$').hasMatch(value) && value != '1234' && value == confirmPin.text.trim();
+      if (valid) { admin.setPin(value); pos.log('Güvenlik', 'Yönetici PIN kodu değiştirildi'); pos.save(); }
+      else if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Mevcut PIN yanlış veya yeni PIN geçersiz.')));
     }
-    oldPin.dispose();newPin.dispose();confirmPin.dispose();
-  }
-
-  Future<void> _staffDialog(BuildContext context) async {
-    final name = TextEditingController();
-    final pin = TextEditingController();
-    String role = 'Garson';
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: const Text('Personel ekle'),
-          content: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextField(controller: name, decoration: const InputDecoration(labelText: 'Ad')),
-            TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, decoration: const InputDecoration(labelText: 'Yeni PIN (4-12 rakam)')),
-            DropdownButton<String>(
-              value: role,
-              items: ['Yönetici', 'Garson', 'Mutfak'].map((value) => DropdownMenuItem(value: value, child: Text(value))).toList(),
-              onChanged: (value) => setDialogState(() => role = value ?? role),
-            ),
-          ]),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('İptal')),
-            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Ekle')),
-          ],
-        ),
-      ),
-    );
-    if (ok == true && name.text.trim().isNotEmpty && RegExp(r'^[0-9]{4,12}$').hasMatch(pin.text.trim()) && !pos.staff.any((member) => member.name.toLowerCase() == name.text.trim().toLowerCase())) {
-      pos.staff.add(Staff(name.text.trim(), role, pin: pin.text.trim()));
-      pos.log('Personel', '${name.text} eklendi ($role)');
-      pos.save();
-    } else if (ok == true && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Benzersiz personel adı ve 4-12 haneli PIN gerekli.')));
-    }
+    oldPin.dispose(); newPin.dispose(); confirmPin.dispose();
   }
 }
 

@@ -1,7 +1,7 @@
 name: restaurant_pos
 description: Offline-first restaurant point of sale for Android and Windows.
 publish_to: "none"
-version: 1.1.0+2
+version: 1.2.0+3
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
@@ -10,6 +10,10 @@ dependencies:
   flutter:
     sdk: flutter
   shared_preferences: ^2.3.2
+  sqflite: ^2.4.2
+  sqflite_common_ffi: ^2.3.6
+  path: ^1.9.1
+  path_provider: ^2.1.5
   crypto: ^3.0.6
   material_ui: ^1.8.0
 

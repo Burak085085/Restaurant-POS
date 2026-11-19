@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:restaurant_pos/storage.dart';
 import 'package:restaurant_pos/main.dart';
 
 void main() {
@@ -16,7 +16,7 @@ void main() {
   });
 
   test('stock is reserved across all open tables', () {
-    final store = Pos();
+    final store = Pos(repository: MemoryStoreRepository());
     final product = Product('test', 'Test', 'Test item', 300, stock: 2);
     store.products = [product];
     expect(store.add(store.tables[0], product), isTrue);
@@ -26,7 +26,7 @@ void main() {
   });
 
   test('kitchen dispatch tracks only sent lines and preserves earlier batches', () {
-    final store = Pos();
+    final store = Pos(repository: MemoryStoreRepository());
     final product = Product('kitchen-test', 'Test', 'Test item', 300, stock: 5);
     store.products = [product];
     final table = store.tables.first;
@@ -72,7 +72,7 @@ void main() {
   });
 
   test('cash overpayment records change and checkout consumes stock', () {
-    final store = Pos();
+    final store = Pos(repository: MemoryStoreRepository());
     final product = Product('test', 'Test', 'Test item', 300, stock: 2);
     store.products = [product];
     final table = store.tables.first;
@@ -87,7 +87,7 @@ void main() {
   });
 
   test('discount requires reason and respects total', () {
-    final store = Pos();
+    final store = Pos(repository: MemoryStoreRepository());
     final product = Product('test', 'Test', 'Test item', 1000, stock: 3);
     store.products = [product];
     final table = store.tables.first;
@@ -107,18 +107,18 @@ void main() {
     expect(restored.verifyPin('5831'), isTrue);
   });
 
-  test('waiter permissions do not include management actions', () {
-    final store = Pos();
+  test('only the administrator account can access POS actions', () {
+    final store = Pos(repository: MemoryStoreRepository());
     store.currentUser = 'Garson';
-    expect(store.can('orders'), isTrue);
-    expect(store.can('kitchen'), isTrue);
+    expect(store.can('orders'), isFalse);
+    expect(store.can('kitchen'), isFalse);
     expect(store.can('inventory'), isFalse);
     expect(store.can('discount'), isFalse);
     expect(store.can('reports'), isFalse);
   });
 
   test('unknown and inactive users receive no permissions', () {
-    final store = Pos();
+    final store = Pos(repository: MemoryStoreRepository());
     store.currentUser = 'unknown';
     expect(store.can('orders'), isFalse);
     store.currentUser = 'Admin';
@@ -127,7 +127,7 @@ void main() {
   });
 
   test('removing the last order line clears discount and kitchen state', () {
-    final store = Pos();
+    final store = Pos(repository: MemoryStoreRepository());
     final table = store.tables.first;
     table.items.add(OrderLine('p1', 'Tavuk döner', 300, 1));
     table.discount = 100;
@@ -142,7 +142,7 @@ void main() {
   });
 
   test('product edits preserve inactive state and reject stock below reservations', () {
-    final store = Pos();
+    final store = Pos(repository: MemoryStoreRepository());
     final original = store.products.first;
     original.active = false;
     store.upsertProduct(Product(original.id, original.category, original.name,
@@ -159,19 +159,30 @@ void main() {
   });
 
   test('corrupt local data is backed up before defaults are restored', () async {
-    SharedPreferences.setMockInitialValues({kStoreKey: '{broken-json'});
-    final store = Pos();
+    final repository = MemoryStoreRepository(value: '{broken-json');
+    final store = Pos(repository: repository);
     await store.load();
-    final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getString(kStoreKey), isNull);
-    expect(prefs.getKeys().any((key) => key.startsWith('${kStoreKey}_corrupt_')),
-        isTrue);
+    expect(repository.corruptBackup, '{broken-json');
+    expect(repository.value, isNull);
     expect(store.tables, hasLength(kTableCount));
-    expect(store.staff.any((member) => member.name == 'Admin'), isTrue);
+    expect(store.staff.single.name, 'Admin');
   });
+
 
   test('money parser rejects non-finite values', () {
     expect(parseMoney('NaN'), 0);
     expect(parseMoney('Infinity'), 0);
   });
+  test('checkout rejects invalid tender and unsupported payment methods', () {
+    final store = Pos(repository: MemoryStoreRepository());
+    final product = Product('pay-test', 'Test', 'Test item', 300, stock: 2);
+    store.products = [product];
+    final table = store.tables.first;
+    expect(store.add(table, product), isTrue);
+    expect(store.sendKitchen(table), isTrue);
+    expect(store.checkout(table, [PaymentPart('Nakit', 300, tendered: 200)]), isFalse);
+    expect(store.checkout(table, [PaymentPart('Bitcoin', 300)]), isFalse);
+    expect(store.checkout(table, [PaymentPart('Kart', 300, tendered: 300)]), isTrue);
+  });
+
 }
