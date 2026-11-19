@@ -197,6 +197,78 @@ class Pos extends ChangeNotifier {
     }
   }
 
+  Future<List<String>> integrityCheck() async {
+    final issues = <String>[];
+    final productIds = products.map((item) => item.id).toSet();
+    if (productIds.length != products.length) issues.add('Ürün kimlikleri tekrar ediyor.');
+    for (final product in products) {
+      if (product.stock < 0 || product.price < 0 || product.costPrice < 0) {
+        issues.add('${product.name}: stok veya fiyat değeri negatif.');
+      }
+    }
+    if (tables.length != kTableCount || tables.map((table) => table.id).toSet().length != kTableCount) {
+      issues.add('Masa kayıtları eksik veya yinelenmiş.');
+    }
+    for (final table in tables) {
+      for (final line in table.items) {
+        if (line.qty <= 0) issues.add('Masa ${table.id}: geçersiz ürün adedi.');
+        if (!productIds.contains(line.productId)) issues.add('Masa ${table.id}: ürün kaydı bulunamıyor (${line.name}).');
+      }
+    }
+    for (final product in products) {
+      if (reservedStock(product.id) > product.stock) issues.add('${product.name}: açık sipariş rezervasyonu stoktan fazla.');
+    }
+    final ingredientIds = ingredients.map((item) => item.id).toSet();
+    if (ingredientIds.length != ingredients.length) issues.add('Malzeme kimlikleri tekrar ediyor.');
+    for (final ingredient in ingredients) {
+      if (ingredient.stock < 0 || ingredient.costPerUnit < 0) issues.add('${ingredient.name}: stok veya maliyet negatif.');
+      if (reservedIngredientStock(ingredient.id) > ingredient.stock) issues.add('${ingredient.name}: açık siparişlerde ayrılan miktar stoktan fazla.');
+    }
+    for (final entry in recipes.entries) {
+      if (!productIds.contains(entry.key)) issues.add('Reçete bağlı olduğu ürünü bulamıyor: ${entry.key}.');
+      for (final line in entry.value) {
+        if (!ingredientIds.contains(line.ingredientId) || line.quantity <= 0) {
+          issues.add('Ürün reçetesinde eksik malzeme veya geçersiz miktar var.');
+        }
+      }
+    }
+    if (registerSessions.where((session) => session.isOpen).length > 1) {
+      issues.add('Birden fazla açık kasa vardiyası var.');
+    }
+    final sessionIds = registerSessions.map((session) => session.id).toSet();
+    for (final movement in cashMovements) {
+      if (!sessionIds.contains(movement.sessionId)) issues.add('Nakit hareketi bağlı olduğu vardiyayı bulamıyor.');
+      if (movement.amount <= 0) issues.add('Nakit hareketinde geçersiz tutar var.');
+    }
+    for (final sale in sales) {
+      if (sale.total < 0 || sale.items.any((item) => item.qty <= 0 || item.unitCost < 0)) {
+        issues.add('${sale.date} tarihli satışta geçersiz tutar veya ürün miktarı var.');
+      }
+      if (sale.payments.fold<int>(0, (sum, part) => sum + part.amount) != sale.total) {
+        issues.add('${sale.date} tarihli satışın ödeme toplamı satış tutarıyla eşleşmiyor.');
+      }
+      if (sale.registerSessionId != null && !sessionIds.contains(sale.registerSessionId)) {
+        issues.add('${sale.date} tarihli satışın kasa vardiyası bulunamıyor.');
+      }
+    }
+    try {
+      final files = await listBackups();
+      for (final file in files) {
+        if (!isRestorableBackupFileName(file.name)) continue;
+        final payload = await readBackup(file.name);
+        if (payload == null) { issues.add('Yedek okunamıyor: ${file.name}.'); continue; }
+        final decoded = jsonDecode(payload);
+        if (decoded is! Map || decoded['products'] is! List ||
+            decoded['tables'] is! List || decoded['sales'] is! List) {
+          issues.add('Yedek dosyası bozuk: ${file.name}.');
+        }
+      }
+    } catch (_) {
+      issues.add('Yedek dosyaları denetlenemedi.');
+    }
+    return issues;
+  }
+
   Future<void> flush()=>_queue;
   void save() {
     final snapshot = jsonEncode({
@@ -205,6 +277,8 @@ class Pos extends ChangeNotifier {
       'sales': sales.map((e) => e.toJson()).toList(),
       'expenses': expenses.map((e) => e.toJson()).toList(),
       'stockMovements': stockMovements.map((e) => e.toJson()).toList(),
+      'ingredients': ingredients.map((e) => e.toJson()).toList(),
+      'recipes': recipes.map((key, value) => MapEntry(key, value.map((e) => e.toJson()).toList())),
       'registerSessions': registerSessions.map((e) => e.toJson()).toList(),
       'cashMovements': cashMovements.map((e) => e.toJson()).toList(),
       'staff': staff.map((e) => e.toJson()).toList(),
@@ -1198,6 +1272,7 @@ class AdminPage extends StatelessWidget {
         const Card(child: ListTile(leading: Icon(Icons.admin_panel_settings), title: Text('Tek kullanıcı: Yönetici'), subtitle: Text('Personel hesabı ve kullanıcı değiştirme kapalıdır.'))),
         OutlinedButton.icon(onPressed: () => _changePin(context), icon: const Icon(Icons.lock_reset), label: const Text('Yönetici PIN kodunu değiştir')),
         OutlinedButton.icon(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BackupManagerPage())), icon: const Icon(Icons.restore), label: const Text('Yedekleri görüntüle ve geri yükle')),
+        OutlinedButton.icon(onPressed: () => _runIntegrityCheck(context), icon: const Icon(Icons.fact_check), label: const Text('Veri bütünlüğünü denetle')),
         const SizedBox(height: 12),
         const Text('Veri güvenliği', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
         const ListTile(leading: Icon(Icons.storage), title: Text('SQLite yerel veritabanı'), subtitle: Text('İşlemler atomik kayıtla saklanır. Eski yerel kayıt ilk açılışta otomatik taşınır.')),
@@ -1209,6 +1284,25 @@ class AdminPage extends StatelessWidget {
       ]),
     ),
   );
+  Future<void> _runIntegrityCheck(BuildContext context) async {
+    final issues = await pos.integrityCheck();
+    if (!context.mounted) return;
+    showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(
+      title: Text(issues.isEmpty ? 'Veri denetimi başarılı' : 'Veri denetimi: ${issues.length} bulgu'),
+      content: SizedBox(width: 460, child: SingleChildScrollView(child: Column(
+        mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
+        children: issues.isEmpty
+          ? [const ListTile(leading: Icon(Icons.verified, color: green),
+              title: Text('Veritabanı, stok rezervasyonları, ödemeler ve yedekler tutarlı görünüyor.'))]
+          : [for (final issue in issues) ListTile(
+              dense: true, leading: const Icon(Icons.warning_amber, color: red),
+              title: Text(issue))],
+      ))),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext),
+        child: const Text('Kapat'))],
+    ));
+  }
+
   Future<void> _changePin(BuildContext context) async {
     final oldPin = TextEditingController(), newPin = TextEditingController(), confirmPin = TextEditingController();
     final ok = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
