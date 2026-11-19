@@ -134,7 +134,6 @@ class SqliteStoreRepository implements StoreRepository {
           'name': _string(line['name']),
           'price': _int(line['price']),
           'qty': _int(line['qty']),
-          'unitCost': _int(line['unit_cost']),
           'sent': _int(line['sent']) == 1,
           'kitchen': _int(line['kitchen']),
         }).toList(),
