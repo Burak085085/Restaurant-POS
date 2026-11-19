@@ -238,7 +238,7 @@ void main() {
     final payload = {
       'products': [
         {'id': 'p1', 'category': 'Dönerler', 'name': 'Tavuk döner',
-          'price': 350, 'stock': 12, 'lowAt': 3, 'active': true},
+          'price': 350, 'costPrice': 0, 'stock': 12, 'lowAt': 3, 'active': true},
       ],
       'tables': [
         {'id': 1, 'kitchen': 1, 'discount': 50, 'discountPercent': false,
