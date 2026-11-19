@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+<defs><linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff1a6"/><stop offset=".28" stop-color="#ffd34f"/><stop offset=".58" stop-color="#d99a16"/><stop offset=".82" stop-color="#ffe17a"/><stop offset="1" stop-color="#a96808"/></linearGradient><radialGradient id="navy"><stop stop-color="#152d4b"/><stop offset="1" stop-color="#06152b"/></radialGradient></defs>
+<rect width="1024" height="1024" rx="130" fill="url(#navy)"/><rect x="72" y="72" width="880" height="880" rx="92" fill="none" stroke="url(#gold)" stroke-width="18"/>
+<g fill="url(#gold)" stroke="#9b650e" stroke-width="5" stroke-linejoin="round">
+<path d="M365 475c-75-10-122-62-122-125 0-57 43-104 101-111 18-73 83-123 158-123 84 0 151 61 162 141 51 16 86 60 86 112 0 60-45 108-111 117v86H365z"/>
+<path d="M365 493c65-7 111-39 145-91l93-113c14-17 39-19 55-5 16 14 18 38 4 55L562 474c-47 65-111 100-197 106z"/>
+<path d="M400 585h224v52H400z"/>
+</g>
+<g stroke="#07172c" stroke-width="17" stroke-linecap="round"><path d="M475 353l-72 83M520 365l-79 91M564 380l-82 92"/></g>
+<text x="512" y="835" text-anchor="middle" font-family="Georgia,serif" font-size="150" letter-spacing="-5" fill="url(#gold)" stroke="#70480a" stroke-width="3" paint-order="stroke">Restoram</text>
+</svg>
