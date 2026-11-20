@@ -1535,7 +1535,7 @@ class _PinGateState extends State<PinGate> {
         Row(children:[
           Expanded(child:FilledButton(onPressed:submit,child:Text(setupRequired?'PIN oluştur ve devam et':'Yönetici girişi'))),
           const SizedBox(width:8),
-          TextButton.icon(onPressed:_chooseWaiter,icon:const Icon(Icons.person_outline),label:const Text('Garson girişi')),
+          TextButton.icon(onPressed:_chooseWaiter,icon:const Icon(Icons.person_outline),label:const Text('Garson')),
         ]),
       ])),
     ))),
