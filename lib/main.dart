@@ -407,7 +407,7 @@ class Pos extends ChangeNotifier {
     return true;
   }
   bool moveTable(PosTable source, PosTable destination) {
-    if (!can('orders') || source == destination || source.items.isEmpty ||
+    if (!can('table_manage') || source == destination || source.items.isEmpty ||
         destination.items.isNotEmpty) return false;
     destination.items.addAll(source.items);
     destination.discount = source.discount;
@@ -423,7 +423,7 @@ class Pos extends ChangeNotifier {
   }
 
   bool mergeTables(PosTable source, PosTable destination) {
-    if (!can('orders') || source == destination || source.items.isEmpty ||
+    if (!can('table_manage') || source == destination || source.items.isEmpty ||
         destination.items.isEmpty) return false;
     int discountOf(PosTable table) => table.discountPercent
         ? table.subtotal * table.discount ~/ 100 : table.discount;
@@ -446,7 +446,7 @@ class Pos extends ChangeNotifier {
 
   bool splitTable(PosTable source, PosTable destination,
       {required int lineIndex, required int quantity}) {
-    if (!can('orders') || source == destination || source.items.isEmpty ||
+    if (!can('table_manage') || source == destination || source.items.isEmpty ||
         destination.items.isNotEmpty || source.discount != 0 ||
         destination.discount != 0 || lineIndex < 0 ||
         lineIndex >= source.items.length) return false;
@@ -594,10 +594,14 @@ class Pos extends ChangeNotifier {
   bool addStaff(String name,String role,String? pin) {
     final clean=name.trim();
     final requiresPin=role!='Garson';
+    final validPin=pin!=null && pin.length==4 && int.tryParse(pin)!=null && pin!='1234';
     if(!can('staff')||clean.isEmpty||clean.toLowerCase()=='admin'||
       staff.any((x)=>x.name.toLowerCase()==clean.toLowerCase())||
       !['Garson','Kasiyer','Mutfak'].contains(role)||
-      (requiresPin&&(!RegExp(r'^[0-9]{4}
+      (requiresPin&&!validPin)||(!requiresPin&&pin!=null&&pin.isNotEmpty)) return false;
+    staff.add(Staff(clean,role,pin:pin??'1234',pinRequired:requiresPin));
+    log('Personel','Personel eklendi: $clean ($role)'); save(); return true;
+  }
   bool setStaffActive(Staff member,bool active) { if(!can('staff')||member.name=='Admin')return false; member.active=active; log('Personel','${member.name}: ${active?'aktif':'pasif'}'); save(); return true; }
   int get lowStock=>products.where((p)=>p.active&&p.stock<=p.lowAt).length;
 }
