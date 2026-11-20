@@ -127,7 +127,7 @@ class Staff {
   String name, role, salt, pinHash;
   bool active, pinRequired;
   Staff(this.name, this.role, {String pin='1234', String? salt, String? pinHash, this.active=true, bool? pinRequired})
-      : pinRequired = pinRequired ?? role != 'Garson',
+      : pinRequired = pinRequired ?? true,
         salt = salt ?? _newPinSalt(),
         pinHash = pinHash ?? '' {
     if (pinHash == null) this.pinHash = _hashPin(this.salt, pin);
