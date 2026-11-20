@@ -1524,7 +1524,7 @@ class _PinGateState extends State<PinGate> {
     backgroundColor: ink,
     body: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 380), child: Card(
       margin: const EdgeInsets.all(24),
-      child: Padding(padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [
+      child: Padding(padding: const EdgeInsets.all(20), child: Column(mainAxisSize: MainAxisSize.min, children: [
         const PosLogo(size: 120),
         const SizedBox(height: 16),
         Text(setupRequired ? 'Yönetici PIN kodunu oluştur' : 'Yönetici girişi', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
