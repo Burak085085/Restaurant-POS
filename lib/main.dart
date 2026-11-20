@@ -598,7 +598,7 @@ class Pos extends ChangeNotifier {
     if(!can('staff')||clean.isEmpty||clean.toLowerCase()=='admin'||
       staff.any((x)=>x.name.toLowerCase()==clean.toLowerCase())||
       !['Garson','Kasiyer','Mutfak'].contains(role)||
-      (requiresPin&&!validPin)||(!requiresPin&&pin!=null&&pin.isNotEmpty)) return false;
+      (requiresPin&&!validPin)) return false;
     staff.add(Staff(clean,role,pin:pin??'1234',pinRequired:requiresPin));
     log('Personel','Personel eklendi: $clean ($role)'); save(); return true;
   }
@@ -1496,6 +1496,19 @@ class _PinGateState extends State<PinGate> {
   Staff get admin => pos.staff.firstWhere((s) => s.name == 'Admin', orElse: () => pos.staff.first);
   bool get setupRequired => admin.verifyPin('1234');
   @override void dispose() { pin.dispose(); confirm.dispose(); super.dispose(); }
+  Future<void> _chooseWaiter() async {
+    final waiters=pos.staff.where((member)=>member.active&&member.role=='Garson').toList();
+    if(waiters.isEmpty){setState(()=>error='Henüz aktif garson hesabı yok.');return;}
+    final selected=await showDialog<Staff>(context:context,builder:(dialogContext)=>AlertDialog(
+      title:const Text('Garson seç'),
+      content:Column(mainAxisSize:MainAxisSize.min,children:[
+        for(final member in waiters) ListTile(leading:const Icon(Icons.person_outline),title:Text(member.name),onTap:()=>Navigator.pop(dialogContext,member)),
+      ]),
+      actions:[TextButton(onPressed:()=>Navigator.pop(dialogContext),child:const Text('İptal'))],
+    ));
+    if(!mounted||selected==null)return;
+    widget.onWaiterSelected(selected);
+  }
   void submit() {
     if (lockedUntil != null && DateTime.now().isBefore(lockedUntil!)) { setState(() => error = 'Çok fazla hatalı deneme. 30 saniye bekleyin.'); return; }
     final value = pin.text.trim();
@@ -1519,13 +1532,11 @@ class _PinGateState extends State<PinGate> {
         TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4, decoration: InputDecoration(labelText: setupRequired ? 'Yeni 4 haneli PIN' : 'Yönetici PIN'), onSubmitted: (_) => submit()),
         if (setupRequired) TextField(controller: confirm, keyboardType: TextInputType.number, obscureText: true, maxLength: 4, decoration: const InputDecoration(labelText: 'PIN tekrar')),
         if (error != null) Padding(padding: const EdgeInsets.only(bottom: 12), child: Text(error!, style: const TextStyle(color: red))),
-        SizedBox(width: double.infinity, child: FilledButton(onPressed: submit, child: Text(setupRequired ? 'PIN oluştur ve devam et' : 'Yönetici girişi'))),
-        const Divider(height:28),
-        const Text('Garson girişi',style:TextStyle(fontWeight:FontWeight.bold)),
-        if(pos.staff.any((member)=>member.active&&member.role=='Garson'))
-          for(final member in pos.staff.where((member)=>member.active&&member.role=='Garson'))
-            SizedBox(width:double.infinity,child:OutlinedButton.icon(onPressed:()=>widget.onWaiterSelected(member),icon:const Icon(Icons.person_outline),label:Text(member.name))),
-        if(!pos.staff.any((member)=>member.active&&member.role=='Garson')) const Text('Henüz aktif garson hesabı yok.'),
+        Row(children:[
+          Expanded(child:FilledButton(onPressed:submit,child:Text(setupRequired?'PIN oluştur ve devam et':'Yönetici girişi'))),
+          const SizedBox(width:8),
+          TextButton.icon(onPressed:_chooseWaiter,icon:const Icon(Icons.person_outline),label:const Text('Garson girişi')),
+        ]),
       ])),
     ))),
   );
