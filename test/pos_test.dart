@@ -430,12 +430,18 @@ void main() {
   });
 
   test('legacy Garson accounts migrate without requiring their old PIN', () {
-    final waiter = Staff.fromJson({
-      'name': 'Eski Garson',
+    final oldHashedRecord = Staff('Eski Garson', 'Garson', pin: '2468').toJson()
+      ..remove('pinRequired');
+    final hashedWaiter = Staff.fromJson(oldHashedRecord);
+    expect(hashedWaiter.pinRequired, isFalse);
+    expect(hashedWaiter.verifyPin('2468'), isFalse);
+
+    final plainWaiter = Staff.fromJson({
+      'name': 'Eski Garson 2',
       'role': 'Garson',
       'pin': '1234',
     });
-    expect(waiter.pinRequired, isFalse);
-    expect(waiter.verifyPin('1234'), isFalse);
+    expect(plainWaiter.pinRequired, isFalse);
+    expect(plainWaiter.verifyPin('1234'), isFalse);
   });
 }
