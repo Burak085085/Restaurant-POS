@@ -125,25 +125,27 @@ class Expense { final int id,amount; final String date,category,note; Expense({r
 class StockMovement { final int id,quantity,beforeStock,afterStock,productCost; final String productId,productName,type,at,note; StockMovement({required this.id,required this.productId,required this.productName,required this.type,required this.quantity,required this.beforeStock,required this.afterStock,required this.productCost,required this.at,required this.note}); Map<String,dynamic> toJson()=>{'id':id,'productId':productId,'productName':productName,'type':type,'quantity':quantity,'beforeStock':beforeStock,'afterStock':afterStock,'productCost':productCost,'at':at,'note':note}; factory StockMovement.fromJson(Map<String,dynamic> j)=>StockMovement(id:j['id']??0,productId:j['productId']??'',productName:j['productName']??'',type:j['type']??'',quantity:j['quantity']??0,beforeStock:j['beforeStock']??0,afterStock:j['afterStock']??0,productCost:j['productCost']??0,at:j['at']??'',note:j['note']??''); }
 class Staff {
   String name, role, salt, pinHash;
-  bool active;
-  Staff(this.name, this.role, {String pin='1234', String? salt, String? pinHash, this.active=true})
-      : salt = salt ?? _newPinSalt(),
+  bool active, pinRequired;
+  Staff(this.name, this.role, {String pin='1234', String? salt, String? pinHash, this.active=true, bool? pinRequired})
+      : pinRequired = pinRequired ?? true,
+        salt = salt ?? _newPinSalt(),
         pinHash = pinHash ?? '' {
     if (pinHash == null) this.pinHash = _hashPin(this.salt, pin);
   }
-  Staff._(this.name, this.role, this.salt, this.pinHash, this.active);
+  Staff._(this.name, this.role, this.salt, this.pinHash, this.active, this.pinRequired);
   static String _newPinSalt() { final random=math.Random.secure(); return List.generate(32, (_) => random.nextInt(256).toRadixString(16).padLeft(2,'0')).join(); }
   static String _hashPin(String salt, String pin) => sha256.convert(utf8.encode('$salt:$pin')).toString();
-  void setPin(String pin) { salt=_newPinSalt(); pinHash=_hashPin(salt,pin); }
-  bool verifyPin(String candidate) => pinHash == _hashPin(salt, candidate);
-  Map<String,dynamic> toJson()=>{'name':name,'role':role,'salt':salt,'pinHash':pinHash,'active':active};
+  void setPin(String pin) { salt=_newPinSalt(); pinHash=_hashPin(salt,pin); pinRequired=true; }
+  bool verifyPin(String candidate) => pinRequired && pinHash == _hashPin(salt, candidate);
+  Map<String,dynamic> toJson()=>{'name':name,'role':role,'salt':salt,'pinHash':pinHash,'pinRequired':pinRequired,'active':active};
   factory Staff.fromJson(Map<String,dynamic> j) {
     final name = j['name'] ?? 'Personel';
     final role = j['role'] ?? 'Garson';
     final salt = j['salt']?.toString();
     final hash = j['pinHash']?.toString();
-    if (salt != null && hash != null) return Staff._(name, role, salt, hash, j['active'] ?? true);
-    return Staff(name, role, pin: (j['pin'] ?? '1234').toString(), active: j['active'] ?? true);
+    final pinRequired = j['pinRequired'] is bool ? j['pinRequired'] as bool : role != 'Garson';
+    if (salt != null && hash != null) return Staff._(name, role, salt, hash, j['active'] ?? true, pinRequired);
+    return Staff(name, role, pin: (j['pin'] ?? '1234').toString(), active: j['active'] ?? true, pinRequired: pinRequired);
   }
 }
 class Audit { String at,user,action,detail; Audit(this.at,this.user,this.action,this.detail); Map<String,dynamic> toJson()=>{'at':at,'user':user,'action':action,'detail':detail}; factory Audit.fromJson(Map<String,dynamic> j)=>Audit(j['at']??'',j['user']??'',j['action']??'',j['detail']??''); }
@@ -297,7 +299,17 @@ class Pos extends ChangeNotifier {
     notifyListeners();
   }
   void log(String action,String detail){audit.insert(0,Audit(stamp(azNow()),currentUser,action,detail)); if(audit.length>2000)audit.removeRange(2000,audit.length);}
-  bool can(String permission) => currentUser == 'Admin' && staff.any((member) => member.name == 'Admin' && member.active);
+  bool get isWaiter => staff.any((member) => member.name == currentUser && member.role == 'Garson' && member.active);
+  bool get isAdmin => currentUser == 'Admin' && staff.any((member) => member.name == 'Admin' && member.active);
+  bool can(String permission) => isAdmin || (isWaiter && permission == 'orders');
+  bool loginAsWaiter(Staff member) {
+    if (!staff.contains(member) || !member.active || member.role != 'Garson') return false;
+    currentUser = member.name;
+    log('Giriş', 'Garson oturumu açıldı');
+    save();
+    notifyListeners();
+    return true;
+  }
   int get todayTotal=>sales.where((s)=>s.date==dayKey(azNow())).fold(0,(a,s)=>a+s.total); int get todayCount=>sales.where((s)=>s.date==dayKey(azNow())).length;
   int reservedStock(String productId) => tables.fold(0, (sum, table) =>
       sum + table.items.where((line) => line.productId == productId).fold(0, (n, line) => n + line.qty));
@@ -395,7 +407,7 @@ class Pos extends ChangeNotifier {
     return true;
   }
   bool moveTable(PosTable source, PosTable destination) {
-    if (!can('orders') || source == destination || source.items.isEmpty ||
+    if (!can('table_manage') || source == destination || source.items.isEmpty ||
         destination.items.isNotEmpty) return false;
     destination.items.addAll(source.items);
     destination.discount = source.discount;
@@ -411,7 +423,7 @@ class Pos extends ChangeNotifier {
   }
 
   bool mergeTables(PosTable source, PosTable destination) {
-    if (!can('orders') || source == destination || source.items.isEmpty ||
+    if (!can('table_manage') || source == destination || source.items.isEmpty ||
         destination.items.isEmpty) return false;
     int discountOf(PosTable table) => table.discountPercent
         ? table.subtotal * table.discount ~/ 100 : table.discount;
@@ -434,7 +446,7 @@ class Pos extends ChangeNotifier {
 
   bool splitTable(PosTable source, PosTable destination,
       {required int lineIndex, required int quantity}) {
-    if (!can('orders') || source == destination || source.items.isEmpty ||
+    if (!can('table_manage') || source == destination || source.items.isEmpty ||
         destination.items.isNotEmpty || source.discount != 0 ||
         destination.discount != 0 || lineIndex < 0 ||
         lineIndex >= source.items.length) return false;
@@ -477,7 +489,7 @@ class Pos extends ChangeNotifier {
   int costOfSale(Sale sale)=>sale.items.fold(0,(s,item)=>s+item.unitCost*item.qty);int get totalExpenses=>expenses.fold(0,(s,e)=>s+e.amount);int get totalCostOfSales=>sales.fold(0,(s,e)=>s+costOfSale(e));int get netProfit=>sales.fold(0,(s,e)=>s+e.total-costOfSale(e))-totalExpenses;
   String buildCsv(){String q(Object? v)=>'"${v.toString().replaceAll('"','""')}"';final b=StringBuffer('Tarih;Tür;Açıklama;Adet;Ciro/Gider;Maliyet\\r\\n');for(final sale in sales){b.writeln([q(sale.date),q('Satış'),q('Masa ${sale.table}'),q(sale.items.fold<int>(0,(int n,OrderLine x)=>n+x.qty)),q(sale.total/100),q(costOfSale(sale)/100)].join(';'));}for(final e in expenses){b.writeln([q(e.date),q('Gider'),q('${e.category}: ${e.note}'),q(1),q(e.amount/100),q(0)].join(';'));}return b.toString();}
   bool checkout(PosTable t, List<PaymentPart> payments, {String? staffName}) {
-    if (!can('orders') || t.items.isEmpty || t.items.any((line) => !line.sent)) return false;
+    if (!can('register') || t.items.isEmpty || t.items.any((line) => !line.sent)) return false;
     final total = t.total;
     if (payments.isEmpty || payments.any((part) => !part.isValid) || payments.fold(0, (sum, part) => sum + part.amount) != total) return false;
     final ingredientNeeds = <String, int>{};
@@ -579,7 +591,17 @@ class Pos extends ChangeNotifier {
     save();
     return true;
   }
-  bool addStaff(String name,String role,String pin) { final clean=name.trim(); if(!can('staff')||clean.isEmpty||clean.toLowerCase()=='admin'||staff.any((x)=>x.name.toLowerCase()==clean.toLowerCase())||!['Garson','Kasiyer','Mutfak'].contains(role)||!RegExp(r'^[0-9]{4}$').hasMatch(pin)||pin=='1234')return false; staff.add(Staff(clean,role,pin:pin)); log('Personel','Personel eklendi: $clean ($role)'); save(); return true; }
+  bool addStaff(String name,String role,String? pin) {
+    final clean=name.trim();
+    final requiresPin=role!='Garson';
+    final validPin=pin!=null && pin.length==4 && int.tryParse(pin)!=null && pin!='1234';
+    if(!can('staff')||clean.isEmpty||clean.toLowerCase()=='admin'||
+      staff.any((x)=>x.name.toLowerCase()==clean.toLowerCase())||
+      !['Garson','Kasiyer','Mutfak'].contains(role)||
+      (requiresPin&&!validPin)) return false;
+    staff.add(Staff(clean,role,pin:pin??'1234',pinRequired:requiresPin));
+    log('Personel','Personel eklendi: $clean ($role)'); save(); return true;
+  }
   bool setStaffActive(Staff member,bool active) { if(!can('staff')||member.name=='Admin')return false; member.active=active; log('Personel','${member.name}: ${active?'aktif':'pasif'}'); save(); return true; }
   int get lowStock=>products.where((p)=>p.active&&p.stock<=p.lowAt).length;
 }
@@ -589,10 +611,20 @@ class PosLogo extends StatelessWidget { final double size; const PosLogo({super.
 class PosApp extends StatelessWidget {const PosApp({super.key});@override Widget build(BuildContext context)=>MaterialApp(scaffoldMessengerKey:appMessengerKey,title:'Restaurant POS',debugShowCheckedModeBanner:false,theme:ThemeData(useMaterial3:true,colorScheme:ColorScheme.fromSeed(seedColor:ink),scaffoldBackgroundColor:bg,appBarTheme:const AppBarTheme(backgroundColor:ink,foregroundColor:Colors.white)),home:const Home());}
 
 class Home extends StatefulWidget {const Home({super.key});@override State<Home> createState()=>_HomeState();}
-class _HomeState extends State<Home>{int tab=0;bool authenticated=false;@override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(context,_){if(!authenticated)return PinGate(onAuthenticated:()=>setState(()=>authenticated=true));final pages=[const TablesPage(),const KitchenPage(),const InventoryPage(),const ReportsPage(),const AdminPage()];return Scaffold(body:SafeArea(child:pages[tab]),bottomNavigationBar:NavigationBar(selectedIndex:tab,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:const [NavigationDestination(icon:Icon(Icons.table_restaurant),label:'Masalar'),NavigationDestination(icon:Icon(Icons.soup_kitchen),label:'Mutfak'),NavigationDestination(icon:Icon(Icons.inventory_2),label:'Stok'),NavigationDestination(icon:Icon(Icons.bar_chart),label:'Rapor'),NavigationDestination(icon:Icon(Icons.settings),label:'Yönetim') ]));});}
+class _HomeState extends State<Home>{
+  int tab=0; bool authenticated=false;
+  void _logout(){pos.currentUser='';setState(()=>authenticated=false);}
+  @override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(context,_){
+    if(!authenticated)return PinGate(onAuthenticated:()=>setState(()=>authenticated=true),onWaiterSelected:(member){if(pos.loginAsWaiter(member))setState(()=>authenticated=true);});
+    if(pos.isWaiter)return Scaffold(body:SafeArea(child:TablesPage(onLogout:_logout)));
+    final pages=[TablesPage(onLogout:_logout),const KitchenPage(),const InventoryPage(),const ReportsPage(),const AdminPage()];
+    return Scaffold(body:SafeArea(child:pages[tab]),bottomNavigationBar:NavigationBar(selectedIndex:tab,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:const [NavigationDestination(icon:Icon(Icons.table_restaurant),label:'Masalar'),NavigationDestination(icon:Icon(Icons.soup_kitchen),label:'Mutfak'),NavigationDestination(icon:Icon(Icons.inventory_2),label:'Stok'),NavigationDestination(icon:Icon(Icons.bar_chart),label:'Rapor'),NavigationDestination(icon:Icon(Icons.settings),label:'Yönetim')]));
+  });
+}
 
 class TablesPage extends StatelessWidget {
-  const TablesPage({super.key});
+  final VoidCallback? onLogout;
+  const TablesPage({super.key, this.onLogout});
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: pos,
@@ -600,13 +632,14 @@ class TablesPage extends StatelessWidget {
       appBar: AppBar(title: const Text('Restaurant POS'),
         leading: const Padding(padding: EdgeInsets.all(6), child: PosLogo(size: 40)),
         actions: [Padding(padding: const EdgeInsets.all(12),
-          child: Center(child: Text(pos.currentUser)))]),
+          child: Center(child: Text(pos.currentUser))),
+          if(onLogout!=null) IconButton(tooltip:'Oturumu kapat',onPressed:onLogout,icon:const Icon(Icons.logout))]),
       body: Column(children: [
         Padding(padding: const EdgeInsets.all(12), child: Wrap(spacing: 16, children: [
           Text('Tarih: ${stamp(azNow())}'),
           if (pos.can('reports')) Text('Bugünkü ciro: ${money(pos.todayTotal)}',
             style: const TextStyle(fontWeight: FontWeight.bold)),
-          Text('Düşük stok: ${pos.lowStock}'),
+          if(pos.can('inventory')) Text('Düşük stok: ${pos.lowStock}'),
         ])),
         Expanded(child: LayoutBuilder(builder: (c, b) {
           final cols = (b.maxWidth / 155).floor().clamp(2, 8).toInt();
@@ -625,15 +658,15 @@ class TablesPage extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
                 onTap: () => Navigator.push(c,
                   MaterialPageRoute(builder: (_) => OrderPage(table: t))),
-                onLongPress: () => showDialog<void>(context: c,
-                  builder: (_) => TableOperationsDialog(source: t)),
+                onLongPress: pos.can('staff') ? () => showDialog<void>(context: c,
+                  builder: (_) => TableOperationsDialog(source: t)) : null,
                 child: Padding(padding: const EdgeInsets.all(12),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                       Row(children: [
                         Expanded(child: Text('Masa ${t.id}',
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17))),
-                        const Icon(Icons.swap_horiz, size: 18, color: Colors.black45),
+                        if(pos.can('table_manage')) const Icon(Icons.swap_horiz, size: 18, color: Colors.black45),
                       ]),
                       Text(kitchenLabel(t)),
                       Text(money(t.total), style: const TextStyle(
@@ -733,8 +766,8 @@ class _TableOperationsDialogState extends State<TableOperationsDialog> {
 
 class OrderPage extends StatefulWidget{final PosTable table;const OrderPage({super.key,required this.table});@override State<OrderPage> createState()=>_OrderPageState();}
 class _OrderPageState extends State<OrderPage>{String category='Tümü';PosTable get t=>widget.table;@override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(c,_){final cats=['Tümü',...pos.products.map((p)=>p.category).toSet()];final items=pos.products.where((p)=>p.active&&(category=='Tümü'||p.category==category)).toList();return Scaffold(appBar:AppBar(title:Text('Masa ${t.id}')),body:Column(children:[SingleChildScrollView(scrollDirection:Axis.horizontal,child:Row(children:cats.map((x)=>Padding(padding:const EdgeInsets.all(4),child:ChoiceChip(label:Text(x),selected:category==x,onSelected:(_)=>setState(()=>category=x)))).toList())),Expanded(child:LayoutBuilder(builder:(c,b){final wide=b.maxWidth>700;return wide?Row(children:[Expanded(child:_products(items)),SizedBox(width:420,child:_ticket())]):Column(children:[Expanded(child:_products(items)),SizedBox(height:b.maxHeight*.48,child:_ticket())]);} ))]));});
-Widget _products(List<Product> list)=>GridView.builder(padding:const EdgeInsets.all(10),gridDelegate:const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent:170,childAspectRatio:1.45,crossAxisSpacing:8,mainAxisSpacing:8),itemCount:list.length,itemBuilder:(c,i){final p=list[i];return Card(child:InkWell(onTap:p.stock>0&&pos.can('orders')?(){if(!pos.add(t,p)){ScaffoldMessenger.of(c).showSnackBar(const SnackBar(content:Text('Yeterli stok yok veya işlem yetkiniz bulunmuyor.')));}}:null,child:Padding(padding:const EdgeInsets.all(10),child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[Text(p.name,style:const TextStyle(fontWeight:FontWeight.bold)),Text(money(p.price)),Text('Stok: ${p.stock}',style:TextStyle(color:p.stock<=p.lowAt?red:Colors.black54))]))));});
-Widget _ticket()=>Container(color:Colors.white,child:Column(children:[Padding(padding:const EdgeInsets.all(12),child:Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Sipariş',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),Text('Mutfak: ${kitchenLabel(t)}') ])),Expanded(child:ListView.builder(itemCount:t.items.length,itemBuilder:(c,i){final x=t.items[i];return ListTile(title:Text(x.name),subtitle:Text('${money(x.price)} × ${x.qty}'),trailing:Row(mainAxisSize:MainAxisSize.min,children:[IconButton(tooltip:'Adedi azalt / ürünü iptal et',onPressed:pos.can('orders')?()=>pos.qty(t,i,-1):null,icon:const Icon(Icons.remove)),IconButton(onPressed:pos.can('orders')?(){if(!pos.qty(t,i,1)){ScaffoldMessenger.of(c).showSnackBar(SnackBar(content:Text(x.sent?'Mutfağa gönderilen ürünün miktarı değiştirilemez. Yeni ürün satırı ekleyin.':'Stok yetersiz.')));}}:null,icon:const Icon(Icons.add))]));})),Padding(padding:const EdgeInsets.all(12),child:Column(children:[Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Ara toplam'),Text(money(t.subtotal))]),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('İndirim'),Text(money(t.subtotal-t.total))]),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('TOPLAM',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),Text(money(t.total),style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold))]),Wrap(spacing:8,children:[OutlinedButton.icon(onPressed:t.items.isEmpty||!pos.can('discount')?null:()=>_discount(context),icon:const Icon(Icons.percent),label:const Text('İndirim')),if(t.discount>0) OutlinedButton(onPressed:()=>pos.clearDiscount(t),child:const Text('İndirimi kaldır')),OutlinedButton(onPressed:!t.items.any((item)=>!item.sent)||!pos.can('orders')?null:()=>pos.sendKitchen(t),child:Text(t.items.any((item)=>!item.sent)?'Mutfağa gönder':'Gönderilecek yeni ürün yok'))]),SizedBox(width:double.infinity,child:FilledButton(onPressed:t.items.isEmpty||t.items.any((item)=>!item.sent)||!pos.can('orders')?null:()=>_pay(context),child:Text(t.items.any((item)=>!item.sent)?'Önce mutfağa gönder':'Ödeme al')))]))]));
+Widget _products(List<Product> list)=>GridView.builder(padding:const EdgeInsets.all(10),gridDelegate:const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent:170,childAspectRatio:1.45,crossAxisSpacing:8,mainAxisSpacing:8),itemCount:list.length,itemBuilder:(c,i){final p=list[i];return Card(child:InkWell(onTap:p.stock>0&&pos.can('orders')?(){if(!pos.add(t,p)){ScaffoldMessenger.of(c).showSnackBar(const SnackBar(content:Text('Yeterli stok yok veya işlem yetkiniz bulunmuyor.')));}}:null,child:Padding(padding:const EdgeInsets.all(10),child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[Text(p.name,style:const TextStyle(fontWeight:FontWeight.bold)),Text(money(p.price)),if(pos.can('inventory')) Text('Stok: ${p.stock}',style:TextStyle(color:p.stock<=p.lowAt?red:Colors.black54))]))));});
+Widget _ticket()=>Container(color:Colors.white,child:Column(children:[Padding(padding:const EdgeInsets.all(12),child:Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Sipariş',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),Text('Mutfak: ${kitchenLabel(t)}') ])),Expanded(child:ListView.builder(itemCount:t.items.length,itemBuilder:(c,i){final x=t.items[i];return ListTile(title:Text(x.name),subtitle:Text('${money(x.price)} × ${x.qty}'),trailing:Row(mainAxisSize:MainAxisSize.min,children:[IconButton(tooltip:'Adedi azalt / ürünü iptal et',onPressed:pos.can('orders')?()=>pos.qty(t,i,-1):null,icon:const Icon(Icons.remove)),IconButton(onPressed:pos.can('orders')?(){if(!pos.qty(t,i,1)){ScaffoldMessenger.of(c).showSnackBar(SnackBar(content:Text(x.sent?'Mutfağa gönderilen ürünün miktarı değiştirilemez. Yeni ürün satırı ekleyin.':'Stok yetersiz.')));}}:null,icon:const Icon(Icons.add))]));})),Padding(padding:const EdgeInsets.all(12),child:Column(children:[Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Ara toplam'),Text(money(t.subtotal))]),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('İndirim'),Text(money(t.subtotal-t.total))]),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('TOPLAM',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),Text(money(t.total),style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold))]),Wrap(spacing:8,children:[if(pos.can('discount')) OutlinedButton.icon(onPressed:t.items.isEmpty?null:()=>_discount(context),icon:const Icon(Icons.percent),label:const Text('İndirim')),if(t.discount>0&&pos.can('discount')) OutlinedButton(onPressed:()=>pos.clearDiscount(t),child:const Text('İndirimi kaldır')),OutlinedButton(onPressed:!t.items.any((item)=>!item.sent)||!pos.can('orders')?null:()=>pos.sendKitchen(t),child:Text(t.items.any((item)=>!item.sent)?'Mutfağa gönder':'Gönderilecek yeni ürün yok'))]),if(pos.can('register')) SizedBox(width:double.infinity,child:FilledButton(onPressed:t.items.isEmpty||t.items.any((item)=>!item.sent)?null:()=>_pay(context),child:Text(t.items.any((item)=>!item.sent)?'Önce mutfağa gönder':'Ödeme al')))]))]));
 Future<void> _discount(BuildContext context)async{final value=TextEditingController(text:t.discountPercent?t.discount.toString():(t.discount/100).toStringAsFixed(2));final reason=TextEditingController(text:t.discountReason);bool percent=t.discountPercent;final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,set)=>AlertDialog(title:const Text('İndirim tanımla'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:value,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'İndirim tutarı / yüzde')),SwitchListTile(title:const Text('Yüzde olarak uygula'),value:percent,onChanged:(v)=>set(()=>percent=v)),TextField(controller:reason,decoration:const InputDecoration(labelText:'İndirim nedeni'))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Vazgeç')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Uygula'))])));if(!context.mounted)return;if(ok==true){final n=percent?(int.tryParse(value.text)??0):parseMoney(value.text);if(!pos.setDiscount(t,n,percent,reason.text)){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('İndirim için geçerli bir tutar ve neden girin.')));}}}
 Future<void> _pay(BuildContext context) async {
   final payment = await showDialog<PaymentResult>(
@@ -787,6 +820,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
   final staffPin = TextEditingController();
   String? staffName;
   final parts = <PaymentPart>[];
+  Staff? get selectedStaff { for(final member in pos.staff) { if(member.name==staffName&&member.active)return member; } return null; }
   @override void initState(){super.initState();staffName=pos.currentUser;}
   late int remaining = widget.total;
 
@@ -816,7 +850,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Text('Kalan: ${money(remaining)}'),
         DropdownButtonFormField<String>(initialValue:staffName,decoration:const InputDecoration(labelText:'Satışı yapan personel'),items:pos.staff.where((member)=>member.active).map((member)=>DropdownMenuItem(value:member.name,child:Text('${member.name} · ${member.role}'))).toList(),onChanged:(value){setState((){staffName=value;staffPin.clear();});}),
-        TextField(controller:staffPin,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'Personel PIN doğrulaması'),onChanged:(_)=>setState((){})),
+        if(selectedStaff?.pinRequired??false) TextField(controller:staffPin,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'Personel PIN doğrulaması'),onChanged:(_)=>setState((){})),
         TextField(
           controller: amount,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -835,7 +869,8 @@ class _PaymentDialogState extends State<PaymentDialog> {
     actions: [
       TextButton(onPressed: () => Navigator.pop(context), child: const Text('İptal')),
       FilledButton(
-        onPressed: remaining == 0 && staffName != null && pos.staff.any((member)=>member.name==staffName&&member.active&&member.verifyPin(staffPin.text.trim()))
+        onPressed: remaining == 0 && selectedStaff != null &&
+          (!selectedStaff!.pinRequired || selectedStaff!.verifyPin(staffPin.text.trim()))
           ? () => Navigator.pop(context, PaymentResult(List<PaymentPart>.from(parts), staffName!)) : null,
         child: const Text('Ödemeyi tamamla'),
       ),
@@ -1280,10 +1315,13 @@ class _StaffManagerPageState extends State<StaffManagerPage>{
     final ok=await showDialog<bool>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,set)=>AlertDialog(title:const Text('Personel ekle'),content:Column(mainAxisSize:MainAxisSize.min,children:[
       TextField(controller:name,decoration:const InputDecoration(labelText:'Ad soyad')),
       DropdownButtonFormField<String>(initialValue:role,decoration:const InputDecoration(labelText:'Görev'),items:const ['Garson','Kasiyer','Mutfak'].map((r)=>DropdownMenuItem(value:r,child:Text(r))).toList(),onChanged:(v)=>set(()=>role=v??'Garson')),
-      TextField(controller:pin,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'Personel PIN (4 rakam)')),
-      TextField(controller:confirm,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'PIN tekrar')),
+      if(role!='Garson') TextField(controller:pin,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'Personel PIN (4 rakam)')),
+      if(role!='Garson') TextField(controller:confirm,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'PIN tekrar')),
+      if(role=='Garson') const Text('Garson hesabı PIN olmadan açılır. Yalnızca masalara sipariş ekleyebilir.'),
     ]),actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Ekle'))])));
-    if(ok==true&&(pin.text.trim()!=confirm.text.trim()||!pos.addStaff(name.text,role,pin.text.trim()))&&mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Ad benzersiz olmalı; PIN eşleşmeli ve 1234 dışında 4 rakam olmalı.')));
+    final pinValid=role=='Garson'||(pin.text.trim()==confirm.text.trim());
+    if(ok==true&&(!pinValid||!pos.addStaff(name.text,role,role=='Garson'?null:pin.text.trim()))&&mounted)
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Ad benzersiz olmalı; PIN eşleşmeli ve 1234 dışında 4 rakam olmalı.')));
     name.dispose();pin.dispose();confirm.dispose();
   }
   @override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(context,_)=>Scaffold(appBar:AppBar(title:const Text('Personel listesi'),actions:[IconButton(onPressed:_add,icon:const Icon(Icons.person_add))]),body:ListView(children:[
@@ -1445,7 +1483,8 @@ class _BackupManagerPageState extends State<BackupManagerPage> {
 
 class PinGate extends StatefulWidget {
   final VoidCallback onAuthenticated;
-  const PinGate({super.key, required this.onAuthenticated});
+  final ValueChanged<Staff> onWaiterSelected;
+  const PinGate({super.key, required this.onAuthenticated, required this.onWaiterSelected});
   @override State<PinGate> createState() => _PinGateState();
 }
 class _PinGateState extends State<PinGate> {
@@ -1457,6 +1496,19 @@ class _PinGateState extends State<PinGate> {
   Staff get admin => pos.staff.firstWhere((s) => s.name == 'Admin', orElse: () => pos.staff.first);
   bool get setupRequired => admin.verifyPin('1234');
   @override void dispose() { pin.dispose(); confirm.dispose(); super.dispose(); }
+  Future<void> _chooseWaiter() async {
+    final waiters=pos.staff.where((member)=>member.active&&member.role=='Garson').toList();
+    if(waiters.isEmpty){setState(()=>error='Henüz aktif garson hesabı yok.');return;}
+    final selected=await showDialog<Staff>(context:context,builder:(dialogContext)=>AlertDialog(
+      title:const Text('Garson seç'),
+      content:Column(mainAxisSize:MainAxisSize.min,children:[
+        for(final member in waiters) ListTile(leading:const Icon(Icons.person_outline),title:Text(member.name),onTap:()=>Navigator.pop(dialogContext,member)),
+      ]),
+      actions:[TextButton(onPressed:()=>Navigator.pop(dialogContext),child:const Text('İptal'))],
+    ));
+    if(!mounted||selected==null)return;
+    widget.onWaiterSelected(selected);
+  }
   void submit() {
     if (lockedUntil != null && DateTime.now().isBefore(lockedUntil!)) { setState(() => error = 'Çok fazla hatalı deneme. 30 saniye bekleyin.'); return; }
     final value = pin.text.trim();
@@ -1472,7 +1524,7 @@ class _PinGateState extends State<PinGate> {
     backgroundColor: ink,
     body: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 380), child: Card(
       margin: const EdgeInsets.all(24),
-      child: Padding(padding: const EdgeInsets.all(28), child: Column(mainAxisSize: MainAxisSize.min, children: [
+      child: Padding(padding: const EdgeInsets.all(20), child: Column(mainAxisSize: MainAxisSize.min, children: [
         const PosLogo(size: 120),
         const SizedBox(height: 16),
         Text(setupRequired ? 'Yönetici PIN kodunu oluştur' : 'Yönetici girişi', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
@@ -1480,7 +1532,11 @@ class _PinGateState extends State<PinGate> {
         TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4, decoration: InputDecoration(labelText: setupRequired ? 'Yeni 4 haneli PIN' : 'Yönetici PIN'), onSubmitted: (_) => submit()),
         if (setupRequired) TextField(controller: confirm, keyboardType: TextInputType.number, obscureText: true, maxLength: 4, decoration: const InputDecoration(labelText: 'PIN tekrar')),
         if (error != null) Padding(padding: const EdgeInsets.only(bottom: 12), child: Text(error!, style: const TextStyle(color: red))),
-        SizedBox(width: double.infinity, child: FilledButton(onPressed: submit, child: Text(setupRequired ? 'PIN oluştur ve devam et' : 'Giriş yap'))),
+        Row(children:[
+          Expanded(child:FilledButton(onPressed:submit,child:Text(setupRequired?'PIN oluştur ve devam et':'Yönetici girişi'))),
+          const SizedBox(width:8),
+          TextButton.icon(onPressed:_chooseWaiter,icon:const Icon(Icons.person_outline),label:const Text('Garson')),
+        ]),
       ])),
     ))),
   );
