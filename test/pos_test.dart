@@ -425,6 +425,7 @@ void main() {
     final table = store.tables.first;
     expect(store.add(table, product), isTrue);
     expect(store.sendKitchen(table), isTrue);
+    expect(store.moveTable(table, store.tables[1]), isFalse);
     expect(store.checkout(table, [PaymentPart('Nakit', 300)]), isFalse);
   });
 
