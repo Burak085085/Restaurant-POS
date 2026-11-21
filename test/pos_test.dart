@@ -366,6 +366,23 @@ void main() {
   });
 
 
+  test('corrupt recipe data resets partially loaded ingredients and recipes', () async {
+    final ingredient = Ingredient(id: 'partial', name: 'Un', unit: 'kg',
+      stock: 10, lowAt: 2, costPerUnit: 150);
+    final raw = jsonEncode({
+      'products': [],
+      'ingredients': [ingredient.toJson()],
+      'recipes': {'product-1': ['invalid recipe line']},
+    });
+    final store = Pos(repository: MemoryStoreRepository(value: raw));
+
+    await store.load();
+
+    expect(store.ingredients, isEmpty);
+    expect(store.recipes, isEmpty);
+    expect(store.products, isNotEmpty);
+  });
+
   test('version 2 SQLite database upgrades without losing its legacy payload', () async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
