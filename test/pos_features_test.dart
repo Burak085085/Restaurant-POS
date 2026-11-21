@@ -68,6 +68,9 @@ void main() {
       final product = pos.products.first;
       product.stock = 5;
       product.costPrice = 100;
+      final ingredient = Ingredient(id:'flour',name:'Un',unit:'gram',stock:1000,lowAt:50,costPerUnit:1);
+      expect(pos.addIngredient(ingredient), isTrue);
+      expect(pos.setRecipe(product, const [RecipeLine(ingredientId:'flour',quantity:100)]), isTrue);
       final table = pos.tables.first;
       expect(pos.add(table, product), isTrue);
       expect(pos.sendKitchen(table), isTrue);
