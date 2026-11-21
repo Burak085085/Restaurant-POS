@@ -1762,7 +1762,7 @@ class _BackupManagerPageState extends State<BackupManagerPage> {
             return Card(child: ListTile(
               leading: const Icon(Icons.backup),
               title: Text(file.name),
-              subtitle: Text('${stamp(file.modifiedAt.toLocal())} · ${(file.sizeBytes / 1024).toStringAsFixed(1)} KB'),
+              subtitle: Text('${stamp(azWallTime(file.modifiedAt))} · ${(file.sizeBytes / 1024).toStringAsFixed(1)} KB'),
               trailing: busy ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator()) : IconButton(
                 tooltip: 'Geri yükle',
                 icon: const Icon(Icons.restore),
@@ -1849,7 +1849,7 @@ class _RecoveryPageState extends State<RecoveryPage> {
                 Card(child: ListTile(
                   leading: const Icon(Icons.backup),
                   title: Text(file.name),
-                  subtitle: Text('${stamp(file.modifiedAt.toLocal())} · ${(file.sizeBytes / 1024).toStringAsFixed(1)} KB'),
+                  subtitle: Text('${stamp(azWallTime(file.modifiedAt))} · ${(file.sizeBytes / 1024).toStringAsFixed(1)} KB'),
                   trailing: IconButton(
                     tooltip: 'Bu yedeği geri yükle',
                     onPressed: busy ? null : () => _restore(file),
@@ -2226,7 +2226,7 @@ class _CustomersReservationsPageState extends State<CustomersReservationsPage> {
       const Divider(),const Text('Masa rezervasyonları',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),
       if(pos.reservations.isEmpty) const ListTile(title:Text('Henüz rezervasyon yok.')),
       for(final item in pos.reservations.toList()..sort((a,b)=>a.dateTime.compareTo(b.dateTime)))
-        Card(child:ListTile(title:Text('${item.customerName} · Masa ${item.tableId}'),subtitle:Text('${item.dateTime} · ${item.guests} kişi · ${item.phone}\n${item.note}'),isThreeLine:true,trailing:PopupMenuButton<String>(initialValue:item.status,onSelected:(v)=>pos.setReservationStatus(item,v),itemBuilder:(_)=>const [PopupMenuItem(value:'Bekliyor',child:Text('Bekliyor')),PopupMenuItem(value:'Geldi',child:Text('Geldi')),PopupMenuItem(value:'Tamamlandı',child:Text('Tamamlandı')),PopupMenuItem(value:'İptal',child:Text('İptal'))],child:Chip(label:Text(item.status))))),
+        Card(child:ListTile(title:Text('${item.customerName} · Masa ${item.tableId}'),subtitle:Text('${bakuTimestamp(item.dateTime)} · ${item.guests} kişi · ${item.phone}\n${item.note}'),isThreeLine:true,trailing:PopupMenuButton<String>(initialValue:item.status,onSelected:(v)=>pos.setReservationStatus(item,v),itemBuilder:(_)=>const [PopupMenuItem(value:'Bekliyor',child:Text('Bekliyor')),PopupMenuItem(value:'Geldi',child:Text('Geldi')),PopupMenuItem(value:'Tamamlandı',child:Text('Tamamlandı')),PopupMenuItem(value:'İptal',child:Text('İptal'))],child:Chip(label:Text(item.status))))),
     ]),
   ));
 }
