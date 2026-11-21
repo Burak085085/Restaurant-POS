@@ -314,7 +314,7 @@ class Pos extends ChangeNotifier {
     }
     final sessionIds = registerSessions.map((session) => session.id).toSet();
     for(final refund in sales.where((sale)=>sale.isRefund)){final index=refund.refundOfSaleIndex;if(index==null||index<0||index>=sales.length||sales[index].isRefund)issues.add('Satış iadesinin kaynak satışı bulunamıyor.');}
-    for(var i=0;i<sales.length;i++){if(refundedAmountForSale(i)>sales[i].total)issues.add('Satış #${i+1}: iade tutarı satış toplamını aşıyor.');}
+    for(var i=0;i<sales.length;i++){if(!sales[i].isRefund&&refundedAmountForSale(i)>sales[i].total)issues.add('Satış #${i+1}: iade tutarı satış toplamını aşıyor.');}
     for (final movement in cashMovements) {
       if (!sessionIds.contains(movement.sessionId)) issues.add('Nakit hareketi bağlı olduğu vardiyayı bulamıyor.');
       if (movement.amount <= 0) issues.add('Nakit hareketinde geçersiz tutar var.');
