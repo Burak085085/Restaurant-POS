@@ -457,10 +457,10 @@ class Pos extends ChangeNotifier {
       final nextLockouts=lockouts+1; final seconds=nextLockouts==1?30:nextLockouts==2?60:300;
       state['failedAttempts']=0;state['lockouts']=nextLockouts;
       state['lockedUntil']=DateTime.now().toUtc().add(Duration(seconds:seconds)).toIso8601String();
-      log('Güvenlik','PIN denemeleri nedeniyle ${scope} kilitlendi: ${seconds} saniye');
+      log('Güvenlik','PIN denemeleri nedeniyle $scope kilitlendi: $seconds saniye');
     }else{
       state['failedAttempts']=attempts;state['lockouts']=lockouts;
-      log('Güvenlik','Başarısız PIN denemesi (${attempts}/5) · ${scope}');
+      log('Güvenlik','Başarısız PIN denemesi ($attempts/5) · $scope');
     }
     pinSecurity[scope]=state;
   }
@@ -2084,7 +2084,7 @@ class _PinGateState extends State<PinGate> {
       admin.setPin(value); setupRequired=false; pos.pinSecurity.remove('staff:Admin'); pos.currentUser = admin.name; pos.log('Güvenlik', 'Yönetici PIN kodu oluşturuldu'); pos.save(); widget.onAuthenticated(); return;
     }
     if (pos.verifyAdminPin(value)) { pos.currentUser = admin.name; widget.onAuthenticated(); }
-    else { final remaining=pos.pinLockRemainingSeconds('staff:Admin'); setState(() => error = remaining>0 ? 'Çok fazla hatalı deneme. ${remaining} saniye bekleyin.' : 'PIN hatalı.'); pin.clear(); }
+    else { final remaining=pos.pinLockRemainingSeconds('staff:Admin'); setState(() => error = remaining>0 ? 'Çok fazla hatalı deneme. $remaining saniye bekleyin.' : 'PIN hatalı.'); pin.clear(); }
   }
   @override Widget build(BuildContext context) => Scaffold(
     backgroundColor: ink,
