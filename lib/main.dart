@@ -449,11 +449,7 @@ class Pos extends ChangeNotifier {
     return seconds>0?seconds+1:0;
   }
   int pinLockRemainingForStaff(Staff member)=>pinLockRemainingSeconds('staff:${member.name}');
-  bool _verifyPinAttempt(String scope,List<Staff> candidates,String candidate) {
-    if(pinLockRemainingSeconds(scope)>0)return false;
-    Staff? matched;
-    for(final member in candidates){if(member.active&&member.verifyPin(candidate)){matched=member;break;}}
-    if(matched!=null){pinSecurity.remove(scope);log('Güvenlik','${matched.name} için PIN doğrulaması başarılı');save();return true;}
+  void _recordPinFailure(String scope) {
     final state=Map<String,dynamic>.from(pinSecurity[scope]??const {});
     final attempts=((state['failedAttempts'] as num?)?.toInt()??0)+1;
     final lockouts=(state['lockouts'] as num?)?.toInt()??0;
@@ -466,16 +462,25 @@ class Pos extends ChangeNotifier {
       state['failedAttempts']=attempts;state['lockouts']=lockouts;
       log('Güvenlik','Başarısız PIN denemesi (${attempts}/5) · ${scope}');
     }
-    pinSecurity[scope]=state;save();return false;
+    pinSecurity[scope]=state;
   }
-  bool verifyStaffPin(Staff member,String pin)=>staff.contains(member)&&member.pinRequired&&_verifyPinAttempt('staff:${member.name}',[member],pin);
+  bool _verifyPinAttempt(List<Staff> candidates,String candidate) {
+    final eligible=candidates.where((member)=>member.active&&member.pinRequired&&pinLockRemainingSeconds('staff:${member.name}')==0).toList();
+    if(eligible.isEmpty)return false;
+    Staff? matched;
+    for(final member in eligible){if(member.verifyPin(candidate)){matched=member;break;}}
+    if(matched!=null){pinSecurity.remove('staff:${matched.name}');log('Güvenlik','${matched.name} için PIN doğrulaması başarılı');save();return true;}
+    for(final member in eligible){_recordPinFailure('staff:${member.name}');}
+    save();return false;
+  }
+  bool verifyStaffPin(Staff member,String pin)=>staff.contains(member)&&member.pinRequired&&_verifyPinAttempt([member],pin);
   bool verifyAdminPin(String pin) {
     final admins=staff.where((member)=>member.name=='Admin'&&member.active).toList();
-    return _verifyPinAttempt('admin',admins,pin);
+    return _verifyPinAttempt(admins,pin);
   }
   bool verifySupervisorPin(String pin) {
     final supervisors=staff.where((member)=>member.active&&(member.name=='Admin'||member.role=='Kasiyer')).toList();
-    return _verifyPinAttempt('supervisor',supervisors,pin);
+    return _verifyPinAttempt(supervisors,pin);
   }
   bool can(String permission) {
     if (isAdmin) return true;
@@ -1771,7 +1776,7 @@ class AdminPage extends StatelessWidget {
       final admin = pos.staff.firstWhere((member) => member.name == 'Admin');
       final value = newPin.text.trim();
       final valid = pos.verifyAdminPin(oldPin.text.trim()) && RegExp(r'^[0-9]{4}$').hasMatch(value) && value != '1234' && value == confirmPin.text.trim();
-      if (valid) { admin.setPin(value); pos.pinSecurity.remove('admin'); pos.log('Güvenlik', 'Yönetici PIN kodu değiştirildi'); pos.save(); }
+      if (valid) { admin.setPin(value); pos.pinSecurity.remove('staff:Admin'); pos.log('Güvenlik', 'Yönetici PIN kodu değiştirildi'); pos.save(); }
       else if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Mevcut PIN yanlış veya yeni PIN geçersiz.')));
     }
     oldPin.dispose(); newPin.dispose(); confirmPin.dispose();
@@ -2015,10 +2020,9 @@ class _PinGateState extends State<PinGate> {
   final pin = TextEditingController();
   final confirm = TextEditingController();
   String? error;
-  int failedAttempts=0;
-  DateTime? lockedUntil;
+  late bool setupRequired;
   Staff get admin => pos.staff.firstWhere((s) => s.name == 'Admin', orElse: () => pos.staff.first);
-  bool get setupRequired => admin.verifyPin('1234');
+  @override void initState() { super.initState(); setupRequired=admin.verifyPin('1234'); }
   @override void dispose() { pin.dispose(); confirm.dispose(); super.dispose(); }
   Future<void> _chooseStaff() async {
     final members = pos.staff.where((member) => member.active && member.role != 'Yönetici').toList();
@@ -2078,10 +2082,10 @@ class _PinGateState extends State<PinGate> {
     if (!RegExp(r'^[0-9]{4}$').hasMatch(value) || (setupRequired && value == '1234')) { setState(() => error = '4 rakamlı, varsayılan olmayan bir PIN girin.'); return; }
     if (setupRequired) {
       if (value != confirm.text.trim()) { setState(() => error = 'PIN kodları eşleşmiyor.'); return; }
-      failedAttempts=0; admin.setPin(value); pos.pinSecurity.remove('admin'); pos.currentUser = admin.name; pos.log('Güvenlik', 'Yönetici PIN kodu oluşturuldu'); pos.save(); widget.onAuthenticated(); return;
+      admin.setPin(value); setupRequired=false; pos.pinSecurity.remove('staff:Admin'); pos.currentUser = admin.name; pos.log('Güvenlik', 'Yönetici PIN kodu oluşturuldu'); pos.save(); widget.onAuthenticated(); return;
     }
     if (pos.verifyAdminPin(value)) { failedAttempts=0; pos.currentUser = admin.name; widget.onAuthenticated(); }
-    else { final remaining=pos.pinLockRemainingSeconds('admin'); setState(() => error = remaining>0 ? 'Çok fazla hatalı deneme. ${remaining} saniye bekleyin.' : 'PIN hatalı.'); pin.clear(); }
+    else { final remaining=pos.pinLockRemainingSeconds('staff:Admin'); setState(() => error = remaining>0 ? 'Çok fazla hatalı deneme. ${remaining} saniye bekleyin.' : 'PIN hatalı.'); pin.clear(); }
   }
   @override Widget build(BuildContext context) => Scaffold(
     backgroundColor: ink,
