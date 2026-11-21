@@ -16,7 +16,9 @@ bool isDailyBackupFileName(String name) {
 
 bool isRestorableBackupFileName(String name) =>
     isDailyBackupFileName(name) ||
-    (name.startsWith('restaurant-pos-pre-restore-') && name.endsWith('.json'));
+    (name.startsWith('restaurant-pos-pre-restore-') && name.endsWith('.json')) ||
+    (name.startsWith('restaurant-pos-manual-') && name.endsWith('.json')) ||
+    (name.startsWith('restaurant-pos-corrupt-') && name.endsWith('.json'));
 
 class BackupFile {
   final String name;
@@ -504,8 +506,7 @@ class SqliteStoreRepository implements StoreRepository {
     final stamp = DateTime.now().toUtc().toIso8601String().replaceAll(':', '-');
     await File(path.join(directory.path, 'restaurant-pos-corrupt-$stamp.json'))
         .writeAsString(payload, flush: true);
-    final db = await _open();
-    await db.delete('app_state', where: 'id = ?', whereArgs: [1]);
+    // Preserve the original database until an explicit, validated recovery is chosen.
   }
 
   Future<void> close() async {
