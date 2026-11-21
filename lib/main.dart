@@ -1167,6 +1167,7 @@ class KitchenPage extends StatelessWidget {
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: pos,
     builder: (context, _) {
+      final notices = pos.kitchenNotices.where((notice)=>!notice.acknowledged).toList();
       final activeTables = pos.tables.where((table) =>
         table.items.any((item) => item.sent && item.kitchen != KitchenState.served)).toList();
       return Scaffold(
@@ -1178,50 +1179,61 @@ class KitchenPage extends StatelessWidget {
                 icon: const Icon(Icons.logout)),
           ],
         ),
-        body: activeTables.isEmpty
-          ? const Center(child: Text('Mutfakta bekleyen sipariş yok.'))
-          : ListView.builder(
-              padding: const EdgeInsets.all(8),
-              itemCount: activeTables.length,
-              itemBuilder: (context, index) {
-                final table = activeTables[index];
-                final activeLines = table.items.where((item) =>
-                  item.sent && item.kitchen != KitchenState.served).toList();
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 10),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Masa ${table.id} · ${activeLines.length} ürün bekliyor',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                        const Divider(),
-                        for (final line in activeLines)
-                          ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: Text('${line.qty} × ${line.name}',
-                              style: const TextStyle(fontWeight: FontWeight.w600)),
-                            subtitle: Text('Durum: ${_label(line.kitchen)}'),
-                            trailing: PopupMenuButton<KitchenState>(
-                              tooltip: 'Ürün durumunu değiştir',
-                              onSelected: (state) => pos.setKitchenLine(table, line, state),
-                              itemBuilder: (_) => [
-                                for (final state in KitchenState.values)
-                                  PopupMenuItem(value: state, child: Text(_label(state))),
-                              ],
-                              child: const Padding(
-                                padding: EdgeInsets.all(8),
-                                child: Icon(Icons.more_vert),
+        body: Column(children:[
+          if(notices.isNotEmpty) SizedBox(height:190,child:ListView.builder(
+            padding:const EdgeInsets.all(8),itemCount:notices.length,
+            itemBuilder:(context,index){final notice=notices[index];return Card(color:Colors.red.shade50,child:ListTile(
+              leading:const Icon(Icons.notification_important,color:red),
+              title:Text('İPTAL · Masa ${notice.tableId} · ${notice.quantity} × ${notice.productName}',style:const TextStyle(fontWeight:FontWeight.bold)),
+              subtitle:Text('${notice.reason} · ${notice.by} · ${bakuTimestamp(notice.at)}'),
+              trailing:IconButton(tooltip:'Görüldü',onPressed:()=>pos.acknowledgeKitchenNotice(notice),icon:const Icon(Icons.check_circle_outline)),
+            ));},
+          )),
+          Expanded(child:activeTables.isEmpty
+            ? const Center(child: Text('Mutfakta bekleyen sipariş yok.'))
+            : ListView.builder(
+                padding: const EdgeInsets.all(8),
+                itemCount: activeTables.length,
+                itemBuilder: (context, index) {
+                  final table = activeTables[index];
+                  final activeLines = table.items.where((item) =>
+                    item.sent && item.kitchen != KitchenState.served).toList();
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Masa ${table.id} · ${activeLines.length} ürün bekliyor',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                          const Divider(),
+                          for (final line in activeLines)
+                            ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: Text('${line.qty} × ${line.name}',
+                                style: const TextStyle(fontWeight: FontWeight.w600)),
+                              subtitle: Text('Durum: ${_label(line.kitchen)}'),
+                              trailing: PopupMenuButton<KitchenState>(
+                                tooltip: 'Ürün durumunu değiştir',
+                                onSelected: (state) => pos.setKitchenLine(table, line, state),
+                                itemBuilder: (_) => [
+                                  for (final state in KitchenState.values)
+                                    PopupMenuItem(value: state, child: Text(_label(state))),
+                                ],
+                                child: const Padding(
+                                  padding: EdgeInsets.all(8),
+                                  child: Icon(Icons.more_vert),
+                                ),
                               ),
                             ),
-                          ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                );
-              },
-            ),
+                  );
+                },
+              )),
+        ]),
       );
     },
   );
