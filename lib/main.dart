@@ -1516,9 +1516,9 @@ class ReportsPage extends StatelessWidget {
       }).toList();
       final cash = todaySales.fold(0, (sum, sale) => sum + sale.payments.where((part) => part.method == 'Nakit').fold(0, (value, part) => value + part.amount));
       final card = todaySales.fold(0, (sum, sale) => sum + sale.payments.where((part) => part.method == 'Kart').fold(0, (value, part) => value + part.amount));
-      final units = weekSales.expand((sale) => sale.items).fold(0, (sum, item) => sum + item.qty);
+      final units = weekSales.fold<int>(0,(sum,sale)=>sum+sale.items.fold<int>(0,(n,item)=>n+(sale.isRefund?-item.qty:item.qty)));
       final productTotals = <String, int>{};
-      for (final sale in weekSales) { for (final item in sale.items) { productTotals[item.name] = (productTotals[item.name] ?? 0) + item.qty; } }
+      for (final sale in weekSales) { for (final item in sale.items) { productTotals[item.name] = (productTotals[item.name] ?? 0) + (sale.isRefund ? -item.qty : item.qty); } }
       final topProducts = productTotals.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
       final todayExpenses=pos.expenses.where((e)=>e.date==today).toList();
       final weekExpenses=pos.expenses.where((e){final d=DateTime.tryParse(e.date);return d!=null&&!d.isBefore(DateTime(weekStart.year,weekStart.month,weekStart.day));}).toList();
@@ -1544,7 +1544,7 @@ class ReportsPage extends StatelessWidget {
           const Text('Bugünkü kasa', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
           Wrap(spacing: 8, runSpacing: 8, children: [
             _metric('Bugünkü ciro', money(todaySales.fold(0, (sum, sale) => sum + sale.total))),
-            _metric('Satış adedi', '${todaySales.length}'), _metric('Nakit', money(cash)), _metric('Kart', money(card)),
+            _metric('Satış adedi', '${todaySales.where((sale)=>!sale.isRefund).length}'), _metric('Nakit', money(cash)), _metric('Kart', money(card)),
           ]),
           const SizedBox(height: 18),
           OutlinedButton.icon(
@@ -1606,7 +1606,7 @@ class ReportsPage extends StatelessWidget {
             subtitle: Text(sale.isRefund?'Neden: ${sale.reason}':'İndirim: ${money(sale.discount)}'),
             children: [
               for (final item in sale.items) ListTile(dense: true, title: Text('${item.qty} × ${item.name}'), trailing: Text(money(item.qty * item.price))),
-              Padding(padding: const EdgeInsets.all(12), child: Text('Ödeme: ${sale.payments.map((part) => part.method == 'Nakit' ? 'Nakit ${money(part.amount)} (alınan ${money(part.tendered)}, para üstü ${money(part.change)})' : 'Kart ${money(part.amount)}').join(' + ')}')),
+              Padding(padding: const EdgeInsets.all(12), child: Text('Ödeme: ${sale.payments.map((part) => part.method == 'Nakit' ? 'Nakit ${money(part.amount)} (alınan ${money(part.tendered)}, para üstü ${money(part.change)})' : part.method == 'İade' ? 'İade ${money(part.amount)}' : 'Kart ${money(part.amount)}').join(' + ')}')),
               Padding(padding: const EdgeInsets.all(12), child: Wrap(spacing:8,children:[OutlinedButton.icon(onPressed:()=>_printReceipt(context,sale), icon:const Icon(Icons.print), label:const Text('Fişi yazdır / PDF')),if(pos.isAdmin&&!sale.isRefund&&pos.remainingRefundable(pos.sales.indexOf(sale))>0)OutlinedButton.icon(onPressed:pos.activeRegister==null?null:()=>_refund(context,sale),icon:const Icon(Icons.assignment_return),label:Text('İade et · ${money(pos.remainingRefundable(pos.sales.indexOf(sale)))}'))])),
             ],
           )),
