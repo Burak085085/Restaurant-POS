@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:restaurant_pos/storage.dart';
 import 'package:restaurant_pos/main.dart';
@@ -178,8 +179,64 @@ void main() {
     expect(staff.verifyPin('5831'), isTrue);
     expect(staff.verifyPin('0000'), isFalse);
     expect(staff.toJson().containsKey('pin'), isFalse);
+    expect(staff.pinHash, startsWith('pbkdf2-sha256\$120000\$'));
     final restored = Staff.fromJson(staff.toJson());
     expect(restored.verifyPin('5831'), isTrue);
+  });
+
+  test('legacy SHA-256 PIN upgrades to PBKDF2 after successful verification', () {
+    const salt = 'legacy-salt';
+    final legacyHash = sha256.convert(utf8.encode('$salt:2468')).toString();
+    final staff = Staff.fromJson({
+      'name': 'Legacy', 'role': 'Yönetici', 'salt': salt,
+      'pinHash': legacyHash, 'pinRequired': true, 'active': true,
+    });
+    expect(staff.verifyPin('2468'), isTrue);
+    expect(staff.pinHash, startsWith('pbkdf2-sha256\$120000\$'));
+    expect(staff.verifyPin('0000'), isFalse);
+  });
+
+  test('administrator PIN lockout persists across application reloads', () async {
+    final repository = MemoryStoreRepository();
+    final store = Pos(repository: repository);
+    store.staff.first.setPin('2468');
+    store.save();
+    await store.flush();
+    for (var attempt = 0; attempt < 5; attempt++) {
+      expect(store.verifyAdminPin('0000'), isFalse);
+    }
+    expect(store.pinLockRemainingSeconds('admin'), greaterThan(0));
+    await store.flush();
+    final restored = Pos(repository: repository);
+    await restored.load();
+    expect(restored.pinLockRemainingSeconds('admin'), greaterThan(0));
+    expect(restored.verifyAdminPin('2468'), isFalse);
+  });
+
+  test('staff PIN failures use a separate persistent lockout scope', () async {
+    final repository = MemoryStoreRepository();
+    final store = Pos(repository: repository);
+    expect(store.addStaff('Aysel', 'Mutfak', '7391'), isTrue);
+    final member = store.staff.singleWhere((entry) => entry.name == 'Aysel');
+    for (var attempt = 0; attempt < 5; attempt++) {
+      expect(store.loginAsStaff(member, pin: '0000'), isFalse);
+    }
+    expect(store.pinLockRemainingForStaff(member), greaterThan(0));
+    await store.flush();
+    final restored = Pos(repository: repository);
+    await restored.load();
+    final restoredMember = restored.staff.singleWhere((entry) => entry.name == 'Aysel');
+    expect(restored.pinLockRemainingForStaff(restoredMember), greaterThan(0));
+    expect(restored.loginAsStaff(restoredMember, pin: '7391'), isFalse);
+  });
+
+  test('supervisor PIN validation is throttled after repeated failures', () {
+    final store = Pos(repository: MemoryStoreRepository());
+    for (var attempt = 0; attempt < 5; attempt++) {
+      expect(store.verifySupervisorPin('0000'), isFalse);
+    }
+    expect(store.pinLockRemainingSeconds('supervisor'), greaterThan(0));
+    expect(store.verifySupervisorPin('1234'), isFalse);
   });
 
   test('only the administrator account can access POS actions', () {
