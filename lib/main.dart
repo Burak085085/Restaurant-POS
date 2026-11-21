@@ -299,17 +299,37 @@ class Pos extends ChangeNotifier {
     notifyListeners();
   }
   void log(String action,String detail){audit.insert(0,Audit(stamp(azNow()),currentUser,action,detail)); if(audit.length>2000)audit.removeRange(2000,audit.length);}
-  bool get isWaiter => staff.any((member) => member.name == currentUser && member.role == 'Garson' && member.active);
+  Staff? get _activeStaff {
+    for (final member in staff) {
+      if (member.name == currentUser && member.active) return member;
+    }
+    return null;
+  }
+  bool get isWaiter => _activeStaff?.role == 'Garson';
+  bool get isCashier => _activeStaff?.role == 'Kasiyer';
+  bool get isKitchenStaff => _activeStaff?.role == 'Mutfak';
   bool get isAdmin => currentUser == 'Admin' && staff.any((member) => member.name == 'Admin' && member.active);
-  bool can(String permission) => isAdmin || (isWaiter && permission == 'orders');
-  bool loginAsWaiter(Staff member) {
-    if (!staff.contains(member) || !member.active || member.role != 'Garson') return false;
+  bool can(String permission) {
+    if (isAdmin) return true;
+    if (isWaiter) return permission == 'orders';
+    if (isCashier) return permission == 'orders' || permission == 'register';
+    if (isKitchenStaff) return permission == 'kitchen';
+    return false;
+  }
+  bool loginAsStaff(Staff member, {String? pin}) {
+    if (!staff.contains(member) || !member.active || member.role == 'Yönetici') return false;
+    if (member.role == 'Garson') {
+      if (member.pinRequired) return false;
+    } else if (!member.pinRequired || pin == null || !member.verifyPin(pin)) {
+      return false;
+    }
     currentUser = member.name;
-    log('Giriş', 'Garson oturumu açıldı');
+    log('Giriş', member.role + ' oturumu açıldı');
     save();
     notifyListeners();
     return true;
   }
+  bool loginAsWaiter(Staff member) => member.role == 'Garson' && loginAsStaff(member);
   int get todayTotal=>sales.where((s)=>s.date==dayKey(azNow())).fold(0,(a,s)=>a+s.total); int get todayCount=>sales.where((s)=>s.date==dayKey(azNow())).length;
   int reservedStock(String productId) => tables.fold(0, (sum, table) =>
       sum + table.items.where((line) => line.productId == productId).fold(0, (n, line) => n + line.qty));
@@ -642,12 +662,32 @@ class PosApp extends StatelessWidget {const PosApp({super.key});@override Widget
 class Home extends StatefulWidget {const Home({super.key});@override State<Home> createState()=>_HomeState();}
 class _HomeState extends State<Home>{
   int tab=0; bool authenticated=false;
-  void _logout(){pos.currentUser='';setState(()=>authenticated=false);}
+  void _logout(){pos.currentUser='';tab=0;setState(()=>authenticated=false);}
   @override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(context,_){
-    if(!authenticated)return PinGate(onAuthenticated:()=>setState(()=>authenticated=true),onWaiterSelected:(member){if(pos.loginAsWaiter(member))setState(()=>authenticated=true);});
+    if(!authenticated)return PinGate(
+      onAuthenticated:()=>setState(()=>authenticated=true),
+      onStaffSelected:(_)=>setState(()=>authenticated=true),
+    );
     if(pos.isWaiter)return Scaffold(body:SafeArea(child:TablesPage(onLogout:_logout)));
+    if(pos.isKitchenStaff)return KitchenPage(onLogout:_logout);
+    if(pos.isCashier) {
+      final pages=[TablesPage(onLogout:_logout),const RegisterPage()];
+      final index=tab.clamp(0,1);
+      return Scaffold(
+        body:SafeArea(child:pages[index]),
+        bottomNavigationBar:NavigationBar(
+          selectedIndex:index,
+          onDestinationSelected:(value)=>setState(()=>tab=value),
+          destinations:const [
+            NavigationDestination(icon:Icon(Icons.table_restaurant),label:'Masalar'),
+            NavigationDestination(icon:Icon(Icons.point_of_sale),label:'Kasa'),
+          ],
+        ),
+      );
+    }
     final pages=[TablesPage(onLogout:_logout),const KitchenPage(),const InventoryPage(),const ReportsPage(),const AdminPage()];
-    return Scaffold(body:SafeArea(child:pages[tab]),bottomNavigationBar:NavigationBar(selectedIndex:tab,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:const [NavigationDestination(icon:Icon(Icons.table_restaurant),label:'Masalar'),NavigationDestination(icon:Icon(Icons.soup_kitchen),label:'Mutfak'),NavigationDestination(icon:Icon(Icons.inventory_2),label:'Stok'),NavigationDestination(icon:Icon(Icons.bar_chart),label:'Rapor'),NavigationDestination(icon:Icon(Icons.settings),label:'Yönetim')]));
+    final index=tab.clamp(0,pages.length-1);
+    return Scaffold(body:SafeArea(child:pages[index]),bottomNavigationBar:NavigationBar(selectedIndex:index,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:const [NavigationDestination(icon:Icon(Icons.table_restaurant),label:'Masalar'),NavigationDestination(icon:Icon(Icons.soup_kitchen),label:'Mutfak'),NavigationDestination(icon:Icon(Icons.inventory_2),label:'Stok'),NavigationDestination(icon:Icon(Icons.bar_chart),label:'Rapor'),NavigationDestination(icon:Icon(Icons.settings),label:'Yönetim')]));
   });
 }
 
@@ -908,7 +948,8 @@ class _PaymentDialogState extends State<PaymentDialog> {
 }
 
 class KitchenPage extends StatelessWidget {
-  const KitchenPage({super.key});
+  final VoidCallback? onLogout;
+  const KitchenPage({super.key, this.onLogout});
 
   String _label(KitchenState state) => switch (state) {
     KitchenState.queued => 'Kuyrukta',
@@ -924,7 +965,14 @@ class KitchenPage extends StatelessWidget {
       final activeTables = pos.tables.where((table) =>
         table.items.any((item) => item.sent && item.kitchen != KitchenState.served)).toList();
       return Scaffold(
-        appBar: AppBar(title: const Text('Mutfak sipariş kuyruğu')),
+        appBar: AppBar(
+          title: const Text('Mutfak sipariş kuyruğu'),
+          actions: [
+            if (onLogout != null)
+              IconButton(tooltip: 'Oturumu kapat', onPressed: onLogout,
+                icon: const Icon(Icons.logout)),
+          ],
+        ),
         body: activeTables.isEmpty
           ? const Center(child: Text('Mutfakta bekleyen sipariş yok.'))
           : ListView.builder(
@@ -1512,8 +1560,8 @@ class _BackupManagerPageState extends State<BackupManagerPage> {
 
 class PinGate extends StatefulWidget {
   final VoidCallback onAuthenticated;
-  final ValueChanged<Staff> onWaiterSelected;
-  const PinGate({super.key, required this.onAuthenticated, required this.onWaiterSelected});
+  final ValueChanged<Staff> onStaffSelected;
+  const PinGate({super.key, required this.onAuthenticated, required this.onStaffSelected});
   @override State<PinGate> createState() => _PinGateState();
 }
 class _PinGateState extends State<PinGate> {
@@ -1525,18 +1573,57 @@ class _PinGateState extends State<PinGate> {
   Staff get admin => pos.staff.firstWhere((s) => s.name == 'Admin', orElse: () => pos.staff.first);
   bool get setupRequired => admin.verifyPin('1234');
   @override void dispose() { pin.dispose(); confirm.dispose(); super.dispose(); }
-  Future<void> _chooseWaiter() async {
-    final waiters=pos.staff.where((member)=>member.active&&member.role=='Garson').toList();
-    if(waiters.isEmpty){setState(()=>error='Henüz aktif garson hesabı yok.');return;}
-    final selected=await showDialog<Staff>(context:context,builder:(dialogContext)=>AlertDialog(
-      title:const Text('Garson seç'),
-      content:Column(mainAxisSize:MainAxisSize.min,children:[
-        for(final member in waiters) ListTile(leading:const Icon(Icons.person_outline),title:Text(member.name),onTap:()=>Navigator.pop(dialogContext,member)),
-      ]),
-      actions:[TextButton(onPressed:()=>Navigator.pop(dialogContext),child:const Text('İptal'))],
-    ));
-    if(!mounted||selected==null)return;
-    widget.onWaiterSelected(selected);
+  Future<void> _chooseStaff() async {
+    final members = pos.staff.where((member) => member.active && member.role != 'Yönetici').toList();
+    if (members.isEmpty) {
+      setState(() => error = 'Henüz aktif personel hesabı yok.');
+      return;
+    }
+    final selected = await showDialog<Staff>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Personel seç'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          for (final member in members)
+            ListTile(
+              leading: Icon(member.role == 'Mutfak' ? Icons.soup_kitchen :
+                member.role == 'Kasiyer' ? Icons.point_of_sale : Icons.person_outline),
+              title: Text(member.name), subtitle: Text(member.role),
+              onTap: () => Navigator.pop(dialogContext, member),
+            ),
+        ]),
+        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('İptal'))],
+      ),
+    );
+    if (!mounted || selected == null) return;
+    String? staffPin;
+    if (selected.pinRequired) {
+      final controller = TextEditingController();
+      staffPin = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(selected.name + ' · PIN girişi'),
+          content: TextField(
+            controller: controller, autofocus: true,
+            keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
+            decoration: const InputDecoration(labelText: '4 haneli personel PIN'),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('İptal')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
+              child: const Text('Giriş yap')),
+          ],
+        ),
+      );
+      controller.dispose();
+      if (!mounted || staffPin == null) return;
+    }
+    if (!pos.loginAsStaff(selected, pin: staffPin)) {
+      setState(() => error = 'Personel PIN kodu hatalı veya hesap kullanıma kapalı.');
+      return;
+    }
+    widget.onStaffSelected(selected);
   }
   void submit() {
     if (lockedUntil != null && DateTime.now().isBefore(lockedUntil!)) { setState(() => error = 'Çok fazla hatalı deneme. 30 saniye bekleyin.'); return; }
@@ -1564,7 +1651,7 @@ class _PinGateState extends State<PinGate> {
         Row(children:[
           Expanded(child:FilledButton(onPressed:submit,child:Text(setupRequired?'PIN oluştur ve devam et':'Yönetici girişi'))),
           const SizedBox(width:8),
-          TextButton.icon(onPressed:_chooseWaiter,icon:const Icon(Icons.person_outline),label:const Text('Garson')),
+          TextButton.icon(onPressed:_chooseStaff,icon:const Icon(Icons.groups),label:const Text('Personel')),
         ]),
       ])),
     ))),
