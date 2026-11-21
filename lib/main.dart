@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:crypto/crypto.dart';
+import 'advanced_features.dart';
 import 'package:material_ui/material_ui.dart';
 import 'storage.dart';
 
@@ -152,9 +153,10 @@ class Audit { String at,user,action,detail; Audit(this.at,this.user,this.action,
 
 class Pos extends ChangeNotifier {
   List<Product> products=[Product('p1','Dönerler','Tavuk döner',300),Product('p2','Dönerler','Dana döner',500),Product('p3','Dönerler','Dürüm döner',400),Product('p4','Dönerler','Porsiyon döner',700),Product('p5','İçecekler','Kola',200),Product('p6','İçecekler','Fanta',200),Product('p7','İçecekler','Ayran',100),Product('p8','İçecekler','Su',50),Product('p9','Ekstra','Patates',200),Product('p10','Ekstra','Ketçap',50),Product('p11','Ekstra','Mayonez',50)];
-  List<PosTable> tables=List.generate(kTableCount,(i)=>PosTable(i+1)); List<Sale> sales=[]; List<RegisterSession> registerSessions=[]; List<CashMovement> cashMovements=[]; List<Expense> expenses=[]; List<StockMovement> stockMovements=[]; List<Ingredient> ingredients=[]; Map<String,List<RecipeLine>> recipes={}; List<Staff> staff=[Staff('Admin','Yönetici')]; List<Audit> audit=[]; String currentUser='Admin'; final StoreRepository _repository; Future<void> _queue=Future.value();
+  List<PosTable> tables=List.generate(kTableCount,(i)=>PosTable(i+1)); List<Sale> sales=[]; List<RegisterSession> registerSessions=[]; List<CashMovement> cashMovements=[]; List<Expense> expenses=[]; List<StockMovement> stockMovements=[]; List<Ingredient> ingredients=[]; Map<String,List<RecipeLine>> recipes={}; List<Staff> staff=[Staff('Admin','Yönetici')]; List<Audit> audit=[]; String currentUser='Admin';
+  List<SupplierRecord> suppliers=[]; List<PurchaseRecord> purchases=[]; List<CustomerRecord> customers=[]; List<ReservationRecord> reservations=[]; Map<String,String> productBarcodes={}; final StoreRepository _repository; Future<void> _queue=Future.value();
   Pos({StoreRepository? repository}) : _repository = repository ?? SqliteStoreRepository();
-  Future<void> load() async { final raw=await _repository.read(); if(raw==null)return; try { final j=jsonDecode(raw) as Map<String,dynamic>; products=(j['products'] as List? ?? []).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList(); tables=List.generate(kTableCount,(i)=>PosTable(i+1)); for(final x in (j['tables'] as List? ?? [])){final m=Map<String,dynamic>.from(x); final id=m['id'] as int; if(id<1||id>kTableCount)continue; final t=tables[id-1]; t.items=(m['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(); t.kitchen=KitchenState.values[(m['kitchen']??0).clamp(0,3).toInt()]; final rawItems=(m['items'] as List? ?? []); for(var lineIndex=0;lineIndex<t.items.length;lineIndex++){final rawLine=Map<String,dynamic>.from(rawItems[lineIndex]);if(!rawLine.containsKey('kitchen'))t.items[lineIndex].kitchen=t.kitchen;} t.discount=m['discount']??0;t.discountPercent=m['discountPercent']??false;t.discountReason=m['discountReason']??'';} sales=(j['sales'] as List? ?? []).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList(); expenses=(j['expenses'] as List? ?? []).map((e)=>Expense.fromJson(Map<String,dynamic>.from(e))).toList(); stockMovements=(j['stockMovements'] as List? ?? []).map((e)=>StockMovement.fromJson(Map<String,dynamic>.from(e))).toList(); ingredients=(j['ingredients'] as List? ?? []).map((e)=>Ingredient.fromJson(Map<String,dynamic>.from(e))).toList(); recipes=(j['recipes'] as Map? ?? {}).map((key,value)=>MapEntry(key.toString(),(value as List).map((e)=>RecipeLine.fromJson(Map<String,dynamic>.from(e))).toList())); registerSessions=(j['registerSessions'] as List? ?? []).map((e)=>RegisterSession.fromJson(Map<String,dynamic>.from(e))).toList(); cashMovements=(j['cashMovements'] as List? ?? []).map((e)=>CashMovement.fromJson(Map<String,dynamic>.from(e))).toList(); final legacyStaff=(j['staff'] as List? ?? []).map((e)=>Staff.fromJson(Map<String,dynamic>.from(e))).toList(); final admins=legacyStaff.where((member)=>member.name=='Admin').toList(); final admin=admins.isNotEmpty ? admins.first : Staff('Admin','Yönetici'); admin.active=true; final names=<String>{'admin'}; staff=[admin,...legacyStaff.where((member)=>member.name!='Admin'&&member.name.trim().isNotEmpty&&names.add(member.name.trim().toLowerCase()))]; audit=(j['audit'] as List? ?? []).map((e)=>Audit.fromJson(Map<String,dynamic>.from(e))).toList(); currentUser='Admin'; } catch (_) { await _repository.backupCorrupt(raw); products=[Product('p1','Dönerler','Tavuk döner',300),Product('p2','Dönerler','Dana döner',500),Product('p3','Dönerler','Dürüm döner',400),Product('p4','Dönerler','Porsiyon döner',700),Product('p5','İçecekler','Kola',200),Product('p6','İçecekler','Fanta',200),Product('p7','İçecekler','Ayran',100),Product('p8','İçecekler','Su',50),Product('p9','Ekstra','Patates',200),Product('p10','Ekstra','Ketçap',50),Product('p11','Ekstra','Mayonez',50)]; tables=List.generate(kTableCount,(i)=>PosTable(i+1)); sales=[]; registerSessions=[]; cashMovements=[]; expenses=[]; stockMovements=[]; ingredients=[]; recipes={}; staff=[Staff('Admin','Yönetici')]; audit=[]; currentUser='Admin'; } }
+  Future<void> load() async { final raw=await _repository.read(); if(raw==null)return; try { final j=jsonDecode(raw) as Map<String,dynamic>; products=(j['products'] as List? ?? []).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList(); tables=List.generate(kTableCount,(i)=>PosTable(i+1)); for(final x in (j['tables'] as List? ?? [])){final m=Map<String,dynamic>.from(x); final id=m['id'] as int; if(id<1||id>kTableCount)continue; final t=tables[id-1]; t.items=(m['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(); t.kitchen=KitchenState.values[(m['kitchen']??0).clamp(0,3).toInt()]; final rawItems=(m['items'] as List? ?? []); for(var lineIndex=0;lineIndex<t.items.length;lineIndex++){final rawLine=Map<String,dynamic>.from(rawItems[lineIndex]);if(!rawLine.containsKey('kitchen'))t.items[lineIndex].kitchen=t.kitchen;} t.discount=m['discount']??0;t.discountPercent=m['discountPercent']??false;t.discountReason=m['discountReason']??'';} sales=(j['sales'] as List? ?? []).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList(); expenses=(j['expenses'] as List? ?? []).map((e)=>Expense.fromJson(Map<String,dynamic>.from(e))).toList(); stockMovements=(j['stockMovements'] as List? ?? []).map((e)=>StockMovement.fromJson(Map<String,dynamic>.from(e))).toList(); ingredients=(j['ingredients'] as List? ?? []).map((e)=>Ingredient.fromJson(Map<String,dynamic>.from(e))).toList(); recipes=(j['recipes'] as Map? ?? {}).map((key,value)=>MapEntry(key.toString(),(value as List).map((e)=>RecipeLine.fromJson(Map<String,dynamic>.from(e))).toList())); registerSessions=(j['registerSessions'] as List? ?? []).map((e)=>RegisterSession.fromJson(Map<String,dynamic>.from(e))).toList(); cashMovements=(j['cashMovements'] as List? ?? []).map((e)=>CashMovement.fromJson(Map<String,dynamic>.from(e))).toList(); final legacyStaff=(j['staff'] as List? ?? []).map((e)=>Staff.fromJson(Map<String,dynamic>.from(e))).toList(); final admins=legacyStaff.where((member)=>member.name=='Admin').toList(); final admin=admins.isNotEmpty ? admins.first : Staff('Admin','Yönetici'); admin.active=true; final names=<String>{'admin'}; staff=[admin,...legacyStaff.where((member)=>member.name!='Admin'&&member.name.trim().isNotEmpty&&names.add(member.name.trim().toLowerCase()))]; audit=(j['audit'] as List? ?? []).map((e)=>Audit.fromJson(Map<String,dynamic>.from(e))).toList(); final advanced=Map<String,dynamic>.from(j['advanced'] as Map? ?? {}); suppliers=(advanced['suppliers'] as List? ?? []).map((e)=>SupplierRecord.fromJson(Map<String,dynamic>.from(e))).toList(); purchases=(advanced['purchases'] as List? ?? []).map((e)=>PurchaseRecord.fromJson(Map<String,dynamic>.from(e))).toList(); customers=(advanced['customers'] as List? ?? []).map((e)=>CustomerRecord.fromJson(Map<String,dynamic>.from(e))).toList(); reservations=(advanced['reservations'] as List? ?? []).map((e)=>ReservationRecord.fromJson(Map<String,dynamic>.from(e))).toList(); productBarcodes=Map<String,String>.from(advanced['barcodes'] as Map? ?? {}); currentUser='Admin'; } catch (_) { await _repository.backupCorrupt(raw); products=[Product('p1','Dönerler','Tavuk döner',300),Product('p2','Dönerler','Dana döner',500),Product('p3','Dönerler','Dürüm döner',400),Product('p4','Dönerler','Porsiyon döner',700),Product('p5','İçecekler','Kola',200),Product('p6','İçecekler','Fanta',200),Product('p7','İçecekler','Ayran',100),Product('p8','İçecekler','Su',50),Product('p9','Ekstra','Patates',200),Product('p10','Ekstra','Ketçap',50),Product('p11','Ekstra','Mayonez',50)]; tables=List.generate(kTableCount,(i)=>PosTable(i+1)); sales=[]; registerSessions=[]; cashMovements=[]; expenses=[]; stockMovements=[]; ingredients=[]; recipes={}; staff=[Staff('Admin','Yönetici')]; audit=[]; currentUser='Admin'; } }
 
   String _snapshot() => jsonEncode({
     'products': products.map((e) => e.toJson()).toList(),
@@ -169,6 +171,7 @@ class Pos extends ChangeNotifier {
     'staff': staff.map((e) => e.toJson()).toList(),
     'audit': audit.map((e) => e.toJson()).toList(),
     'currentUser': currentUser,
+    'advanced': {'suppliers': suppliers.map((e)=>e.toJson()).toList(), 'purchases': purchases.map((e)=>e.toJson()).toList(), 'customers': customers.map((e)=>e.toJson()).toList(), 'reservations': reservations.map((e)=>e.toJson()).toList(), 'barcodes': productBarcodes},
   });
 
   Future<List<BackupFile>> listBackups() => _repository.listBackups();
@@ -252,6 +255,22 @@ class Pos extends ChangeNotifier {
         issues.add('${sale.date} tarihli satışın kasa vardiyası bulunamıyor.');
       }
     }
+    final supplierIds = suppliers.map((item) => item.id).toSet();
+    if (supplierIds.length != suppliers.length) issues.add('Tedarikçi kimlikleri yineleniyor.');
+    for (final purchase in purchases) {
+      if (!supplierIds.contains(purchase.supplierId) || !productIds.contains(purchase.productId) ||
+          purchase.quantity <= 0 || purchase.unitCost < 0) issues.add('Geçersiz veya bağlantısı kopuk mal alımı kaydı.');
+    }
+    final reservationIds = reservations.map((item) => item.id).toSet();
+    if (reservationIds.length != reservations.length) issues.add('Rezervasyon kimlikleri yineleniyor.');
+    for (final reservation in reservations) {
+      if (reservation.guests < 1 || reservation.tableId < 1 || reservation.tableId > kTableCount ||
+          DateTime.tryParse(reservation.dateTime) == null) issues.add('Geçersiz masa rezervasyonu kaydı.');
+    }
+    if (productBarcodes.values.toSet().length != productBarcodes.length) issues.add('Bir barkod birden fazla ürüne atanmış.');
+    for (final entry in productBarcodes.entries) {
+      if (!productIds.contains(entry.key) || entry.value.trim().isEmpty) issues.add('Barkod eşleşmesi olmayan ürün kaydı var.');
+    }
     try {
       final files = await listBackups();
       for (final file in files) {
@@ -285,6 +304,7 @@ class Pos extends ChangeNotifier {
       'staff': staff.map((e) => e.toJson()).toList(),
       'audit': audit.map((e) => e.toJson()).toList(),
       'currentUser': currentUser,
+      'advanced': {'suppliers': suppliers.map((e)=>e.toJson()).toList(), 'purchases': purchases.map((e)=>e.toJson()).toList(), 'customers': customers.map((e)=>e.toJson()).toList(), 'reservations': reservations.map((e)=>e.toJson()).toList(), 'barcodes': productBarcodes},
     });
     _queue = _queue.catchError((Object _) {}).then((_) async {
       try {
@@ -386,6 +406,66 @@ class Pos extends ChangeNotifier {
     log('Reçete', '${product.name}: ${lines.length} malzeme tanımlandı');
     save();
     return true;
+  }
+
+
+  bool addSupplier(SupplierRecord supplier) {
+    if (!can('inventory') || supplier.name.trim().isEmpty ||
+        suppliers.any((item) => item.name.toLowerCase() == supplier.name.trim().toLowerCase())) return false;
+    suppliers.add(supplier); log('Tedarikçi', '${supplier.name} eklendi'); save(); return true;
+  }
+  bool recordPurchase({required String supplierId, required String productId, required int quantity, required int unitCost}) {
+    if (!can('inventory') || quantity <= 0 || unitCost < 0) return false;
+    final supplier = suppliers.where((item) => item.id == supplierId && item.active);
+    final product = products.where((item) => item.id == productId);
+    if (supplier.isEmpty || product.isEmpty) return false;
+    final item = product.first;
+    if (item.stock + quantity > 100000000) return false;
+    final previousValue = item.stock * item.costPrice;
+    item.stock += quantity;
+    item.costPrice = ((previousValue + quantity * unitCost) / item.stock).round();
+    purchases.add(PurchaseRecord(id: DateTime.now().microsecondsSinceEpoch.toString(),
+      supplierId: supplier.first.id, supplierName: supplier.first.name, productId: item.id,
+      productName: item.name, quantity: quantity, unitCost: unitCost, at: stamp(azNow())));
+    log('Mal alımı', '${supplier.first.name}: ${item.name} × $quantity'); save(); return true;
+  }
+  bool addCustomer(CustomerRecord customer) {
+    if (!can('reports') || customer.name.trim().isEmpty ||
+        customers.any((item) => item.phone.isNotEmpty && item.phone == customer.phone && customer.phone.isNotEmpty)) return false;
+    customers.add(customer); log('Müşteri', '${customer.name} kaydedildi'); save(); return true;
+  }
+  bool addReservation(ReservationRecord reservation) {
+    if (!can('reports') || reservation.customerName.trim().isEmpty || reservation.guests < 1 ||
+        reservation.tableId < 1 || reservation.tableId > kTableCount) return false;
+    final when = DateTime.tryParse(reservation.dateTime);
+    if (when == null || when.isBefore(DateTime.now().subtract(const Duration(minutes: 5)))) return false;
+    final overlaps = reservations.any((item) {
+      if (item.tableId != reservation.tableId || item.status == 'İptal' || item.status == 'Tamamlandı') return false;
+      final existing = DateTime.tryParse(item.dateTime);
+      return existing != null && existing.difference(when).inMinutes.abs() < 120;
+    });
+    if (overlaps) return false;
+    reservations.add(reservation); log('Rezervasyon', 'Masa ${reservation.tableId}: ${reservation.customerName}'); save(); return true;
+  }
+  bool setReservationStatus(ReservationRecord reservation, String status) {
+    if (!can('reports') || !reservations.contains(reservation) ||
+        !['Bekliyor','Geldi','Tamamlandı','İptal'].contains(status)) return false;
+    reservation.status = status; log('Rezervasyon', '${reservation.customerName}: $status'); save(); return true;
+  }
+  bool setProductBarcode(Product product, String barcode) {
+    if (!can('inventory') || !products.contains(product)) return false;
+    final value = barcode.trim();
+    if (value.isNotEmpty && productBarcodes.entries.any((entry) => entry.key != product.id && entry.value == value)) return false;
+    if (value.isEmpty) { productBarcodes.remove(product.id); } else { productBarcodes[product.id] = value; }
+    log('Barkod', '${product.name}: ${value.isEmpty ? 'kaldırıldı' : value}'); save(); return true;
+  }
+  Product? productByBarcode(String barcode) {
+    final value = barcode.trim();
+    if (value.isEmpty) return null;
+    final match = productBarcodes.entries.where((entry) => entry.value == value);
+    if (match.isEmpty) return null;
+    final found = products.where((item) => item.id == match.first.key && item.active);
+    return found.isEmpty ? null : found.first;
   }
 
   bool add(PosTable t, Product p) {
