@@ -7,7 +7,8 @@ import 'package:restaurant_pos/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-void main() {\n  test('legacy Baku timestamps migrate once to UTC instants without shifting displayed time', () async {
+void main() {
+  test('legacy Baku timestamps migrate once to UTC instants without shifting displayed time', () async {
     final legacy = jsonEncode({
       'products': [],
       'tables': [],
@@ -53,7 +54,8 @@ void main() {\n  test('legacy Baku timestamps migrate once to UTC instants witho
     expect(store.stockMovements.single.at, '2026-11-21T15:00:00.000Z');
   });
 
-\n  test('Baku timestamps store UTC instants and display fixed UTC+4 wall time', () {
+
+  test('Baku timestamps store UTC instants and display fixed UTC+4 wall time', () {
     final wallTime = DateTime.utc(2026, 11, 21, 19, 30);
     final instant = bakuWallTimeToUtc(wallTime);
     expect(instant, DateTime.utc(2026, 11, 21, 15, 30));
@@ -580,8 +582,10 @@ void main() {\n  test('legacy Baku timestamps migrate once to UTC instants witho
   test('CSV export header contains a real line break', () {
     final store = Pos(repository: MemoryStoreRepository());
     final csv = store.buildCsv();
-    expect(csv, startsWith('Tarih;Tür;Açıklama;Adet;Ciro/Gider;Maliyet\r\n'));
-    expect(csv, isNot(contains(r'\r\n')));
+    expect(csv, startsWith('Tarih;Tür;Açıklama;Adet;Ciro/Gider;Maliyet\r
+'));
+    expect(csv, isNot(contains(r'\r
+')));
   });
 
   test('PIN-free waiter login grants order entry only', () {
