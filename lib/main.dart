@@ -1113,6 +1113,7 @@ class InventoryPage extends StatelessWidget {
             title: const Text('Stok yönetimi'),
             actions: [
               IconButton(tooltip:'Stok hareket geçmişi',onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const StockHistoryPage())),icon:const Icon(Icons.history)),
+              IconButton(tooltip:'Barkod okuyucu',onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const BarcodePage())),icon:const Icon(Icons.qr_code_scanner)),
               IconButton(tooltip: 'Reçeteler ve malzemeler',
                 onPressed: () => Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const RecipePage())),
@@ -1350,6 +1351,12 @@ class StockHistoryPage extends StatelessWidget {
 }
 class ReportsPage extends StatelessWidget {
   const ReportsPage({super.key});
+  Future<void> _printReceipt(BuildContext context, Sale sale) async {
+    final ok = await ReceiptPrinter.printSale(sale);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
+      ok ? 'Fiş yazdırma penceresi açıldı.' : 'Fiş hazırlanamadı. Yazıcı ve PDF desteğini kontrol edin.')));
+  }
   Future<void> _addExpense(BuildContext context) async {final amount=TextEditingController(),category=TextEditingController(text:'Diğer'),note=TextEditingController();final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('İşletme gideri ekle'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Tutar (₼)')),TextField(controller:category,decoration:const InputDecoration(labelText:'Kategori')),TextField(controller:note,decoration:const InputDecoration(labelText:'Açıklama'))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Kaydet'))]));if(ok==true&&!pos.addExpense(parseMoney(amount.text),category.text,note.text)&&context.mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Gider kaydedilemedi.')));amount.dispose();category.dispose();note.dispose();}
   Future<void> _exportCsv(BuildContext context) async {try{final dir=await getApplicationDocumentsDirectory();final file=File('${dir.path}/restoram-rapor-${dayKey(azNow())}.csv');await file.writeAsString(pos.buildCsv(),flush:true);if(context.mounted)showDialog<void>(context:context,builder:(c)=>AlertDialog(title:const Text('CSV raporu hazır'),content:SelectableText(file.path),actions:[TextButton(onPressed:()=>Navigator.pop(c),child:const Text('Kapat'))]));}catch(e){if(context.mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('CSV oluşturulamadı: $e')));}}
   @override
@@ -1456,6 +1463,7 @@ class ReportsPage extends StatelessWidget {
             children: [
               for (final item in sale.items) ListTile(dense: true, title: Text('${item.qty} × ${item.name}'), trailing: Text(money(item.qty * item.price))),
               Padding(padding: const EdgeInsets.all(12), child: Text('Ödeme: ${sale.payments.map((part) => part.method == 'Nakit' ? 'Nakit ${money(part.amount)} (alınan ${money(part.tendered)}, para üstü ${money(part.change)})' : 'Kart ${money(part.amount)}').join(' + ')}')),
+              Padding(padding: const EdgeInsets.all(12), child: OutlinedButton.icon(onPressed:()=>_printReceipt(context,sale), icon:const Icon(Icons.print), label:const Text('Fişi yazdır / PDF'))),
             ],
           )),
         ]) : const Center(child: Text('Raporlar için yönetici girişi gerekir.')),
@@ -1498,6 +1506,10 @@ class AdminPage extends StatelessWidget {
       body: ListView(padding: const EdgeInsets.all(12), children: [
         const Card(child: ListTile(leading: Icon(Icons.admin_panel_settings),title:Text('Yönetici kontrolü'),subtitle:Text('Personel listesini yönetin ve satışları personele atayın.'))),
         OutlinedButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const StaffManagerPage())),icon:const Icon(Icons.groups),label:const Text('Personel listesi ve yönetimi')),
+        OutlinedButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const SuppliersPage())),icon:const Icon(Icons.local_shipping),label:const Text('Tedarikçiler ve mal alımları')),
+        OutlinedButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const CustomersReservationsPage())),icon:const Icon(Icons.event_seat),label:const Text('Müşteriler ve masa rezervasyonları')),
+        OutlinedButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const AnalyticsPage())),icon:const Icon(Icons.insights),label:const Text('Gelişmiş analiz paneli')),
+        OutlinedButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const BarcodePage())),icon:const Icon(Icons.qr_code_scanner),label:const Text('Barkod okuyucu ve eşleştirme')),
         OutlinedButton.icon(onPressed: () => _changePin(context), icon: const Icon(Icons.lock_reset), label: const Text('Yönetici PIN kodunu değiştir')),
         OutlinedButton.icon(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BackupManagerPage())), icon: const Icon(Icons.restore), label: const Text('Yedekleri görüntüle ve geri yükle')),
         OutlinedButton.icon(onPressed: () => _runIntegrityCheck(context), icon: const Icon(Icons.fact_check), label: const Text('Veri bütünlüğünü denetle')),
@@ -1903,4 +1915,172 @@ class RegisterPage extends StatelessWidget {
       );
     },
   );
+}
+
+
+class SuppliersPage extends StatefulWidget {
+  const SuppliersPage({super.key});
+  @override State<SuppliersPage> createState() => _SuppliersPageState();
+}
+class _SuppliersPageState extends State<SuppliersPage> {
+  Future<void> _addSupplier() async {
+    final name=TextEditingController(), phone=TextEditingController(), notes=TextEditingController();
+    final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('Tedarikçi ekle'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+      TextField(controller:name,decoration:const InputDecoration(labelText:'Firma / kişi adı')),
+      TextField(controller:phone,decoration:const InputDecoration(labelText:'Telefon')),
+      TextField(controller:notes,decoration:const InputDecoration(labelText:'Not'),maxLines:2),
+    ])),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Kaydet'))]));
+    if(ok==true) {
+      final saved=pos.addSupplier(SupplierRecord(id:DateTime.now().microsecondsSinceEpoch.toString(),name:name.text.trim(),phone:phone.text.trim(),notes:notes.text.trim()));
+      if(!saved&&mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Tedarikçi adı boş veya zaten kayıtlı.')));
+    }
+    name.dispose();phone.dispose();notes.dispose();
+  }
+  Future<void> _purchase() async {
+    if(pos.suppliers.where((s)=>s.active).isEmpty||pos.products.where((p)=>p.active).isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Önce en az bir aktif tedarikçi ve ürün ekleyin.'))); return;
+    }
+    String supplierId=pos.suppliers.firstWhere((s)=>s.active).id;
+    String productId=pos.products.firstWhere((p)=>p.active).id;
+    final quantity=TextEditingController(text:'1'), cost=TextEditingController();
+    final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,set)=>AlertDialog(title:const Text('Mal alımı kaydet'),content:Column(mainAxisSize:MainAxisSize.min,children:[
+      DropdownButtonFormField<String>(value:supplierId,decoration:const InputDecoration(labelText:'Tedarikçi'),items:pos.suppliers.where((x)=>x.active).map((x)=>DropdownMenuItem(value:x.id,child:Text(x.name))).toList(),onChanged:(v)=>set(()=>supplierId=v??supplierId)),
+      DropdownButtonFormField<String>(value:productId,decoration:const InputDecoration(labelText:'Ürün'),items:pos.products.where((x)=>x.active).map((x)=>DropdownMenuItem(value:x.id,child:Text(x.name))).toList(),onChanged:(v)=>set(()=>productId=v??productId)),
+      TextField(controller:quantity,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Alınan adet')),
+      TextField(controller:cost,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Birim alış maliyeti (₼)')),
+    ]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Stoka ekle'))])));
+    if(ok==true) {
+      final success=pos.recordPurchase(supplierId:supplierId,productId:productId,quantity:int.tryParse(quantity.text)??0,unitCost:parseMoney(cost.text));
+      if(!success&&mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Mal alımı kaydedilemedi. Miktar ve maliyeti kontrol edin.')));
+    }
+    quantity.dispose();cost.dispose();
+  }
+  @override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(context,_)=>Scaffold(
+    appBar:AppBar(title:const Text('Tedarikçi ve satın alma'),actions:[IconButton(onPressed:_addSupplier,icon:const Icon(Icons.person_add)),IconButton(onPressed:_purchase,icon:const Icon(Icons.add_shopping_cart))]),
+    body:ListView(padding:const EdgeInsets.all(12),children:[
+      Row(children:[Expanded(child:Text('Tedarikçiler · ${pos.suppliers.length}',style:const TextStyle(fontWeight:FontWeight.bold,fontSize:18))),Text('Mal alımı: ${money(pos.purchases.fold<int>(0,(a,x)=>a+x.total))}')]),
+      if(pos.suppliers.isEmpty) const ListTile(title:Text('Henüz tedarikçi yok.')),
+      for(final supplier in pos.suppliers) Card(child:ListTile(leading:const Icon(Icons.local_shipping),title:Text(supplier.name),subtitle:Text('${supplier.phone} · ${supplier.notes}'),trailing:Text(pos.purchases.where((x)=>x.supplierId==supplier.id).length.toString()))),
+      const Divider(),const Text('Son mal alımları',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),
+      if(pos.purchases.isEmpty) const ListTile(title:Text('Henüz mal alımı kaydedilmedi.')),
+      for(final purchase in pos.purchases.reversed.take(100)) ListTile(title:Text('${purchase.productName} × ${purchase.quantity}'),subtitle:Text('${purchase.supplierName} · ${purchase.at} · Birim ${money(purchase.unitCost)}'),trailing:Text(money(purchase.total))),
+    ]),
+  ));
+}
+
+class CustomersReservationsPage extends StatefulWidget {
+  const CustomersReservationsPage({super.key});
+  @override State<CustomersReservationsPage> createState()=>_CustomersReservationsPageState();
+}
+class _CustomersReservationsPageState extends State<CustomersReservationsPage> {
+  Future<void> _addCustomer() async {
+    final name=TextEditingController(),phone=TextEditingController(),notes=TextEditingController();
+    final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('Müşteri ekle'),content:Column(mainAxisSize:MainAxisSize.min,children:[
+      TextField(controller:name,decoration:const InputDecoration(labelText:'Ad soyad')),
+      TextField(controller:phone,keyboardType:TextInputType.phone,decoration:const InputDecoration(labelText:'Telefon')),
+      TextField(controller:notes,decoration:const InputDecoration(labelText:'Not')),
+    ]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Kaydet'))]));
+    if(ok==true&&!pos.addCustomer(CustomerRecord(id:DateTime.now().microsecondsSinceEpoch.toString(),name:name.text.trim(),phone:phone.text.trim(),notes:notes.text.trim()))&&mounted)
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Müşteri adı boş veya telefon numarası zaten kayıtlı.')));
+    name.dispose();phone.dispose();notes.dispose();
+  }
+  Future<void> _addReservation() async {
+    final name=TextEditingController(),phone=TextEditingController(),guests=TextEditingController(text:'2'),note=TextEditingController();
+    int tableId=1; DateTime date=DateTime.now().add(const Duration(days:1)); TimeOfDay time=const TimeOfDay(hour:19,minute:0);
+    final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,set)=>AlertDialog(title:const Text('Masa rezervasyonu'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+      TextField(controller:name,decoration:const InputDecoration(labelText:'Müşteri adı')),
+      TextField(controller:phone,keyboardType:TextInputType.phone,decoration:const InputDecoration(labelText:'Telefon')),
+      DropdownButtonFormField<int>(value:tableId,decoration:const InputDecoration(labelText:'Masa'),items:List.generate(kTableCount,(i)=>DropdownMenuItem(value:i+1,child:Text('Masa ${i+1}'))),onChanged:(v)=>set(()=>tableId=v??1)),
+      TextField(controller:guests,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Kişi sayısı')),
+      ListTile(contentPadding:EdgeInsets.zero,title:Text('Tarih: ${dayKey(date)}'),trailing:TextButton(onPressed:()async{final picked=await showDatePicker(context:c,initialDate:date.isBefore(DateTime.now())?DateTime.now():date,firstDate:DateTime.now(),lastDate:DateTime.now().add(const Duration(days:365)));if(picked!=null)set(()=>date=picked);},child:const Text('Değiştir'))),
+      ListTile(contentPadding:EdgeInsets.zero,title:Text('Saat: ${time.format(c)}'),trailing:TextButton(onPressed:()async{final picked=await showTimePicker(context:c,initialTime:time);if(picked!=null)set(()=>time=picked);},child:const Text('Değiştir'))),
+      TextField(controller:note,decoration:const InputDecoration(labelText:'Not')),
+    ])),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Rezervasyon oluştur'))])));
+    if(ok==true) {
+      final when=DateTime(date.year,date.month,date.day,time.hour,time.minute);
+      final saved=pos.addReservation(ReservationRecord(id:DateTime.now().microsecondsSinceEpoch.toString(),customerName:name.text.trim(),phone:phone.text.trim(),dateTime:when.toIso8601String(),tableId:tableId,guests:int.tryParse(guests.text)??0,note:note.text.trim()));
+      if(!saved&&mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Rezervasyon çakışıyor veya bilgiler geçersiz. Aynı masa için 2 saatlik aralık bırakın.')));
+    }
+    name.dispose();phone.dispose();guests.dispose();note.dispose();
+  }
+  @override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(context,_)=>Scaffold(
+    appBar:AppBar(title:const Text('Müşteri ve rezervasyon'),actions:[IconButton(onPressed:_addCustomer,icon:const Icon(Icons.person_add)),IconButton(onPressed:_addReservation,icon:const Icon(Icons.event_available))]),
+    body:ListView(padding:const EdgeInsets.all(12),children:[
+      Text('Müşteriler · ${pos.customers.length}',style:const TextStyle(fontWeight:FontWeight.bold,fontSize:18)),
+      if(pos.customers.isEmpty) const ListTile(title:Text('Henüz müşteri kaydı yok.')),
+      for(final customer in pos.customers) ListTile(leading:const Icon(Icons.person),title:Text(customer.name),subtitle:Text('${customer.phone} · ${customer.notes}'),trailing:Text('${customer.visits} ziyaret')),
+      const Divider(),const Text('Masa rezervasyonları',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),
+      if(pos.reservations.isEmpty) const ListTile(title:Text('Henüz rezervasyon yok.')),
+      for(final item in pos.reservations.toList()..sort((a,b)=>a.dateTime.compareTo(b.dateTime)))
+        Card(child:ListTile(title:Text('${item.customerName} · Masa ${item.tableId}'),subtitle:Text('${item.dateTime} · ${item.guests} kişi · ${item.phone}\n${item.note}'),isThreeLine:true,trailing:PopupMenuButton<String>(initialValue:item.status,onSelected:(v)=>pos.setReservationStatus(item,v),itemBuilder:(_)=>const [PopupMenuItem(value:'Bekliyor',child:Text('Bekliyor')),PopupMenuItem(value:'Geldi',child:Text('Geldi')),PopupMenuItem(value:'Tamamlandı',child:Text('Tamamlandı')),PopupMenuItem(value:'İptal',child:Text('İptal'))],child:Chip(label:Text(item.status))))),
+    ]),
+  ));
+}
+
+class AnalyticsPage extends StatelessWidget {
+  const AnalyticsPage({super.key});
+  @override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(context,_) {
+    final now=azNow(); final start=DateTime(now.year,now.month,now.day).subtract(const Duration(days:29));
+    final sales=pos.sales.where((sale){final d=DateTime.tryParse(sale.date);return d!=null&&!d.isBefore(start);}).toList();
+    final expenses=pos.expenses.where((expense){final d=DateTime.tryParse(expense.date);return d!=null&&!d.isBefore(start);}).toList();
+    final revenue=sales.fold<int>(0,(a,x)=>a+x.total);
+    final cost=sales.fold<int>(0,(a,x)=>a+pos.costOfSale(x));
+    final expenseTotal=expenses.fold<int>(0,(a,x)=>a+x.amount);
+    final productTotals=<String,int>{};
+    for(final sale in sales){for(final item in sale.items){productTotals[item.name]=(productTotals[item.name]??0)+item.qty;}}
+    final ranked=productTotals.entries.toList()..sort((a,b)=>b.value.compareTo(a.value));
+    final daily=<String,int>{};
+    for(final sale in sales){daily[sale.date]=(daily[sale.date]??0)+sale.total;}
+    final days=daily.entries.toList()..sort((a,b)=>a.key.compareTo(b.key));
+    final maxDaily=days.fold<int>(0,(a,x)=>x.value>a?x.value:a);
+    return Scaffold(appBar:AppBar(title:const Text('Gelişmiş analiz · 30 gün')),body:ListView(padding:const EdgeInsets.all(12),children:[
+      Wrap(spacing:8,runSpacing:8,children:[
+        _metric('Ciro',money(revenue)),_metric('Ürün maliyeti',money(cost)),
+        _metric('Brüt kâr',money(revenue-cost)),_metric('Gider',money(expenseTotal)),
+        _metric('Net kâr',money(revenue-cost-expenseTotal)),_metric('Satış', '${sales.length}'),
+      ]),
+      const SizedBox(height:16),const Text('Günlük ciro',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),
+      if(days.isEmpty) const ListTile(title:Text('Bu dönemde satış bulunmuyor.')),
+      for(final day in days) Padding(padding:const EdgeInsets.symmetric(vertical:5),child:Row(children:[
+        SizedBox(width:92,child:Text(day.key)),
+        Expanded(child:ClipRRect(borderRadius:BorderRadius.circular(5),child:LinearProgressIndicator(value:maxDaily==0?0:day.value/maxDaily,minHeight:12))),
+        const SizedBox(width:8),SizedBox(width:88,child:Text(money(day.value),textAlign:TextAlign.end)),
+      ])),
+      const Divider(),const Text('En çok satılan ürünler',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),
+      if(ranked.isEmpty) const ListTile(title:Text('Henüz ürün satılmadı.')),
+      for(final item in ranked.take(10)) ListTile(title:Text(item.key),trailing:Text('${item.value} adet')),
+      const Divider(),const Text('Ödeme dağılımı',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),
+      for(final method in ['Nakit','Kart']) ListTile(title:Text(method),trailing:Text(money(sales.expand((x)=>x.payments).where((x)=>x.method==method).fold<int>(0,(a,x)=>a+x.amount)))),
+    ]));
+  });
+}
+
+class BarcodePage extends StatefulWidget {
+  const BarcodePage({super.key});
+  @override State<BarcodePage> createState()=>_BarcodePageState();
+}
+class _BarcodePageState extends State<BarcodePage> {
+  final code=TextEditingController(); String? message; Product? found; int tableId=1; String? productId;
+  @override void dispose(){code.dispose();super.dispose();}
+  void _scan(String value){final product=pos.productByBarcode(value);setState(()=>{found=product,message=product==null?'Barkod eşleşmesi bulunamadı.':'Bulundu: ${product.name} · ${money(product.price)}'});}
+  Future<void> _assign() async {
+    if(productId==null)return;
+    final product=pos.products.firstWhere((p)=>p.id==productId);
+    if(!pos.setProductBarcode(product,code.text)) {setState(()=>message='Barkod başka ürüne atanmış veya kayıt edilemedi.');return;}
+    setState(()=>message='Barkod ${product.name} ürününe kaydedildi.');
+  }
+  @override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(context,_)=>Scaffold(
+    appBar:AppBar(title:const Text('Barkod okuyucu')),body:ListView(padding:const EdgeInsets.all(16),children:[
+      const Text('USB veya Bluetooth barkod okuyucu klavye gibi çalışır. Alanı seçip barkodu okutun; cihaz Enter gönderdiğinde ürün bulunur.',style:TextStyle(fontSize:14)),
+      TextField(controller:code,autofocus:true,decoration:const InputDecoration(labelText:'Barkod / ürün kodu',prefixIcon:Icon(Icons.qr_code_scanner)),onSubmitted:_scan),
+      const SizedBox(height:8),FilledButton.icon(onPressed:()=>_scan(code.text),icon:const Icon(Icons.search),label:const Text('Barkodu bul')),
+      if(message!=null) Padding(padding:const EdgeInsets.all(12),child:Text(message!,style:TextStyle(color:found==null?red:green))),
+      if(found!=null) Card(child:ListTile(title:Text(found!.name),subtitle:Text('Stok: ${found!.stock} · ${money(found!.price)}'),trailing:FilledButton(onPressed:()=>pos.add(pos.tables[tableId-1],found!)?ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Ürün masaya eklendi.'))):ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Ürün eklenemedi; masa veya stok durumunu kontrol edin.'))),child:const Text('Masaya ekle')))),
+      DropdownButtonFormField<int>(value:tableId,decoration:const InputDecoration(labelText:'Sipariş eklenecek masa'),items:List.generate(kTableCount,(i)=>DropdownMenuItem(value:i+1,child:Text('Masa ${i+1}'))),onChanged:(v)=>setState(()=>tableId=v??1)),
+      const Divider(),const Text('Ürüne barkod ata',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),
+      DropdownButtonFormField<String>(value:productId,decoration:const InputDecoration(labelText:'Ürün seç'),items:pos.products.map((p)=>DropdownMenuItem(value:p.id,child:Text(p.name))).toList(),onChanged:(v)=>setState(()=>productId=v)),
+      OutlinedButton.icon(onPressed:productId==null?null:_assign,icon:const Icon(Icons.link),label:const Text('Barkodu ürüne kaydet')),
+      for(final product in pos.products.where((p)=>pos.productBarcodes.containsKey(p.id))) ListTile(dense:true,title:Text(product.name),trailing:Text(pos.productBarcodes[product.id]!)),
+    ]),
+  ));
 }
