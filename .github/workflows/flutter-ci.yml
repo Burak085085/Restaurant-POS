@@ -25,6 +25,10 @@ jobs:
         run: flutter --version
       - name: Generate Android and Windows runners
         run: flutter create --platforms=android,windows --project-name restaurant_pos .
+      - name: Set Android compile SDK for current plugins
+        shell: bash
+        run: |
+          python3 -c "from pathlib import Path; p=Path('android/app/build.gradle.kts'); s=p.read_text(); old='compileSdk = flutter.compileSdkVersion'; assert old in s, 'Generated compileSdk setting not found'; p.write_text(s.replace(old, 'compileSdk = 36', 1))"
       - run: flutter pub get
       - name: Generate branded app icons
         run: dart run flutter_launcher_icons
