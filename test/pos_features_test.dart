@@ -77,6 +77,8 @@ void main() {
       expect(pos.openRegister(5000), isTrue);
       expect(pos.checkout(table, [PaymentPart('Kart', product.price)]), isTrue);
       expect(product.stock, 4);
+      expect(ingredient.stock, 900);
+      expect(pos.setRecipe(product, const [RecipeLine(ingredientId:'flour',quantity:200)]), isTrue);
       final originalIndex = pos.sales.length - 1;
 
       expect(pos.addStaff('Kasiyer', 'Kasiyer', '2468'), isTrue);
@@ -87,6 +89,7 @@ void main() {
       expect(pos.refundSale(originalIndex, product.price, 'Hatalı ürün', '8642', returnStock: true), isTrue);
 
       expect(product.stock, 5);
+      expect(ingredient.stock, 1000);
       expect(pos.sales.last.isRefund, isTrue);
       expect(pos.sales.last.total, -product.price);
       expect(pos.sales.last.refundOfSaleIndex, originalIndex);
@@ -97,7 +100,7 @@ void main() {
       expect(pos.remainingRefundable(originalIndex), 0);
       expect(pos.refundSale(originalIndex, 1, 'İkinci iade', '8642'), isFalse);
       expect(pos.stockMovements.last.type, 'İade');
-      expect(pos.costOfSale(pos.sales.last), -100);
+      expect(pos.costOfSale(pos.sales.last), -200);
       expect(await pos.integrityCheck(), isEmpty);
       await pos.flush();
       final restored = Pos(repository: repository);
