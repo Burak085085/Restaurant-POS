@@ -14,7 +14,13 @@ final GlobalKey<ScaffoldMessengerState> appMessengerKey = GlobalKey<ScaffoldMess
 const int kTableCount = 20;
 const String kStoreKey = 'restaurant_pos_v2';
 const Color ink = Color(0xFF1B2733), bg = Color(0xFFEEF1F4), green = Color(0xFF23845B), red = Color(0xFFC7443B), amber = Color(0xFFE39A1C);
-String money(int cents) => '${cents ~/ 100},${(cents % 100).toString().padLeft(2, '0')} ₼';
+String money(int cents) {
+  final isNegative = cents < 0;
+  final absoluteCents = cents.abs();
+  final whole = absoluteCents ~/ 100;
+  final fractional = (absoluteCents % 100).toString().padLeft(2, '0');
+  return '${isNegative ? '-' : ''}$whole,$fractional ₼';
+}
 int parseMoney(String s) { final value = double.tryParse(s.replaceAll(',', '.')); if (value == null || !value.isFinite || value <= 0 || value > 10000000) return 0; return (value * 100).round(); }
 DateTime azNow() => DateTime.now().toUtc().add(const Duration(hours: 4));
 String dayKey(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
