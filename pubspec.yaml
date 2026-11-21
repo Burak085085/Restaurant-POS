@@ -18,7 +18,7 @@ dependencies:
   pdf: ^3.11.3
   printing: ^5.14.2
   share_plus: ^10.1.4
-  file_picker: ^8.1.7
+  file_picker: ^10.3.10
   material_ui: ^1.8.0
 
 dev_dependencies:
