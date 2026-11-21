@@ -205,11 +205,11 @@ void main() {
     for (var attempt = 0; attempt < 5; attempt++) {
       expect(store.verifyAdminPin('0000'), isFalse);
     }
-    expect(store.pinLockRemainingSeconds('admin'), greaterThan(0));
+    expect(store.pinLockRemainingForStaff(store.staff.first), greaterThan(0));
     await store.flush();
     final restored = Pos(repository: repository);
     await restored.load();
-    expect(restored.pinLockRemainingSeconds('admin'), greaterThan(0));
+    expect(restored.pinLockRemainingForStaff(restored.staff.first), greaterThan(0));
     expect(restored.verifyAdminPin('2468'), isFalse);
   });
 
@@ -235,8 +235,41 @@ void main() {
     for (var attempt = 0; attempt < 5; attempt++) {
       expect(store.verifySupervisorPin('0000'), isFalse);
     }
-    expect(store.pinLockRemainingSeconds('supervisor'), greaterThan(0));
+    expect(store.pinLockRemainingForStaff(store.staff.first), greaterThan(0));
     expect(store.verifySupervisorPin('1234'), isFalse);
+  });
+
+  test('PIN lockout state persists in SQLite app_meta', () async {
+    final directory = await Directory.systemTemp.createTemp('pos-pin-security-');
+    final repository = SqliteStoreRepository(
+      databasePath: '${directory.path}/restaurant-pos.sqlite3',
+      backupDirectoryPath: '${directory.path}/backups',
+    );
+    try {
+      final store = Pos(repository: repository);
+      store.staff.first.setPin('2468');
+      store.save();
+      await store.flush();
+      for (var attempt = 0; attempt < 5; attempt++) {
+        expect(store.verifyAdminPin('0000'), isFalse);
+      }
+      await store.flush();
+      final restored = Pos(repository: repository);
+      await restored.load();
+      expect(restored.pinLockRemainingForStaff(restored.staff.first), greaterThan(0));
+      expect(restored.verifyAdminPin('2468'), isFalse);
+    } finally {
+      await directory.delete(recursive: true);
+    }
+  });
+
+  test('PIN lockout escalates from 30 seconds to 60 seconds', () {
+    final store = Pos(repository: MemoryStoreRepository());
+    store.pinSecurity['staff:Admin'] = {'failedAttempts': 0, 'lockouts': 1};
+    for (var attempt = 0; attempt < 5; attempt++) {
+      expect(store.verifyAdminPin('0000'), isFalse);
+    }
+    expect(store.pinLockRemainingForStaff(store.staff.first), greaterThan(30));
   });
 
   test('only the administrator account can access POS actions', () {
