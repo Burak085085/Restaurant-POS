@@ -110,6 +110,61 @@ void main() {
       await restored.flush();
     });
 
+    test('supplier purchase increases stock and recalculates weighted average cost', () async {
+      final pos = Pos(repository: MemoryStoreRepository());
+      final product = pos.products.first;
+      product.stock = 10;
+      product.costPrice = 100;
+      final supplier = SupplierRecord(id: 'supplier-1', name: 'Test Tedarikçi');
+      expect(pos.addSupplier(supplier), isTrue);
+      expect(pos.recordPurchase(supplierId: supplier.id, productId: product.id,
+        quantity: 10, unitCost: 300), isTrue);
+      expect(product.stock, 20);
+      expect(product.costPrice, 200);
+      expect(pos.purchases.single.total, 3000);
+      await pos.flush();
+    });
+
+    test('reservation rejects overlapping booking for the same table', () {
+      final pos = Pos(repository: MemoryStoreRepository());
+      final firstTime = DateTime.now().add(const Duration(days: 2));
+      final first = ReservationRecord(id: 'r1', customerName: 'Ali', phone: '0500000000',
+        dateTime: firstTime.toIso8601String(), tableId: 4, guests: 3);
+      expect(pos.addReservation(first), isTrue);
+      final overlap = ReservationRecord(id: 'r2', customerName: 'Veli', phone: '0500000001',
+        dateTime: firstTime.add(const Duration(minutes: 90)).toIso8601String(),
+        tableId: 4, guests: 2);
+      expect(pos.addReservation(overlap), isFalse);
+      final otherTable = ReservationRecord(id: 'r3', customerName: 'Veli', phone: '0500000001',
+        dateTime: firstTime.add(const Duration(minutes: 90)).toIso8601String(),
+        tableId: 5, guests: 2);
+      expect(pos.addReservation(otherTable), isTrue);
+    });
+
+    test('barcode lookup is unique and resolves only active products', () {
+      final pos = Pos(repository: MemoryStoreRepository());
+      final first = pos.products[0];
+      final second = pos.products[1];
+      expect(pos.setProductBarcode(first, '1234567890123'), isTrue);
+      expect(pos.productByBarcode('1234567890123'), same(first));
+      expect(pos.setProductBarcode(second, '1234567890123'), isFalse);
+      first.active = false;
+      expect(pos.productByBarcode('1234567890123'), isNull);
+    });
+
+    test('customers and advanced records survive a local save and reload', () async {
+      final repository = MemoryStoreRepository();
+      final pos = Pos(repository: repository);
+      expect(pos.addCustomer(CustomerRecord(id: 'c1', name: 'Aysel', phone: '0501111111')), isTrue);
+      final supplier = SupplierRecord(id: 's1', name: 'Anbar');
+      expect(pos.addSupplier(supplier), isTrue);
+      await pos.flush();
+      final restored = Pos(repository: repository);
+      await restored.load();
+      expect(restored.customers.single.name, 'Aysel');
+      expect(restored.suppliers.single.name, 'Anbar');
+    });
+
     test('integrity check reports a clean new store', () async {
       final pos = Pos(repository: MemoryStoreRepository());
       expect(await pos.integrityCheck(), isEmpty);
