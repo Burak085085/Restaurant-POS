@@ -113,10 +113,12 @@ void main() {
     expect(store.sendKitchen(table), isTrue);
     expect(table.items.last.kitchen, KitchenState.queued);
     expect(table.items.first.kitchen, KitchenState.preparing);
-    expect(store.qty(table, 0, -1), isTrue);
+    expect(store.qty(table, 0, -1), isFalse);
+    expect(store.cancelSentLine(table, table.items.first, 1, 'Müşteri vazgeçti', '1234'), isTrue);
     expect(table.items, hasLength(1));
     expect(table.items.single.sent, isTrue);
     expect(store.reservedStock(product.id), 1);
+    expect(store.kitchenNotices.single.productName, product.name);
   });
 
   test('kitchen dispatch state survives JSON round trip', () {
