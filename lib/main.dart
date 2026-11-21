@@ -2177,7 +2177,7 @@ class _SuppliersPageState extends State<SuppliersPage> {
       for(final supplier in pos.suppliers) Card(child:ListTile(leading:const Icon(Icons.local_shipping),title:Text(supplier.name),subtitle:Text('${supplier.phone} · ${supplier.notes}'),trailing:Text(pos.purchases.where((x)=>x.supplierId==supplier.id).length.toString()))),
       const Divider(),const Text('Son mal alımları',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),
       if(pos.purchases.isEmpty) const ListTile(title:Text('Henüz mal alımı kaydedilmedi.')),
-      for(final purchase in pos.purchases.reversed.take(100)) ListTile(title:Text('${purchase.productName} × ${purchase.quantity}'),subtitle:Text('${purchase.supplierName} · ${purchase.at} · Birim ${money(purchase.unitCost)}'),trailing:Text(money(purchase.total))),
+      for(final purchase in pos.purchases.reversed.take(100)) ListTile(title:Text('${purchase.productName} × ${purchase.quantity}'),subtitle:Text('${purchase.supplierName} · ${bakuTimestamp(purchase.at)} · Birim ${money(purchase.unitCost)}'),trailing:Text(money(purchase.total))),
     ]),
   ));
 }
