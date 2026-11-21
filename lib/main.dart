@@ -8,6 +8,7 @@ import 'package:crypto/crypto.dart';
 import 'advanced_features.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:file_picker/file_picker.dart';
 import 'storage.dart';
 
 final GlobalKey<ScaffoldMessengerState> appMessengerKey = GlobalKey<ScaffoldMessengerState>();
@@ -1610,6 +1611,39 @@ class _BackupManagerPageState extends State<BackupManagerPage> {
     }
   }
 
+  Future<void> _importBackup() async {
+    setState(() => busy = true);
+    try {
+      final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['json'], withData: true);
+      if (result == null || result.files.isEmpty) return;
+      final selected = result.files.single;
+      final bytes = selected.bytes ?? (selected.path != null ? await File(selected.path!).readAsBytes() : null);
+      if (bytes == null || bytes.isEmpty || bytes.length > 20 * 1024 * 1024) {
+        throw const FormatException('Dosya boş, okunamıyor veya 20 MB sınırını aşıyor.');
+      }
+      final payload = utf8.decode(bytes);
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Dosyadan yedek geri yüklensin mi?'),
+          content: Text('${selected.name} dosyası doğrulanacak. Geçerliyse mevcut verilerin güvenlik yedeği alınarak değiştirilecek.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('İptal')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Doğrula ve yükle')),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+      final success = await pos.restoreBackup(payload);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(success ? 'Dosyadaki yedek başarıyla geri yüklendi.' : 'Yedek doğrulanamadı. Mevcut veriler korundu.')));
+      if (success) Navigator.pop(context);
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Yedek içe aktarılamadı: $error')));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
   Future<void> _restore(BackupFile backup) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -1645,6 +1679,8 @@ class _BackupManagerPageState extends State<BackupManagerPage> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Yedekler'), actions: [
+      IconButton(tooltip: 'Dosyadan yedek içe aktar', onPressed: busy ? null : _importBackup,
+        icon: const Icon(Icons.file_open)),
       IconButton(tooltip: 'Yedeği dışa aktar', onPressed: busy ? null : _exportBackup,
         icon: const Icon(Icons.ios_share)),
     ]),
