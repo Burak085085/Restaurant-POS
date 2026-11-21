@@ -325,7 +325,7 @@ class Pos extends ChangeNotifier {
       return false;
     }
     currentUser = member.name;
-    log('Giriş', member.role + ' oturumu açıldı');
+    log('Giriş', '${member.role} oturumu açıldı');
     save();
     notifyListeners();
     return true;
@@ -1604,7 +1604,7 @@ class _PinGateState extends State<PinGate> {
       staffPin = await showDialog<String>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: Text(selected.name + ' · PIN girişi'),
+          title: Text('${selected.name} · PIN girişi'),
           content: TextField(
             controller: controller, autofocus: true,
             keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
