@@ -161,9 +161,9 @@ class Audit { String at,user,action,detail; Audit(this.at,this.user,this.action,
 class Pos extends ChangeNotifier {
   List<Product> products=[Product('p1','Dönerler','Tavuk döner',300),Product('p2','Dönerler','Dana döner',500),Product('p3','Dönerler','Dürüm döner',400),Product('p4','Dönerler','Porsiyon döner',700),Product('p5','İçecekler','Kola',200),Product('p6','İçecekler','Fanta',200),Product('p7','İçecekler','Ayran',100),Product('p8','İçecekler','Su',50),Product('p9','Ekstra','Patates',200),Product('p10','Ekstra','Ketçap',50),Product('p11','Ekstra','Mayonez',50)];
   List<PosTable> tables=List.generate(kTableCount,(i)=>PosTable(i+1)); List<Sale> sales=[]; List<RegisterSession> registerSessions=[]; List<CashMovement> cashMovements=[]; List<Expense> expenses=[]; List<StockMovement> stockMovements=[]; List<Ingredient> ingredients=[]; Map<String,List<RecipeLine>> recipes={}; List<Staff> staff=[Staff('Admin','Yönetici')]; List<Audit> audit=[]; String currentUser='Admin';
-  List<SupplierRecord> suppliers=[]; List<PurchaseRecord> purchases=[]; List<CustomerRecord> customers=[]; List<ReservationRecord> reservations=[]; Map<String,String> productBarcodes={}; final StoreRepository _repository; Future<void> _queue=Future.value();
+  List<SupplierRecord> suppliers=[]; List<PurchaseRecord> purchases=[]; List<CustomerRecord> customers=[]; List<ReservationRecord> reservations=[]; Map<String,String> productBarcodes={}; bool recoveryRequired=false; String? corruptPayload; final StoreRepository _repository; Future<void> _queue=Future.value();
   Pos({StoreRepository? repository}) : _repository = repository ?? SqliteStoreRepository();
-  Future<void> load() async { final raw=await _repository.read(); if(raw==null)return; try { final j=jsonDecode(raw) as Map<String,dynamic>; products=(j['products'] as List? ?? []).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList(); tables=List.generate(kTableCount,(i)=>PosTable(i+1)); for(final x in (j['tables'] as List? ?? [])){final m=Map<String,dynamic>.from(x); final id=m['id'] as int; if(id<1||id>kTableCount)continue; final t=tables[id-1]; t.items=(m['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(); t.kitchen=KitchenState.values[(m['kitchen']??0).clamp(0,3).toInt()]; final rawItems=(m['items'] as List? ?? []); for(var lineIndex=0;lineIndex<t.items.length;lineIndex++){final rawLine=Map<String,dynamic>.from(rawItems[lineIndex]);if(!rawLine.containsKey('kitchen'))t.items[lineIndex].kitchen=t.kitchen;} t.discount=m['discount']??0;t.discountPercent=m['discountPercent']??false;t.discountReason=m['discountReason']??'';} sales=(j['sales'] as List? ?? []).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList(); expenses=(j['expenses'] as List? ?? []).map((e)=>Expense.fromJson(Map<String,dynamic>.from(e))).toList(); stockMovements=(j['stockMovements'] as List? ?? []).map((e)=>StockMovement.fromJson(Map<String,dynamic>.from(e))).toList(); ingredients=(j['ingredients'] as List? ?? []).map((e)=>Ingredient.fromJson(Map<String,dynamic>.from(e))).toList(); recipes=(j['recipes'] as Map? ?? {}).map((key,value)=>MapEntry(key.toString(),(value as List).map((e)=>RecipeLine.fromJson(Map<String,dynamic>.from(e))).toList())); registerSessions=(j['registerSessions'] as List? ?? []).map((e)=>RegisterSession.fromJson(Map<String,dynamic>.from(e))).toList(); cashMovements=(j['cashMovements'] as List? ?? []).map((e)=>CashMovement.fromJson(Map<String,dynamic>.from(e))).toList(); final legacyStaff=(j['staff'] as List? ?? []).map((e)=>Staff.fromJson(Map<String,dynamic>.from(e))).toList(); final admins=legacyStaff.where((member)=>member.name=='Admin').toList(); final admin=admins.isNotEmpty ? admins.first : Staff('Admin','Yönetici'); admin.active=true; final names=<String>{'admin'}; staff=[admin,...legacyStaff.where((member)=>member.name!='Admin'&&member.name.trim().isNotEmpty&&names.add(member.name.trim().toLowerCase()))]; audit=(j['audit'] as List? ?? []).map((e)=>Audit.fromJson(Map<String,dynamic>.from(e))).toList(); final advanced=Map<String,dynamic>.from(j['advanced'] as Map? ?? {}); suppliers=(advanced['suppliers'] as List? ?? []).map((e)=>SupplierRecord.fromJson(Map<String,dynamic>.from(e))).toList(); purchases=(advanced['purchases'] as List? ?? []).map((e)=>PurchaseRecord.fromJson(Map<String,dynamic>.from(e))).toList(); customers=(advanced['customers'] as List? ?? []).map((e)=>CustomerRecord.fromJson(Map<String,dynamic>.from(e))).toList(); reservations=(advanced['reservations'] as List? ?? []).map((e)=>ReservationRecord.fromJson(Map<String,dynamic>.from(e))).toList(); productBarcodes=Map<String,String>.from(advanced['barcodes'] as Map? ?? {}); currentUser='Admin'; } catch (_) { await _repository.backupCorrupt(raw); products=[Product('p1','Dönerler','Tavuk döner',300),Product('p2','Dönerler','Dana döner',500),Product('p3','Dönerler','Dürüm döner',400),Product('p4','Dönerler','Porsiyon döner',700),Product('p5','İçecekler','Kola',200),Product('p6','İçecekler','Fanta',200),Product('p7','İçecekler','Ayran',100),Product('p8','İçecekler','Su',50),Product('p9','Ekstra','Patates',200),Product('p10','Ekstra','Ketçap',50),Product('p11','Ekstra','Mayonez',50)]; tables=List.generate(kTableCount,(i)=>PosTable(i+1)); sales=[]; registerSessions=[]; cashMovements=[]; expenses=[]; stockMovements=[]; ingredients=[]; recipes={}; staff=[Staff('Admin','Yönetici')]; audit=[]; currentUser='Admin'; } }
+  Future<void> load() async { final raw=await _repository.read(); if(raw==null)return; try { final j=jsonDecode(raw) as Map<String,dynamic>; products=(j['products'] as List? ?? []).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList(); tables=List.generate(kTableCount,(i)=>PosTable(i+1)); for(final x in (j['tables'] as List? ?? [])){final m=Map<String,dynamic>.from(x); final id=m['id'] as int; if(id<1||id>kTableCount)continue; final t=tables[id-1]; t.items=(m['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(); t.kitchen=KitchenState.values[(m['kitchen']??0).clamp(0,3).toInt()]; final rawItems=(m['items'] as List? ?? []); for(var lineIndex=0;lineIndex<t.items.length;lineIndex++){final rawLine=Map<String,dynamic>.from(rawItems[lineIndex]);if(!rawLine.containsKey('kitchen'))t.items[lineIndex].kitchen=t.kitchen;} t.discount=m['discount']??0;t.discountPercent=m['discountPercent']??false;t.discountReason=m['discountReason']??'';} sales=(j['sales'] as List? ?? []).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList(); expenses=(j['expenses'] as List? ?? []).map((e)=>Expense.fromJson(Map<String,dynamic>.from(e))).toList(); stockMovements=(j['stockMovements'] as List? ?? []).map((e)=>StockMovement.fromJson(Map<String,dynamic>.from(e))).toList(); ingredients=(j['ingredients'] as List? ?? []).map((e)=>Ingredient.fromJson(Map<String,dynamic>.from(e))).toList(); recipes=(j['recipes'] as Map? ?? {}).map((key,value)=>MapEntry(key.toString(),(value as List).map((e)=>RecipeLine.fromJson(Map<String,dynamic>.from(e))).toList())); registerSessions=(j['registerSessions'] as List? ?? []).map((e)=>RegisterSession.fromJson(Map<String,dynamic>.from(e))).toList(); cashMovements=(j['cashMovements'] as List? ?? []).map((e)=>CashMovement.fromJson(Map<String,dynamic>.from(e))).toList(); final legacyStaff=(j['staff'] as List? ?? []).map((e)=>Staff.fromJson(Map<String,dynamic>.from(e))).toList(); final admins=legacyStaff.where((member)=>member.name=='Admin').toList(); final admin=admins.isNotEmpty ? admins.first : Staff('Admin','Yönetici'); admin.active=true; final names=<String>{'admin'}; staff=[admin,...legacyStaff.where((member)=>member.name!='Admin'&&member.name.trim().isNotEmpty&&names.add(member.name.trim().toLowerCase()))]; audit=(j['audit'] as List? ?? []).map((e)=>Audit.fromJson(Map<String,dynamic>.from(e))).toList(); final advanced=Map<String,dynamic>.from(j['advanced'] as Map? ?? {}); suppliers=(advanced['suppliers'] as List? ?? []).map((e)=>SupplierRecord.fromJson(Map<String,dynamic>.from(e))).toList(); purchases=(advanced['purchases'] as List? ?? []).map((e)=>PurchaseRecord.fromJson(Map<String,dynamic>.from(e))).toList(); customers=(advanced['customers'] as List? ?? []).map((e)=>CustomerRecord.fromJson(Map<String,dynamic>.from(e))).toList(); reservations=(advanced['reservations'] as List? ?? []).map((e)=>ReservationRecord.fromJson(Map<String,dynamic>.from(e))).toList(); productBarcodes=Map<String,String>.from(advanced['barcodes'] as Map? ?? {}); currentUser='Admin'; } catch (_) { await _repository.backupCorrupt(raw); recoveryRequired=true; corruptPayload=raw; } }
 
   String _snapshot() => jsonEncode({
     'products': products.map((e) => e.toJson()).toList(),
@@ -306,6 +306,7 @@ class Pos extends ChangeNotifier {
 
   Future<void> flush()=>_queue;
   void save() {
+    if (recoveryRequired) return;
     final snapshot = jsonEncode({
       'products': products.map((e) => e.toJson()).toList(),
       'tables': tables.map((e) => e.toJson()).toList(),
@@ -753,7 +754,7 @@ class Pos extends ChangeNotifier {
 final pos=Pos();
 Future<void> main() async {WidgetsFlutterBinding.ensureInitialized();await pos.load();runApp(const PosApp());}
 class PosLogo extends StatelessWidget { final double size; const PosLogo({super.key, this.size = 112}); @override Widget build(BuildContext context) => Image.asset('assets/branding/restoram_logo.jpg', width: size, height: size, fit: BoxFit.contain); }
-class PosApp extends StatelessWidget {const PosApp({super.key});@override Widget build(BuildContext context)=>MaterialApp(scaffoldMessengerKey:appMessengerKey,title:'Restaurant POS',debugShowCheckedModeBanner:false,theme:ThemeData(useMaterial3:true,colorScheme:ColorScheme.fromSeed(seedColor:ink),scaffoldBackgroundColor:bg,appBarTheme:const AppBarTheme(backgroundColor:ink,foregroundColor:Colors.white)),home:const Home());}
+class PosApp extends StatelessWidget {const PosApp({super.key});@override Widget build(BuildContext context)=>MaterialApp(scaffoldMessengerKey:appMessengerKey,title:'Restaurant POS',debugShowCheckedModeBanner:false,theme:ThemeData(useMaterial3:true,colorScheme:ColorScheme.fromSeed(seedColor:ink),scaffoldBackgroundColor:bg,appBarTheme:const AppBarTheme(backgroundColor:ink,foregroundColor:Colors.white)),home:pos.recoveryRequired ? const RecoveryPage() : const Home());}
 
 class Home extends StatefulWidget {const Home({super.key});@override State<Home> createState()=>_HomeState();}
 class _HomeState extends State<Home>{
@@ -1678,6 +1679,95 @@ class _BackupManagerPageState extends State<BackupManagerPage> {
           },
         );
       },
+    ),
+  );
+}
+
+class RecoveryPage extends StatefulWidget {
+  const RecoveryPage({super.key});
+  @override
+  State<RecoveryPage> createState() => _RecoveryPageState();
+}
+
+class _RecoveryPageState extends State<RecoveryPage> {
+  late Future<List<BackupFile>> backups;
+  bool busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    backups = pos.listBackups();
+  }
+
+  Future<void> _restore(BackupFile backup) async {
+    setState(() => busy = true);
+    var restored = false;
+    try {
+      final payload = await pos.readBackup(backup.name);
+      if (payload != null) restored = await pos.restoreBackup(payload);
+    } catch (_) {
+      restored = false;
+    }
+    if (!mounted) return;
+    if (restored) {
+      setState(() => busy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Yedek geri yüklendi. Uygulamayı yeniden açın.')),
+      );
+      return;
+    }
+    setState(() {
+      busy = false;
+      backups = pos.listBackups();
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Bu yedek doğrulanamadı. Mevcut veriler değiştirilmedi.')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Veri kurtarma')),
+    body: ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        const Icon(Icons.warning_amber_rounded, size: 52, color: Colors.orange),
+        const SizedBox(height: 12),
+        const Text('Yerel veriler okunamadı',
+          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        const Text('Güvenlik için giriş ve kayıt işlemleri durduruldu. Bozuk veri otomatik olarak varsayılan verilerle değiştirilmedi. Bir sağlam yedek seçerek geri yükleyin.'),
+        const SizedBox(height: 20),
+        const Text('Bulunan yedekler', style: TextStyle(fontWeight: FontWeight.bold)),
+        FutureBuilder<List<BackupFile>>(
+          future: backups,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const Padding(padding: EdgeInsets.all(20),
+                child: Center(child: CircularProgressIndicator()));
+            }
+            if (snapshot.hasError || (snapshot.data ?? []).isEmpty) {
+              return const Padding(padding: EdgeInsets.symmetric(vertical: 16),
+                child: Text('Geri yüklenebilir yedek bulunamadı. Bozuk dosya silinmedi; destek için korunuyor.'));
+            }
+            final files = snapshot.data!;
+            return Column(children: [
+              for (final file in files)
+                Card(child: ListTile(
+                  leading: const Icon(Icons.backup),
+                  title: Text(file.name),
+                  subtitle: Text('${stamp(file.modifiedAt.toLocal())} · ${(file.sizeBytes / 1024).toStringAsFixed(1)} KB'),
+                  trailing: IconButton(
+                    tooltip: 'Bu yedeği geri yükle',
+                    onPressed: busy ? null : () => _restore(file),
+                    icon: busy ? const SizedBox(width: 20, height: 20,
+                      child: CircularProgressIndicator()) : const Icon(Icons.restore),
+                  ),
+                )),
+            ]);
+          },
+        ),
+      ],
     ),
   );
 }
