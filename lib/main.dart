@@ -2077,14 +2077,13 @@ class _PinGateState extends State<PinGate> {
     widget.onStaffSelected(selected);
   }
   void submit() {
-    if (lockedUntil != null && DateTime.now().isBefore(lockedUntil!)) { setState(() => error = 'Çok fazla hatalı deneme. 30 saniye bekleyin.'); return; }
     final value = pin.text.trim();
     if (!RegExp(r'^[0-9]{4}$').hasMatch(value) || (setupRequired && value == '1234')) { setState(() => error = '4 rakamlı, varsayılan olmayan bir PIN girin.'); return; }
     if (setupRequired) {
       if (value != confirm.text.trim()) { setState(() => error = 'PIN kodları eşleşmiyor.'); return; }
       admin.setPin(value); setupRequired=false; pos.pinSecurity.remove('staff:Admin'); pos.currentUser = admin.name; pos.log('Güvenlik', 'Yönetici PIN kodu oluşturuldu'); pos.save(); widget.onAuthenticated(); return;
     }
-    if (pos.verifyAdminPin(value)) { failedAttempts=0; pos.currentUser = admin.name; widget.onAuthenticated(); }
+    if (pos.verifyAdminPin(value)) { pos.currentUser = admin.name; widget.onAuthenticated(); }
     else { final remaining=pos.pinLockRemainingSeconds('staff:Admin'); setState(() => error = remaining>0 ? 'Çok fazla hatalı deneme. ${remaining} saniye bekleyin.' : 'PIN hatalı.'); pin.clear(); }
   }
   @override Widget build(BuildContext context) => Scaffold(
