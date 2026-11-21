@@ -23,7 +23,46 @@ String money(int cents) {
   return '${isNegative ? '-' : ''}$whole,$fractional ₼';
 }
 int parseMoney(String s) { final value = double.tryParse(s.replaceAll(',', '.')); if (value == null || !value.isFinite || value <= 0 || value > 10000000) return 0; return (value * 100).round(); }
-DateTime azNow() => DateTime.now().toUtc().add(const Duration(hours: 4));
+DateTime azNow() => DateTime.now().toUtc();
+DateTime azWallTime(DateTime instant) => instant.toUtc().add(const Duration(hours: 4));
+DateTime bakuWallTimeToUtc(DateTime wallTime) => DateTime.utc(
+  wallTime.year, wallTime.month, wallTime.day, wallTime.hour, wallTime.minute,
+  wallTime.second, wallTime.millisecond, wallTime.microsecond,
+).subtract(const Duration(hours: 4));
+String bakuTimestamp(String value) => stamp(azWallTime(DateTime.parse(value)));
+String _legacyBakuTimestamp(String value) {
+  final parsed = DateTime.tryParse(value);
+  if (parsed == null) return value;
+  return DateTime.utc(parsed.year, parsed.month, parsed.day, parsed.hour,
+    parsed.minute, parsed.second, parsed.millisecond, parsed.microsecond)
+      .subtract(const Duration(hours: 4)).toIso8601String();
+}
+void _migrateLegacyTimestamps(Map<String, dynamic> data) {
+  void migrateRows(Object? source, String field) {
+    if (source is! List) return;
+    for (final row in source) {
+      if (row is Map && row[field] is String && (row[field] as String).isNotEmpty) {
+        row[field] = _legacyBakuTimestamp(row[field] as String);
+      }
+    }
+  }
+  migrateRows(data['audit'], 'at');
+  migrateRows(data['stockMovements'], 'at');
+  migrateRows(data['cashMovements'], 'at');
+  migrateRows(data['registerSessions'], 'openedAt');
+  if (data['registerSessions'] is List) {
+    for (final row in data['registerSessions'] as List) {
+      if (row is Map && row['closedAt'] is String && (row['closedAt'] as String).isNotEmpty) {
+        row['closedAt'] = _legacyBakuTimestamp(row['closedAt'] as String);
+      }
+    }
+  }
+  final advanced = data['advanced'];
+  if (advanced is Map) {
+    migrateRows(advanced['purchases'], 'at');
+    migrateRows(advanced['reservations'], 'dateTime');
+  }
+}
 String dayKey(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 String stamp(DateTime d) => '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
 
@@ -164,9 +203,10 @@ class Pos extends ChangeNotifier {
   List<PosTable> tables=List.generate(kTableCount,(i)=>PosTable(i+1)); List<Sale> sales=[]; List<RegisterSession> registerSessions=[]; List<CashMovement> cashMovements=[]; List<Expense> expenses=[]; List<StockMovement> stockMovements=[]; List<Ingredient> ingredients=[]; Map<String,List<RecipeLine>> recipes={}; List<Staff> staff=[Staff('Admin','Yönetici')]; List<Audit> audit=[]; String currentUser='Admin';
   List<SupplierRecord> suppliers=[]; List<PurchaseRecord> purchases=[]; List<CustomerRecord> customers=[]; List<ReservationRecord> reservations=[]; Map<String,String> productBarcodes={}; bool recoveryRequired=false; final StoreRepository _repository; Future<void> _queue=Future.value();
   Pos({StoreRepository? repository}) : _repository = repository ?? SqliteStoreRepository();
-  Future<void> load() async { final raw=await _repository.read(); if(raw==null)return; try { final j=jsonDecode(raw) as Map<String,dynamic>; products=(j['products'] as List? ?? []).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList(); tables=List.generate(kTableCount,(i)=>PosTable(i+1)); for(final x in (j['tables'] as List? ?? [])){final m=Map<String,dynamic>.from(x); final id=m['id'] as int; if(id<1||id>kTableCount)continue; final t=tables[id-1]; t.items=(m['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(); t.kitchen=KitchenState.values[(m['kitchen']??0).clamp(0,3).toInt()]; final rawItems=(m['items'] as List? ?? []); for(var lineIndex=0;lineIndex<t.items.length;lineIndex++){final rawLine=Map<String,dynamic>.from(rawItems[lineIndex]);if(!rawLine.containsKey('kitchen'))t.items[lineIndex].kitchen=t.kitchen;} t.discount=m['discount']??0;t.discountPercent=m['discountPercent']??false;t.discountReason=m['discountReason']??'';} sales=(j['sales'] as List? ?? []).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList(); expenses=(j['expenses'] as List? ?? []).map((e)=>Expense.fromJson(Map<String,dynamic>.from(e))).toList(); stockMovements=(j['stockMovements'] as List? ?? []).map((e)=>StockMovement.fromJson(Map<String,dynamic>.from(e))).toList(); ingredients=(j['ingredients'] as List? ?? []).map((e)=>Ingredient.fromJson(Map<String,dynamic>.from(e))).toList(); recipes=(j['recipes'] as Map? ?? {}).map((key,value)=>MapEntry(key.toString(),(value as List).map((e)=>RecipeLine.fromJson(Map<String,dynamic>.from(e))).toList())); registerSessions=(j['registerSessions'] as List? ?? []).map((e)=>RegisterSession.fromJson(Map<String,dynamic>.from(e))).toList(); cashMovements=(j['cashMovements'] as List? ?? []).map((e)=>CashMovement.fromJson(Map<String,dynamic>.from(e))).toList(); final legacyStaff=(j['staff'] as List? ?? []).map((e)=>Staff.fromJson(Map<String,dynamic>.from(e))).toList(); final admins=legacyStaff.where((member)=>member.name=='Admin').toList(); final admin=admins.isNotEmpty ? admins.first : Staff('Admin','Yönetici'); admin.active=true; final names=<String>{'admin'}; staff=[admin,...legacyStaff.where((member)=>member.name!='Admin'&&member.name.trim().isNotEmpty&&names.add(member.name.trim().toLowerCase()))]; audit=(j['audit'] as List? ?? []).map((e)=>Audit.fromJson(Map<String,dynamic>.from(e))).toList(); final advanced=Map<String,dynamic>.from(j['advanced'] as Map? ?? {}); suppliers=(advanced['suppliers'] as List? ?? []).map((e)=>SupplierRecord.fromJson(Map<String,dynamic>.from(e))).toList(); purchases=(advanced['purchases'] as List? ?? []).map((e)=>PurchaseRecord.fromJson(Map<String,dynamic>.from(e))).toList(); customers=(advanced['customers'] as List? ?? []).map((e)=>CustomerRecord.fromJson(Map<String,dynamic>.from(e))).toList(); reservations=(advanced['reservations'] as List? ?? []).map((e)=>ReservationRecord.fromJson(Map<String,dynamic>.from(e))).toList(); productBarcodes=Map<String,String>.from(advanced['barcodes'] as Map? ?? {}); currentUser='Admin'; recoveryRequired=false; } catch (_) { await _repository.backupCorrupt(raw); recoveryRequired=true; } }
+  Future<void> load() async { final raw=await _repository.read(); if(raw==null)return; try { final j=jsonDecode(raw) as Map<String,dynamic>; final needsTimestampMigration=(j['timestampFormatVersion'] as num?)?.toInt()!=2; if(needsTimestampMigration)_migrateLegacyTimestamps(j); products=(j['products'] as List? ?? []).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList(); tables=List.generate(kTableCount,(i)=>PosTable(i+1)); for(final x in (j['tables'] as List? ?? [])){final m=Map<String,dynamic>.from(x); final id=m['id'] as int; if(id<1||id>kTableCount)continue; final t=tables[id-1]; t.items=(m['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(); t.kitchen=KitchenState.values[(m['kitchen']??0).clamp(0,3).toInt()]; final rawItems=(m['items'] as List? ?? []); for(var lineIndex=0;lineIndex<t.items.length;lineIndex++){final rawLine=Map<String,dynamic>.from(rawItems[lineIndex]);if(!rawLine.containsKey('kitchen'))t.items[lineIndex].kitchen=t.kitchen;} t.discount=m['discount']??0;t.discountPercent=m['discountPercent']??false;t.discountReason=m['discountReason']??'';} sales=(j['sales'] as List? ?? []).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList(); expenses=(j['expenses'] as List? ?? []).map((e)=>Expense.fromJson(Map<String,dynamic>.from(e))).toList(); stockMovements=(j['stockMovements'] as List? ?? []).map((e)=>StockMovement.fromJson(Map<String,dynamic>.from(e))).toList(); ingredients=(j['ingredients'] as List? ?? []).map((e)=>Ingredient.fromJson(Map<String,dynamic>.from(e))).toList(); recipes=(j['recipes'] as Map? ?? {}).map((key,value)=>MapEntry(key.toString(),(value as List).map((e)=>RecipeLine.fromJson(Map<String,dynamic>.from(e))).toList())); registerSessions=(j['registerSessions'] as List? ?? []).map((e)=>RegisterSession.fromJson(Map<String,dynamic>.from(e))).toList(); cashMovements=(j['cashMovements'] as List? ?? []).map((e)=>CashMovement.fromJson(Map<String,dynamic>.from(e))).toList(); final legacyStaff=(j['staff'] as List? ?? []).map((e)=>Staff.fromJson(Map<String,dynamic>.from(e))).toList(); final admins=legacyStaff.where((member)=>member.name=='Admin').toList(); final admin=admins.isNotEmpty ? admins.first : Staff('Admin','Yönetici'); admin.active=true; final names=<String>{'admin'}; staff=[admin,...legacyStaff.where((member)=>member.name!='Admin'&&member.name.trim().isNotEmpty&&names.add(member.name.trim().toLowerCase()))]; audit=(j['audit'] as List? ?? []).map((e)=>Audit.fromJson(Map<String,dynamic>.from(e))).toList(); final advanced=Map<String,dynamic>.from(j['advanced'] as Map? ?? {}); suppliers=(advanced['suppliers'] as List? ?? []).map((e)=>SupplierRecord.fromJson(Map<String,dynamic>.from(e))).toList(); purchases=(advanced['purchases'] as List? ?? []).map((e)=>PurchaseRecord.fromJson(Map<String,dynamic>.from(e))).toList(); customers=(advanced['customers'] as List? ?? []).map((e)=>CustomerRecord.fromJson(Map<String,dynamic>.from(e))).toList(); reservations=(advanced['reservations'] as List? ?? []).map((e)=>ReservationRecord.fromJson(Map<String,dynamic>.from(e))).toList(); productBarcodes=Map<String,String>.from(advanced['barcodes'] as Map? ?? {}); currentUser='Admin'; recoveryRequired=false; if(needsTimestampMigration){await _repository.write(_snapshot());} } catch (_) { await _repository.backupCorrupt(raw); recoveryRequired=true; } }
 
   String _snapshot() => jsonEncode({
+    'timestampFormatVersion': 2,
     'products': products.map((e) => e.toJson()).toList(),
     'tables': tables.map((e) => e.toJson()).toList(),
     'sales': sales.map((e) => e.toJson()).toList(),
@@ -348,7 +388,7 @@ class Pos extends ChangeNotifier {
     });
     notifyListeners();
   }
-  void log(String action,String detail){audit.insert(0,Audit(stamp(azNow()),currentUser,action,detail)); if(audit.length>2000)audit.removeRange(2000,audit.length);}
+  void log(String action,String detail){audit.insert(0,Audit(stamp(azWallTime(azNow())),currentUser,action,detail)); if(audit.length>2000)audit.removeRange(2000,audit.length);}
   Staff? get _activeStaff {
     for (final member in staff) {
       if (member.name == currentUser && member.active) return member;
@@ -381,7 +421,7 @@ class Pos extends ChangeNotifier {
     return true;
   }
   bool loginAsWaiter(Staff member) => member.role == 'Garson' && loginAsStaff(member);
-  int get todayTotal=>sales.where((s)=>s.date==dayKey(azNow())).fold(0,(a,s)=>a+s.total); int get todayCount=>sales.where((s)=>s.date==dayKey(azNow())).length;
+  int get todayTotal=>sales.where((s)=>s.date==dayKey(azWallTime(azNow()))).fold(0,(a,s)=>a+s.total); int get todayCount=>sales.where((s)=>s.date==dayKey(azWallTime(azNow()))).length;
   int reservedStock(String productId) => tables.fold(0, (sum, table) =>
       sum + table.items.where((line) => line.productId == productId).fold(0, (n, line) => n + line.qty));
   int reservedIngredientStock(String ingredientId) {
@@ -456,7 +496,7 @@ class Pos extends ChangeNotifier {
     item.costPrice = ((previousValue + quantity * unitCost) / item.stock).round();
     purchases.add(PurchaseRecord(id: DateTime.now().microsecondsSinceEpoch.toString(),
       supplierId: supplier.first.id, supplierName: supplier.first.name, productId: item.id,
-      productName: item.name, quantity: quantity, unitCost: unitCost, at: stamp(azNow())));
+      productName: item.name, quantity: quantity, unitCost: unitCost, at: azNow().toIso8601String()));
     log('Mal alımı', '${supplier.first.name}: ${item.name} × $quantity'); save(); return true;
   }
   bool addCustomer(CustomerRecord customer) {
@@ -468,7 +508,7 @@ class Pos extends ChangeNotifier {
     if (!can('reports') || reservation.customerName.trim().isEmpty || reservation.guests < 1 ||
         reservation.tableId < 1 || reservation.tableId > kTableCount) return false;
     final when = DateTime.tryParse(reservation.dateTime);
-    if (when == null || when.isBefore(DateTime.now().subtract(const Duration(minutes: 5)))) return false;
+    if (when == null || when.isBefore(azNow().subtract(const Duration(minutes: 5)))) return false;
     final overlaps = reservations.any((item) {
       if (item.tableId != reservation.tableId || item.status == 'İptal' || item.status == 'Tamamlandı') return false;
       final existing = DateTime.tryParse(item.dateTime);
@@ -638,7 +678,7 @@ class Pos extends ChangeNotifier {
     save();
     return true;
   }
-  bool addExpense(int amount,String category,String note){if(!can('reports')||amount<=0||category.trim().isEmpty||note.trim().isEmpty)return false;expenses.add(Expense(id:DateTime.now().microsecondsSinceEpoch,amount:amount,category:category.trim(),note:note.trim(),date:dayKey(azNow())));log('Gider','${category.trim()} · ${money(amount)} · ${note.trim()}');save();return true;}
+  bool addExpense(int amount,String category,String note){if(!can('reports')||amount<=0||category.trim().isEmpty||note.trim().isEmpty)return false;expenses.add(Expense(id:DateTime.now().microsecondsSinceEpoch,amount:amount,category:category.trim(),note:note.trim(),date:dayKey(azWallTime(azNow()))));log('Gider','${category.trim()} · ${money(amount)} · ${note.trim()}');save();return true;}
   int costOfSale(Sale sale)=>sale.items.fold(0,(s,item)=>s+item.unitCost*item.qty);int get totalExpenses=>expenses.fold(0,(s,e)=>s+e.amount);int get totalCostOfSales=>sales.fold(0,(s,e)=>s+costOfSale(e));int get netProfit=>sales.fold(0,(s,e)=>s+e.total-costOfSale(e))-totalExpenses;
   String buildCsv(){String q(Object? v)=>'"${v.toString().replaceAll('"','""')}"';final b=StringBuffer('Tarih;Tür;Açıklama;Adet;Ciro/Gider;Maliyet\r\n');for(final sale in sales){b.writeln([q(sale.date),q('Satış'),q('Masa ${sale.table}'),q(sale.items.fold<int>(0,(int n,OrderLine x)=>n+x.qty)),q(sale.total/100),q(costOfSale(sale)/100)].join(';'));}for(final e in expenses){b.writeln([q(e.date),q('Gider'),q('${e.category}: ${e.note}'),q(1),q(e.amount/100),q(0)].join(';'));}return b.toString();}
   bool checkout(PosTable t, List<PaymentPart> payments, {String? staffName}) {
@@ -685,7 +725,7 @@ class Pos extends ChangeNotifier {
       final ingredient = ingredients.firstWhere((item) => item.id == entry.key);
       ingredient.stock -= entry.value;
     }
-    sales.add(Sale(dayKey(now), stamp(now), seller, t.id, total, t.subtotal-total,
+    sales.add(Sale(dayKey(azWallTime(now)), stamp(azWallTime(now)), seller, t.id, total, t.subtotal-total,
       t.items.map((e) { final product=products.firstWhere((p)=>p.id==e.productId); return OrderLine(e.productId,e.name,e.price,e.qty,unitCost:product.costPrice + recipeCost(product)); }).toList(), payments,
       registerSessionId: register?.id));
     log('Ödeme', 'Masa ${t.id}: ${money(total)}');
@@ -819,7 +859,7 @@ class TablesPage extends StatelessWidget {
           if(onLogout!=null) IconButton(tooltip:'Oturumu kapat',onPressed:onLogout,icon:const Icon(Icons.logout))]),
       body: Column(children: [
         Padding(padding: const EdgeInsets.all(12), child: Wrap(spacing: 16, children: [
-          Text('Tarih: ${stamp(azNow())}'),
+          Text('Tarih: ${stamp(azWallTime(azNow()))}'),
           if (pos.can('reports')) Text('Bugünkü ciro: ${money(pos.todayTotal)}',
             style: const TextStyle(fontWeight: FontWeight.bold)),
           if(pos.can('inventory')) Text('Düşük stok: ${pos.lowStock}'),
@@ -1391,14 +1431,14 @@ class ReportsPage extends StatelessWidget {
       ok ? 'Fiş yazdırma penceresi açıldı.' : 'Fiş hazırlanamadı. Yazıcı ve PDF desteğini kontrol edin.')));
   }
   Future<void> _addExpense(BuildContext context) async {final amount=TextEditingController(),category=TextEditingController(text:'Diğer'),note=TextEditingController();final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('İşletme gideri ekle'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Tutar (₼)')),TextField(controller:category,decoration:const InputDecoration(labelText:'Kategori')),TextField(controller:note,decoration:const InputDecoration(labelText:'Açıklama'))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Kaydet'))]));if(ok==true&&!pos.addExpense(parseMoney(amount.text),category.text,note.text)&&context.mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Gider kaydedilemedi.')));amount.dispose();category.dispose();note.dispose();}
-  Future<void> _exportCsv(BuildContext context) async {try{final dir=await getApplicationDocumentsDirectory();final file=File('${dir.path}/restoram-rapor-${dayKey(azNow())}.csv');await file.writeAsString(pos.buildCsv(),flush:true);if(context.mounted)showDialog<void>(context:context,builder:(c)=>AlertDialog(title:const Text('CSV raporu hazır'),content:SelectableText(file.path),actions:[TextButton(onPressed:()=>Navigator.pop(c),child:const Text('Kapat'))]));}catch(e){if(context.mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('CSV oluşturulamadı: $e')));}}
+  Future<void> _exportCsv(BuildContext context) async {try{final dir=await getApplicationDocumentsDirectory();final file=File('${dir.path}/restoram-rapor-${dayKey(azWallTime(azNow()))}.csv');await file.writeAsString(pos.buildCsv(),flush:true);if(context.mounted)showDialog<void>(context:context,builder:(c)=>AlertDialog(title:const Text('CSV raporu hazır'),content:SelectableText(file.path),actions:[TextButton(onPressed:()=>Navigator.pop(c),child:const Text('Kapat'))]));}catch(e){if(context.mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('CSV oluşturulamadı: $e')));}}
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: pos,
     builder: (context, _) {
-      final today = dayKey(azNow());
+      final today = dayKey(azWallTime(azNow()));
       final todaySales = pos.sales.where((sale) => sale.date == today).toList();
-      final weekStart = azNow().subtract(const Duration(days: 6));
+      final weekStart = azWallTime(azNow()).subtract(const Duration(days: 6));
       final weekSales = pos.sales.where((sale) {
         final date = DateTime.tryParse(sale.date);
         return date != null && !date.isBefore(DateTime(weekStart.year, weekStart.month, weekStart.day));
@@ -1411,7 +1451,7 @@ class ReportsPage extends StatelessWidget {
       final topProducts = productTotals.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
       final todayExpenses=pos.expenses.where((e)=>e.date==today).toList();
       final weekExpenses=pos.expenses.where((e){final d=DateTime.tryParse(e.date);return d!=null&&!d.isBefore(DateTime(weekStart.year,weekStart.month,weekStart.day));}).toList();
-      final monthStart=DateTime(azNow().year,azNow().month,1);
+      final bakuNow=azWallTime(azNow()); final monthStart=DateTime(bakuNow.year,bakuNow.month,1);
       final monthSales=pos.sales.where((s){final d=DateTime.tryParse(s.date);return d!=null&&!d.isBefore(monthStart);}).toList();
       final monthExpenses=pos.expenses.where((e){final d=DateTime.tryParse(e.date);return d!=null&&!d.isBefore(monthStart);}).toList();
       final salesByStaff = <String, List<Sale>>{};
@@ -1483,7 +1523,7 @@ class ReportsPage extends StatelessWidget {
           for (final shift in recentShifts)
             Card(child: ListTile(
               leading: Icon(shift.isOpen ? Icons.lock_open : Icons.lock),
-              title: Text('${stamp(DateTime.parse(shift.openedAt).toLocal())} · ${shift.isOpen ? 'Açık' : 'Kapalı'}'),
+              title: Text('${bakuTimestamp(shift.openedAt)} · ${shift.isOpen ? 'Açık' : 'Kapalı'}'),
               subtitle: Text('Açılış ${money(shift.openingCash)} · Beklenen ${money(shift.expectedCash ?? pos.expectedRegisterCash(shift))}'),
               trailing: shift.closingCash == null || shift.expectedCash == null
                 ? null : Text('Fark ${money(shift.closingCash! - shift.expectedCash!)}'),
@@ -2034,7 +2074,7 @@ class RegisterPage extends StatelessWidget {
               : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   const Text('KASA AÇIK',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                  Text('Açılış: ${stamp(DateTime.parse(session.openedAt).toLocal())}'),
+                  Text('Açılış: ${bakuTimestamp(session.openedAt)}'),
                   const Divider(),
                   _metric('Açılış nakdi', money(session.openingCash)),
                   _metric('Nakit satış', money(pos.cashSalesForSession(session.id))),
@@ -2061,7 +2101,7 @@ class RegisterPage extends StatelessWidget {
               ListTile(
                 leading: Icon(movement.type == 'Giriş' ? Icons.call_received : Icons.call_made),
                 title: Text('${movement.type}: ${money(movement.amount)}'),
-                subtitle: Text('${movement.note} · ${stamp(DateTime.parse(movement.at).toLocal())}')),
+                subtitle: Text('${movement.note} · ${bakuTimestamp(movement.at)}')),
           const Divider(),
           const Text('Önceki vardiyalar',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
@@ -2069,7 +2109,7 @@ class RegisterPage extends StatelessWidget {
             const ListTile(title: Text('Henüz vardiya kaydı yok.')),
           for (final item in sessions)
             Card(child: ExpansionTile(
-              title: Text('${stamp(DateTime.parse(item.openedAt).toLocal())} · ${item.isOpen ? 'Açıq' : 'Bağlı'}'),
+              title: Text('${bakuTimestamp(item.openedAt)} · ${item.isOpen ? 'Açıq' : 'Bağlı'}'),
               subtitle: Text('Açılış ${money(item.openingCash)} · Nakit satış ${money(pos.cashSalesForSession(item.id))}'),
               children: [
                 ListTile(title: const Text('Beklenen nakit'),
@@ -2160,19 +2200,19 @@ class _CustomersReservationsPageState extends State<CustomersReservationsPage> {
   }
   Future<void> _addReservation() async {
     final name=TextEditingController(),phone=TextEditingController(),guests=TextEditingController(text:'2'),note=TextEditingController();
-    int tableId=1; DateTime date=DateTime.now().add(const Duration(days:1)); TimeOfDay time=const TimeOfDay(hour:19,minute:0);
+    int tableId=1; DateTime date=azWallTime(azNow()).add(const Duration(days:1)); TimeOfDay time=const TimeOfDay(hour:19,minute:0);
     final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,set)=>AlertDialog(title:const Text('Masa rezervasyonu'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
       TextField(controller:name,decoration:const InputDecoration(labelText:'Müşteri adı')),
       TextField(controller:phone,keyboardType:TextInputType.phone,decoration:const InputDecoration(labelText:'Telefon')),
       DropdownButtonFormField<int>(initialValue:tableId,decoration:const InputDecoration(labelText:'Masa'),items:List.generate(kTableCount,(i)=>DropdownMenuItem(value:i+1,child:Text('Masa ${i+1}'))),onChanged:(v)=>set(()=>tableId=v??1)),
       TextField(controller:guests,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Kişi sayısı')),
-      ListTile(contentPadding:EdgeInsets.zero,title:Text('Tarih: ${dayKey(date)}'),trailing:TextButton(onPressed:()async{final picked=await showDatePicker(context:c,initialDate:date.isBefore(DateTime.now())?DateTime.now():date,firstDate:DateTime.now(),lastDate:DateTime.now().add(const Duration(days:365)));if(picked!=null)set(()=>date=picked);},child:const Text('Değiştir'))),
+      ListTile(contentPadding:EdgeInsets.zero,title:Text('Tarih: ${dayKey(date)}'),trailing:TextButton(onPressed:()async{final picked=await showDatePicker(context:c,initialDate:date.isBefore(azWallTime(azNow()))?azWallTime(azNow()):date,firstDate:azWallTime(azNow()),lastDate:azWallTime(azNow()).add(const Duration(days:365)));if(picked!=null)set(()=>date=picked);},child:const Text('Değiştir'))),
       ListTile(contentPadding:EdgeInsets.zero,title:Text('Saat: ${time.format(c)}'),trailing:TextButton(onPressed:()async{final picked=await showTimePicker(context:c,initialTime:time);if(picked!=null)set(()=>time=picked);},child:const Text('Değiştir'))),
       TextField(controller:note,decoration:const InputDecoration(labelText:'Not')),
     ])),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Rezervasyon oluştur'))])));
     if(ok==true) {
       final when=DateTime(date.year,date.month,date.day,time.hour,time.minute);
-      final saved=pos.addReservation(ReservationRecord(id:DateTime.now().microsecondsSinceEpoch.toString(),customerName:name.text.trim(),phone:phone.text.trim(),dateTime:when.toIso8601String(),tableId:tableId,guests:int.tryParse(guests.text)??0,note:note.text.trim()));
+      final saved=pos.addReservation(ReservationRecord(id:DateTime.now().microsecondsSinceEpoch.toString(),customerName:name.text.trim(),phone:phone.text.trim(),dateTime:bakuWallTimeToUtc(when).toIso8601String(),tableId:tableId,guests:int.tryParse(guests.text)??0,note:note.text.trim()));
       if(!saved&&mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Rezervasyon çakışıyor veya bilgiler geçersiz. Aynı masa için 2 saatlik aralık bırakın.')));
     }
     name.dispose();phone.dispose();guests.dispose();note.dispose();
@@ -2194,7 +2234,7 @@ class _CustomersReservationsPageState extends State<CustomersReservationsPage> {
 class AnalyticsPage extends StatelessWidget {
   const AnalyticsPage({super.key});
   @override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(context,_) {
-    final now=azNow(); final start=DateTime(now.year,now.month,now.day).subtract(const Duration(days:29));
+    final now=azWallTime(azNow()); final start=DateTime(now.year,now.month,now.day).subtract(const Duration(days:29));
     final sales=pos.sales.where((sale){final d=DateTime.tryParse(sale.date);return d!=null&&!d.isBefore(start);}).toList();
     final expenses=pos.expenses.where((expense){final d=DateTime.tryParse(expense.date);return d!=null&&!d.isBefore(start);}).toList();
     final revenue=sales.fold<int>(0,(a,x)=>a+x.total);
