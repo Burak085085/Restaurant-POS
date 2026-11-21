@@ -95,6 +95,8 @@ void main() {
     expect(store.sendKitchen(table), isTrue);
     final cash = PaymentPart('Nakit', 300, tendered: 500);
     expect(cash.change, 200);
+    expect(store.checkout(table, [cash]), isFalse);
+    expect(store.openRegister(1000), isTrue);
     expect(store.checkout(table, [cash]), isTrue);
     expect(product.stock, 1);
     expect(table.items, isEmpty);
@@ -247,6 +249,30 @@ void main() {
     expect(parseMoney('NaN'), 0);
     expect(parseMoney('Infinity'), 0);
   });
+  test('cash and mixed payments require an open register while card-only does not', () {
+    final store = Pos(repository: MemoryStoreRepository());
+    final product = Product('register-guard', 'Test', 'Test item', 300, stock: 5);
+    store.products = [product];
+
+    final cashTable = store.tables[0];
+    expect(store.add(cashTable, product), isTrue);
+    expect(store.sendKitchen(cashTable), isTrue);
+    expect(store.checkout(cashTable, [PaymentPart('Nakit', 300)]), isFalse);
+    expect(cashTable.items, hasLength(1));
+
+    final mixedTable = store.tables[1];
+    expect(store.add(mixedTable, product), isTrue);
+    expect(store.sendKitchen(mixedTable), isTrue);
+    expect(store.checkout(mixedTable, [
+      PaymentPart('Nakit', 100),
+      PaymentPart('Kart', 200),
+    ]), isFalse);
+    expect(mixedTable.items, hasLength(1));
+
+    expect(store.checkout(cashTable, [PaymentPart('Kart', 300)]), isTrue);
+    expect(store.sales.single.registerSessionId, isNull);
+  });
+
   test('checkout rejects invalid tender and unsupported payment methods', () {
     final store = Pos(repository: MemoryStoreRepository());
     final product = Product('pay-test', 'Test', 'Test item', 300, stock: 2);
