@@ -240,6 +240,7 @@ void main() {
   });
 
   test('PIN lockout state persists in SQLite app_meta', () async {
+    SharedPreferences.setMockInitialValues({});
     final directory = await Directory.systemTemp.createTemp('pos-pin-security-');
     final repository = SqliteStoreRepository(
       databasePath: '${directory.path}/restaurant-pos.sqlite3',
