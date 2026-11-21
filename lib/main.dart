@@ -2062,7 +2062,7 @@ class BarcodePage extends StatefulWidget {
 class _BarcodePageState extends State<BarcodePage> {
   final code=TextEditingController(); String? message; Product? found; int tableId=1; String? productId;
   @override void dispose(){code.dispose();super.dispose();}
-  void _scan(String value){final product=pos.productByBarcode(value);setState(()=>{found=product,message=product==null?'Barkod eşleşmesi bulunamadı.':'Bulundu: ${product.name} · ${money(product.price)}'});}
+  void _scan(String value){final product=pos.productByBarcode(value);setState(() { found=product; message=product==null?'Barkod eşleşmesi bulunamadı.':'Bulundu: ${product.name} · ${money(product.price)}'; });}
   Future<void> _assign() async {
     if(productId==null)return;
     final product=pos.products.firstWhere((p)=>p.id==productId);
