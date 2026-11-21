@@ -175,19 +175,52 @@ class Sale { String date,time,staff; int table,total,discount; List<OrderLine> i
 class Expense { final int id,amount; final String date,category,note; Expense({required this.id,required this.amount,required this.date,required this.category,required this.note}); Map<String,dynamic> toJson()=>{'id':id,'amount':amount,'date':date,'category':category,'note':note}; factory Expense.fromJson(Map<String,dynamic> j)=>Expense(id:j['id']??0,amount:j['amount']??0,date:j['date']??'',category:j['category']??'Diğer',note:j['note']??''); }
 class StockMovement { final int id,quantity,beforeStock,afterStock,productCost; final String productId,productName,type,at,note; StockMovement({required this.id,required this.productId,required this.productName,required this.type,required this.quantity,required this.beforeStock,required this.afterStock,required this.productCost,required this.at,required this.note}); Map<String,dynamic> toJson()=>{'id':id,'productId':productId,'productName':productName,'type':type,'quantity':quantity,'beforeStock':beforeStock,'afterStock':afterStock,'productCost':productCost,'at':at,'note':note}; factory StockMovement.fromJson(Map<String,dynamic> j)=>StockMovement(id:j['id']??0,productId:j['productId']??'',productName:j['productName']??'',type:j['type']??'',quantity:j['quantity']??0,beforeStock:j['beforeStock']??0,afterStock:j['afterStock']??0,productCost:j['productCost']??0,at:j['at']??'',note:j['note']??''); }
 class Staff {
+  static const int _pinIterations = 120000;
+  static const String _pinPrefix = 'pbkdf2-sha256\$$_pinIterations\$';
   String name, role, salt, pinHash;
   bool active, pinRequired;
   Staff(this.name, this.role, {String pin='1234', String? salt, String? pinHash, this.active=true, bool? pinRequired})
       : pinRequired = pinRequired ?? true,
         salt = salt ?? _newPinSalt(),
         pinHash = pinHash ?? '' {
-    if (pinHash == null) this.pinHash = _hashPin(this.salt, pin);
+    if (pinHash == null) this.pinHash = _derivePinHash(this.salt, pin);
   }
   Staff._(this.name, this.role, this.salt, this.pinHash, this.active, this.pinRequired);
   static String _newPinSalt() { final random=math.Random.secure(); return List.generate(32, (_) => random.nextInt(256).toRadixString(16).padLeft(2,'0')).join(); }
-  static String _hashPin(String salt, String pin) => sha256.convert(utf8.encode('$salt:$pin')).toString();
-  void setPin(String pin) { salt=_newPinSalt(); pinHash=_hashPin(salt,pin); pinRequired=true; }
-  bool verifyPin(String candidate) => pinRequired && pinHash == _hashPin(salt, candidate);
+  static String _legacyHash(String salt, String pin) => sha256.convert(utf8.encode('$salt:$pin')).toString();
+  static String _derivePinHash(String salt, String pin) {
+    final hmac = Hmac(sha256, utf8.encode(pin));
+    final saltBytes = utf8.encode(salt);
+    var u = hmac.convert([...saltBytes, 0, 0, 0, 1]).bytes;
+    final output = List<int>.from(u);
+    for (var round = 1; round < _pinIterations; round++) {
+      u = hmac.convert(u).bytes;
+      for (var i = 0; i < output.length; i++) {
+        output[i] ^= u[i];
+      }
+    }
+    return '$_pinPrefix${output.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join()}';
+  }
+  static bool _constantTimeEquals(String a, String b) {
+    if (a.length != b.length) return false;
+    var difference = 0;
+    for (var i = 0; i < a.length; i++) {
+      difference |= a.codeUnitAt(i) ^ b.codeUnitAt(i);
+    }
+    return difference == 0;
+  }
+  void setPin(String pin) { salt=_newPinSalt(); pinHash=_derivePinHash(salt,pin); pinRequired=true; }
+  bool verifyPin(String candidate) {
+    if (!pinRequired) return false;
+    if (pinHash.startsWith(_pinPrefix)) {
+      return _constantTimeEquals(pinHash, _derivePinHash(salt, candidate));
+    }
+    if (_constantTimeEquals(pinHash, _legacyHash(salt, candidate))) {
+      setPin(candidate);
+      return true;
+    }
+    return false;
+  }
   Map<String,dynamic> toJson()=>{'name':name,'role':role,'salt':salt,'pinHash':pinHash,'pinRequired':pinRequired,'active':active};
   factory Staff.fromJson(Map<String,dynamic> j) {
     final name = j['name'] ?? 'Personel';
@@ -205,9 +238,9 @@ class Audit { String at,user,action,detail; Audit(this.at,this.user,this.action,
 class Pos extends ChangeNotifier {
   List<Product> products=[Product('p1','Dönerler','Tavuk döner',300),Product('p2','Dönerler','Dana döner',500),Product('p3','Dönerler','Dürüm döner',400),Product('p4','Dönerler','Porsiyon döner',700),Product('p5','İçecekler','Kola',200),Product('p6','İçecekler','Fanta',200),Product('p7','İçecekler','Ayran',100),Product('p8','İçecekler','Su',50),Product('p9','Ekstra','Patates',200),Product('p10','Ekstra','Ketçap',50),Product('p11','Ekstra','Mayonez',50)];
   List<PosTable> tables=List.generate(kTableCount,(i)=>PosTable(i+1)); List<Sale> sales=[]; List<RegisterSession> registerSessions=[]; List<CashMovement> cashMovements=[]; List<Expense> expenses=[]; List<StockMovement> stockMovements=[]; List<Ingredient> ingredients=[]; Map<String,List<RecipeLine>> recipes={}; List<Staff> staff=[Staff('Admin','Yönetici')]; List<Audit> audit=[]; List<KitchenNotice> kitchenNotices=[]; String currentUser='Admin';
-  List<SupplierRecord> suppliers=[]; List<PurchaseRecord> purchases=[]; List<CustomerRecord> customers=[]; List<ReservationRecord> reservations=[]; Map<String,String> productBarcodes={}; bool recoveryRequired=false; final StoreRepository _repository; Future<void> _queue=Future.value();
+  List<SupplierRecord> suppliers=[]; List<PurchaseRecord> purchases=[]; List<CustomerRecord> customers=[]; List<ReservationRecord> reservations=[]; Map<String,String> productBarcodes={}; Map<String,Map<String,dynamic>> pinSecurity={}; bool recoveryRequired=false; final StoreRepository _repository; Future<void> _queue=Future.value();
   Pos({StoreRepository? repository}) : _repository = repository ?? SqliteStoreRepository();
-  Future<void> load() async { final raw=await _repository.read(); if(raw==null)return; try { final j=jsonDecode(raw) as Map<String,dynamic>; final needsTimestampMigration=(j['timestampFormatVersion'] as num?)?.toInt()!=2; if(needsTimestampMigration)_migrateLegacyTimestamps(j); products=(j['products'] as List? ?? []).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList(); tables=List.generate(kTableCount,(i)=>PosTable(i+1)); for(final x in (j['tables'] as List? ?? [])){final m=Map<String,dynamic>.from(x); final id=m['id'] as int; if(id<1||id>kTableCount)continue; final t=tables[id-1]; t.items=(m['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(); t.kitchen=KitchenState.values[(m['kitchen']??0).clamp(0,3).toInt()]; final rawItems=(m['items'] as List? ?? []); for(var lineIndex=0;lineIndex<t.items.length;lineIndex++){final rawLine=Map<String,dynamic>.from(rawItems[lineIndex]);if(!rawLine.containsKey('kitchen'))t.items[lineIndex].kitchen=t.kitchen;} t.discount=m['discount']??0;t.discountPercent=m['discountPercent']??false;t.discountReason=m['discountReason']??'';} sales=(j['sales'] as List? ?? []).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList(); expenses=(j['expenses'] as List? ?? []).map((e)=>Expense.fromJson(Map<String,dynamic>.from(e))).toList(); stockMovements=(j['stockMovements'] as List? ?? []).map((e)=>StockMovement.fromJson(Map<String,dynamic>.from(e))).toList(); ingredients=(j['ingredients'] as List? ?? []).map((e)=>Ingredient.fromJson(Map<String,dynamic>.from(e))).toList(); recipes=(j['recipes'] as Map? ?? {}).map((key,value)=>MapEntry(key.toString(),(value as List).map((e)=>RecipeLine.fromJson(Map<String,dynamic>.from(e))).toList())); registerSessions=(j['registerSessions'] as List? ?? []).map((e)=>RegisterSession.fromJson(Map<String,dynamic>.from(e))).toList(); cashMovements=(j['cashMovements'] as List? ?? []).map((e)=>CashMovement.fromJson(Map<String,dynamic>.from(e))).toList(); final legacyStaff=(j['staff'] as List? ?? []).map((e)=>Staff.fromJson(Map<String,dynamic>.from(e))).toList(); final admins=legacyStaff.where((member)=>member.name=='Admin').toList(); final admin=admins.isNotEmpty ? admins.first : Staff('Admin','Yönetici'); admin.active=true; final names=<String>{'admin'}; staff=[admin,...legacyStaff.where((member)=>member.name!='Admin'&&member.name.trim().isNotEmpty&&names.add(member.name.trim().toLowerCase()))]; audit=(j['audit'] as List? ?? []).map((e)=>Audit.fromJson(Map<String,dynamic>.from(e))).toList(); kitchenNotices=(j['kitchenNotices'] as List? ?? []).map((e)=>KitchenNotice.fromJson(Map<String,dynamic>.from(e))).toList(); final advanced=Map<String,dynamic>.from(j['advanced'] as Map? ?? {}); suppliers=(advanced['suppliers'] as List? ?? []).map((e)=>SupplierRecord.fromJson(Map<String,dynamic>.from(e))).toList(); purchases=(advanced['purchases'] as List? ?? []).map((e)=>PurchaseRecord.fromJson(Map<String,dynamic>.from(e))).toList(); customers=(advanced['customers'] as List? ?? []).map((e)=>CustomerRecord.fromJson(Map<String,dynamic>.from(e))).toList(); reservations=(advanced['reservations'] as List? ?? []).map((e)=>ReservationRecord.fromJson(Map<String,dynamic>.from(e))).toList(); productBarcodes=Map<String,String>.from(advanced['barcodes'] as Map? ?? {}); currentUser='Admin'; recoveryRequired=false; if(needsTimestampMigration){await _repository.write(_snapshot());} } catch (_) { await _repository.backupCorrupt(raw); recoveryRequired=true; } }
+  Future<void> load() async { final raw=await _repository.read(); if(raw==null)return; try { final j=jsonDecode(raw) as Map<String,dynamic>; final needsTimestampMigration=(j['timestampFormatVersion'] as num?)?.toInt()!=2; if(needsTimestampMigration)_migrateLegacyTimestamps(j); pinSecurity=(j['pinSecurity'] as Map? ?? {}).map((key,value)=>MapEntry(key.toString(),Map<String,dynamic>.from(value as Map))); products=(j['products'] as List? ?? []).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList(); tables=List.generate(kTableCount,(i)=>PosTable(i+1)); for(final x in (j['tables'] as List? ?? [])){final m=Map<String,dynamic>.from(x); final id=m['id'] as int; if(id<1||id>kTableCount)continue; final t=tables[id-1]; t.items=(m['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(); t.kitchen=KitchenState.values[(m['kitchen']??0).clamp(0,3).toInt()]; final rawItems=(m['items'] as List? ?? []); for(var lineIndex=0;lineIndex<t.items.length;lineIndex++){final rawLine=Map<String,dynamic>.from(rawItems[lineIndex]);if(!rawLine.containsKey('kitchen'))t.items[lineIndex].kitchen=t.kitchen;} t.discount=m['discount']??0;t.discountPercent=m['discountPercent']??false;t.discountReason=m['discountReason']??'';} sales=(j['sales'] as List? ?? []).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList(); expenses=(j['expenses'] as List? ?? []).map((e)=>Expense.fromJson(Map<String,dynamic>.from(e))).toList(); stockMovements=(j['stockMovements'] as List? ?? []).map((e)=>StockMovement.fromJson(Map<String,dynamic>.from(e))).toList(); ingredients=(j['ingredients'] as List? ?? []).map((e)=>Ingredient.fromJson(Map<String,dynamic>.from(e))).toList(); recipes=(j['recipes'] as Map? ?? {}).map((key,value)=>MapEntry(key.toString(),(value as List).map((e)=>RecipeLine.fromJson(Map<String,dynamic>.from(e))).toList())); registerSessions=(j['registerSessions'] as List? ?? []).map((e)=>RegisterSession.fromJson(Map<String,dynamic>.from(e))).toList(); cashMovements=(j['cashMovements'] as List? ?? []).map((e)=>CashMovement.fromJson(Map<String,dynamic>.from(e))).toList(); final legacyStaff=(j['staff'] as List? ?? []).map((e)=>Staff.fromJson(Map<String,dynamic>.from(e))).toList(); final admins=legacyStaff.where((member)=>member.name=='Admin').toList(); final admin=admins.isNotEmpty ? admins.first : Staff('Admin','Yönetici'); admin.active=true; final names=<String>{'admin'}; staff=[admin,...legacyStaff.where((member)=>member.name!='Admin'&&member.name.trim().isNotEmpty&&names.add(member.name.trim().toLowerCase()))]; audit=(j['audit'] as List? ?? []).map((e)=>Audit.fromJson(Map<String,dynamic>.from(e))).toList(); kitchenNotices=(j['kitchenNotices'] as List? ?? []).map((e)=>KitchenNotice.fromJson(Map<String,dynamic>.from(e))).toList(); final advanced=Map<String,dynamic>.from(j['advanced'] as Map? ?? {}); suppliers=(advanced['suppliers'] as List? ?? []).map((e)=>SupplierRecord.fromJson(Map<String,dynamic>.from(e))).toList(); purchases=(advanced['purchases'] as List? ?? []).map((e)=>PurchaseRecord.fromJson(Map<String,dynamic>.from(e))).toList(); customers=(advanced['customers'] as List? ?? []).map((e)=>CustomerRecord.fromJson(Map<String,dynamic>.from(e))).toList(); reservations=(advanced['reservations'] as List? ?? []).map((e)=>ReservationRecord.fromJson(Map<String,dynamic>.from(e))).toList(); productBarcodes=Map<String,String>.from(advanced['barcodes'] as Map? ?? {}); currentUser='Admin'; recoveryRequired=false; if(needsTimestampMigration){await _repository.write(_snapshot());} } catch (_) { await _repository.backupCorrupt(raw); recoveryRequired=true; } }
 
   String _snapshot() => jsonEncode({
     'timestampFormatVersion': 2,
@@ -221,6 +254,7 @@ class Pos extends ChangeNotifier {
     'registerSessions': registerSessions.map((e) => e.toJson()).toList(),
     'cashMovements': cashMovements.map((e) => e.toJson()).toList(),
     'staff': staff.map((e) => e.toJson()).toList(),
+    'pinSecurity': pinSecurity,
     'audit': audit.map((e) => e.toJson()).toList(),
     'kitchenNotices': kitchenNotices.map((e) => e.toJson()).toList(),
     'currentUser': currentUser,
@@ -408,8 +442,41 @@ class Pos extends ChangeNotifier {
   bool get isCashier => _activeStaff?.role == 'Kasiyer';
   bool get isKitchenStaff => _activeStaff?.role == 'Mutfak';
   bool get isAdmin => currentUser == 'Admin' && staff.any((member) => member.name == 'Admin' && member.active);
-  bool verifyAdminPin(String pin) => staff.any((member) => member.name == 'Admin' && member.active && member.verifyPin(pin));
-  bool verifySupervisorPin(String pin) => verifyAdminPin(pin) || staff.any((member) => member.active && member.role == 'Kasiyer' && member.verifyPin(pin));
+  int pinLockRemainingSeconds(String scope) {
+    final state=pinSecurity[scope]; final raw=state?['lockedUntil']?.toString();
+    if(raw==null)return 0; final until=DateTime.tryParse(raw)?.toUtc();
+    if(until==null)return 0; final seconds=until.difference(DateTime.now().toUtc()).inSeconds;
+    return seconds>0?seconds+1:0;
+  }
+  int pinLockRemainingForStaff(Staff member)=>pinLockRemainingSeconds('staff:${member.name}');
+  bool _verifyPinAttempt(String scope,List<Staff> candidates,String candidate) {
+    if(pinLockRemainingSeconds(scope)>0)return false;
+    Staff? matched;
+    for(final member in candidates){if(member.active&&member.verifyPin(candidate)){matched=member;break;}}
+    if(matched!=null){pinSecurity.remove(scope);log('Güvenlik','${matched.name} için PIN doğrulaması başarılı');save();return true;}
+    final state=Map<String,dynamic>.from(pinSecurity[scope]??const {});
+    final attempts=((state['failedAttempts'] as num?)?.toInt()??0)+1;
+    final lockouts=(state['lockouts'] as num?)?.toInt()??0;
+    if(attempts>=5){
+      final nextLockouts=lockouts+1; final seconds=nextLockouts==1?30:nextLockouts==2?60:300;
+      state['failedAttempts']=0;state['lockouts']=nextLockouts;
+      state['lockedUntil']=DateTime.now().toUtc().add(Duration(seconds:seconds)).toIso8601String();
+      log('Güvenlik','PIN denemeleri nedeniyle ${scope} kilitlendi: ${seconds} saniye');
+    }else{
+      state['failedAttempts']=attempts;state['lockouts']=lockouts;
+      log('Güvenlik','Başarısız PIN denemesi (${attempts}/5) · ${scope}');
+    }
+    pinSecurity[scope]=state;save();return false;
+  }
+  bool verifyStaffPin(Staff member,String pin)=>staff.contains(member)&&member.pinRequired&&_verifyPinAttempt('staff:${member.name}',[member],pin);
+  bool verifyAdminPin(String pin) {
+    final admins=staff.where((member)=>member.name=='Admin'&&member.active).toList();
+    return _verifyPinAttempt('admin',admins,pin);
+  }
+  bool verifySupervisorPin(String pin) {
+    final supervisors=staff.where((member)=>member.active&&(member.name=='Admin'||member.role=='Kasiyer')).toList();
+    return _verifyPinAttempt('supervisor',supervisors,pin);
+  }
   bool can(String permission) {
     if (isAdmin) return true;
     if (isWaiter) return permission == 'orders';
@@ -422,7 +489,7 @@ class Pos extends ChangeNotifier {
         !['Garson', 'Kasiyer', 'Mutfak'].contains(member.role)) return false;
     if (member.role == 'Garson') {
       if (member.pinRequired) return false;
-    } else if (!member.pinRequired || pin == null || !member.verifyPin(pin)) {
+    } else if (!member.pinRequired || pin == null || !verifyStaffPin(member,pin)) {
       return false;
     }
     currentUser = member.name;
@@ -1146,8 +1213,8 @@ class _PaymentDialogState extends State<PaymentDialog> {
       TextButton(onPressed: () => Navigator.pop(context), child: const Text('İptal')),
       FilledButton(
         onPressed: remaining == 0 && selectedStaff != null &&
-          (!selectedStaff!.pinRequired || selectedStaff!.verifyPin(staffPin.text.trim()))
-          ? () => Navigator.pop(context, PaymentResult(List<PaymentPart>.from(parts), staffName!)) : null,
+          (!selectedStaff!.pinRequired || staffPin.text.trim().length == 4)
+          ? () { if(selectedStaff!.pinRequired && !pos.verifyStaffPin(selectedStaff!,staffPin.text.trim())) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Personel PIN hatalı veya geçici olarak kilitli.'))); return; } Navigator.pop(context, PaymentResult(List<PaymentPart>.from(parts), staffName!)); } : null,
         child: const Text('Ödemeyi tamamla'),
       ),
     ],
@@ -1703,8 +1770,8 @@ class AdminPage extends StatelessWidget {
     if (ok == true) {
       final admin = pos.staff.firstWhere((member) => member.name == 'Admin');
       final value = newPin.text.trim();
-      final valid = admin.verifyPin(oldPin.text.trim()) && RegExp(r'^[0-9]{4}$').hasMatch(value) && value != '1234' && value == confirmPin.text.trim();
-      if (valid) { admin.setPin(value); pos.log('Güvenlik', 'Yönetici PIN kodu değiştirildi'); pos.save(); }
+      final valid = pos.verifyAdminPin(oldPin.text.trim()) && RegExp(r'^[0-9]{4}$').hasMatch(value) && value != '1234' && value == confirmPin.text.trim();
+      if (valid) { admin.setPin(value); pos.pinSecurity.remove('admin'); pos.log('Güvenlik', 'Yönetici PIN kodu değiştirildi'); pos.save(); }
       else if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Mevcut PIN yanlış veya yeni PIN geçersiz.')));
     }
     oldPin.dispose(); newPin.dispose(); confirmPin.dispose();
@@ -2011,10 +2078,10 @@ class _PinGateState extends State<PinGate> {
     if (!RegExp(r'^[0-9]{4}$').hasMatch(value) || (setupRequired && value == '1234')) { setState(() => error = '4 rakamlı, varsayılan olmayan bir PIN girin.'); return; }
     if (setupRequired) {
       if (value != confirm.text.trim()) { setState(() => error = 'PIN kodları eşleşmiyor.'); return; }
-      failedAttempts=0; admin.setPin(value); pos.currentUser = admin.name; pos.log('Güvenlik', 'Yönetici PIN kodu oluşturuldu'); pos.save(); widget.onAuthenticated(); return;
+      failedAttempts=0; admin.setPin(value); pos.pinSecurity.remove('admin'); pos.currentUser = admin.name; pos.log('Güvenlik', 'Yönetici PIN kodu oluşturuldu'); pos.save(); widget.onAuthenticated(); return;
     }
-    if (admin.verifyPin(value)) { failedAttempts=0; pos.currentUser = admin.name; widget.onAuthenticated(); }
-    else { failedAttempts++; if(failedAttempts>=5){lockedUntil=DateTime.now().add(const Duration(seconds:30));failedAttempts=0;} setState(() => error = lockedUntil!=null ? 'Çok fazla hatalı deneme. 30 saniye bekleyin.' : 'PIN hatalı.'); pin.clear(); }
+    if (pos.verifyAdminPin(value)) { failedAttempts=0; pos.currentUser = admin.name; widget.onAuthenticated(); }
+    else { final remaining=pos.pinLockRemainingSeconds('admin'); setState(() => error = remaining>0 ? 'Çok fazla hatalı deneme. ${remaining} saniye bekleyin.' : 'PIN hatalı.'); pin.clear(); }
   }
   @override Widget build(BuildContext context) => Scaffold(
     backgroundColor: ink,
