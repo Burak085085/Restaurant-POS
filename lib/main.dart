@@ -414,6 +414,7 @@ class Pos extends ChangeNotifier {
       'registerSessions': registerSessions.map((e) => e.toJson()).toList(),
       'cashMovements': cashMovements.map((e) => e.toJson()).toList(),
       'staff': staff.map((e) => e.toJson()).toList(),
+      'pinSecurity': pinSecurity,
       'audit': audit.map((e) => e.toJson()).toList(),
       'kitchenNotices': kitchenNotices.map((e) => e.toJson()).toList(),
       'currentUser': currentUser,
