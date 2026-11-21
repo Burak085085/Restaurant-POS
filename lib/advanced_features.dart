@@ -87,7 +87,7 @@ class ReceiptPrinter {
           pw.Divider(),
           pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
             pw.Text('YEKUN', style: const pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-            pw.Text('${(sale.total / 100).toStringAsFixed(2)} AZN', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+            pw.Text('${(sale.total / 100).toStringAsFixed(2)} AZN', style: const pw.TextStyle(fontWeight: pw.FontWeight.bold)),
           ]),
           pw.SizedBox(height: 6),
           for (final payment in sale.payments)
