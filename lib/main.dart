@@ -317,7 +317,8 @@ class Pos extends ChangeNotifier {
     return false;
   }
   bool loginAsStaff(Staff member, {String? pin}) {
-    if (!staff.contains(member) || !member.active || member.role == 'Yönetici') return false;
+    if (!staff.contains(member) || !member.active ||
+        !['Garson', 'Kasiyer', 'Mutfak'].contains(member.role)) return false;
     if (member.role == 'Garson') {
       if (member.pinRequired) return false;
     } else if (!member.pinRequired || pin == null || !member.verifyPin(pin)) {
