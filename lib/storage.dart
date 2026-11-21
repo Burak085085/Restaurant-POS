@@ -548,6 +548,5 @@ class MemoryStoreRepository implements StoreRepository {
   @override
   Future<void> backupCorrupt(String payload) async {
     corruptBackup = payload;
-    value = null;
   }
 }
