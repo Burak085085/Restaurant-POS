@@ -12,6 +12,12 @@ void main() {
     expect(money(0), '0,00 ₼');
     expect(money(5), '0,05 ₼');
     expect(money(1250), '12,50 ₼');
+    expect(money(-1), '-0,01 ₼');
+    expect(money(-30), '-0,30 ₼');
+    expect(money(-99), '-0,99 ₼');
+    expect(money(-100), '-1,00 ₼');
+    expect(money(-120), '-1,20 ₼');
+    expect(money(-250), '-2,50 ₼');
   });
 
   test('money parser converts comma decimals to qəpik', () {
