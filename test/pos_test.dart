@@ -7,7 +7,53 @@ import 'package:restaurant_pos/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-void main() {\n  test('Baku timestamps store UTC instants and display fixed UTC+4 wall time', () {
+void main() {\n  test('legacy Baku timestamps migrate once to UTC instants without shifting displayed time', () async {
+    final legacy = jsonEncode({
+      'products': [],
+      'tables': [],
+      'sales': [],
+      'expenses': [],
+      'stockMovements': [
+        {'id': 1, 'productId': 'p', 'productName': 'P', 'type': 'Giriş',
+          'quantity': 1, 'beforeStock': 0, 'afterStock': 1, 'productCost': 0,
+          'at': '2026-11-21T19:00:00.000Z', 'note': 'legacy'},
+      ],
+      'ingredients': [],
+      'recipes': {},
+      'registerSessions': [
+        {'id': 1, 'openedAt': '2026-11-21T19:00:00.000Z',
+          'openingCash': 0, 'closedAt': '2026-11-21T20:00:00.000Z'},
+      ],
+      'cashMovements': [],
+      'staff': [{'name': 'Admin', 'role': 'Yönetici', 'pin': '1234'}],
+      'audit': [],
+      'advanced': {
+        'suppliers': [],
+        'purchases': [],
+        'customers': [],
+        'reservations': [
+          {'id': 'r1', 'customerName': 'Test', 'phone': '',
+            'dateTime': '2026-11-22T19:00:00', 'tableId': 1,
+            'guests': 2, 'note': '', 'status': 'Bekliyor'},
+        ],
+        'barcodes': {},
+      },
+    });
+    final repository = MemoryStoreRepository(value: legacy);
+    final store = Pos(repository: repository);
+    await store.load();
+    expect(store.recoveryRequired, isFalse);
+    expect(store.stockMovements.single.at, '2026-11-21T15:00:00.000Z');
+    expect(store.registerSessions.single.openedAt, '2026-11-21T15:00:00.000Z');
+    expect(store.registerSessions.single.closedAt, '2026-11-21T16:00:00.000Z');
+    expect(bakuTimestamp(store.reservations.single.dateTime), '22.11.2026 19:00');
+    final migrated = jsonDecode(repository.value!) as Map<String, dynamic>;
+    expect(migrated['timestampFormatVersion'], 2);
+    await store.load();
+    expect(store.stockMovements.single.at, '2026-11-21T15:00:00.000Z');
+  });
+
+\n  test('Baku timestamps store UTC instants and display fixed UTC+4 wall time', () {
     final wallTime = DateTime.utc(2026, 11, 21, 19, 30);
     final instant = bakuWallTimeToUtc(wallTime);
     expect(instant, DateTime.utc(2026, 11, 21, 15, 30));
