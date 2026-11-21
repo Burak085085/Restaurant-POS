@@ -131,16 +131,16 @@ void main() {
 
     test('reservation rejects overlapping booking for the same table', () {
       final pos = Pos(repository: MemoryStoreRepository());
-      final firstTime = DateTime.now().add(const Duration(days: 2));
+      final firstTime = azWallTime(azNow()).add(const Duration(days: 2));
       final first = ReservationRecord(id: 'r1', customerName: 'Ali', phone: '0500000000',
-        dateTime: firstTime.toIso8601String(), tableId: 4, guests: 3);
+        dateTime: bakuWallTimeToUtc(firstTime).toIso8601String(), tableId: 4, guests: 3);
       expect(pos.addReservation(first), isTrue);
       final overlap = ReservationRecord(id: 'r2', customerName: 'Veli', phone: '0500000001',
-        dateTime: firstTime.add(const Duration(minutes: 90)).toIso8601String(),
+        dateTime: bakuWallTimeToUtc(firstTime.add(const Duration(minutes: 90))).toIso8601String(),
         tableId: 4, guests: 2);
       expect(pos.addReservation(overlap), isFalse);
       final otherTable = ReservationRecord(id: 'r3', customerName: 'Veli', phone: '0500000001',
-        dateTime: firstTime.add(const Duration(minutes: 90)).toIso8601String(),
+        dateTime: bakuWallTimeToUtc(firstTime.add(const Duration(minutes: 90))).toIso8601String(),
         tableId: 5, guests: 2);
       expect(pos.addReservation(otherTable), isTrue);
     });
