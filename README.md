@@ -10,16 +10,17 @@ Offline-first Flutter point-of-sale application for **Android and Windows**.
 - Cash register shifts with opening float, cash-in/cash-out reasons, sales linked to the active shift, expected cash and closing reconciliation.
 - Fixed and percentage discounts with required reason and audit history.
 - Daily cash/card totals, 7-day revenue, best-selling products and transaction history.
-- Single administrator account with salted PIN hash, PIN change and failed-attempt lockout.
+- Administrator access protected by a salted PIN hash, PIN changes and failed-attempt lockout.
+- Staff roster with role-based permissions; active waiters can enter without a PIN and are restricted to order entry.
 - Azerbaijani manat (AZN) with qəpik precision and Azerbaijan UTC+4 business dates.
 
 ## Storage, migration and backups
 
-- Primary storage is normalized SQLite tables: `products`, `pos_tables`, `order_lines`, `sales`, `sale_items`, `payments`, `register_sessions`, `cash_movements`, `staff`, `audit` and `app_meta`.
+- Primary storage is normalized SQLite tables: `products`, `pos_tables`, `order_lines`, `sales`, `sale_items`, `payments`, `register_sessions`, `cash_movements`, `staff`, `expenses`, `stock_movements`, `audit` and `app_meta`. Ingredient and recipe definitions are stored as JSON values in `app_meta`.
 - Order lines, sale items and payments use foreign keys and explicit positions so item and transaction order survives reloads.
 - State writes replace the normalized records inside one database transaction. SQLite uses WAL journaling, `synchronous=FULL` and foreign-key enforcement.
 - Existing version-1 `app_state` JSON and `restaurant_pos_v2` SharedPreferences data remain readable. They are converted to normalized records on the first successful save; the old SharedPreferences key is removed only after the SQLite transaction commits.
-- The database is upgraded to schema version 3 without discarding the previous JSON payload. Version 3 adds cash-register sessions and cash movements; historical sales remain valid with no assigned shift.
+- The database uses schema version 4. Version 3 adds cash-register sessions and cash movements; version 4 adds product cost, sale-item cost snapshots, expenses and stock movement history. Historical sales remain valid with no assigned shift.
 - A daily JSON snapshot is written under the app documents directory in `backups/`. The seven most recent daily backups are retained.
 - Corrupt legacy JSON is preserved as a separate recovery file before the app starts with safe defaults.
 - Android and Windows devices keep separate local databases. This is not cloud synchronization.
@@ -38,7 +39,7 @@ On Windows, enable desktop support and run `flutter build windows --release`. Gi
 
 ## Security notes
 
-The app is deliberately restricted to one administrator account. Staff switching and staff account creation are disabled. The administrator PIN is stored as a salted SHA-256 hash, not plaintext. This is local application-level protection, not a replacement for operating-system account security or encrypted device storage.
+The administrator PIN and PIN-protected staff credentials are stored as salted SHA-256 hashes, not plaintext. Waiter accounts use PIN-free sign-in and are restricted in the application to order entry; administrator-only operations remain unavailable to waiters. This is local application-level protection, not a replacement for operating-system account security or encrypted device storage.
 
 
 ## Maliyet, gider ve stok geçmişi (SQLite şema v4)
