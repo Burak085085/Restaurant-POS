@@ -379,7 +379,7 @@ void main() {
   });
 
 
-  test('corrupt recipe data resets partially loaded ingredients and recipes', () async {
+  test('corrupt recipe data enters recovery and preserves the original payload', () async {
     final ingredient = Ingredient(id: 'partial', name: 'Un', unit: 'kg',
       stock: 10, lowAt: 2, costPerUnit: 150);
     final raw = jsonEncode({
@@ -387,13 +387,18 @@ void main() {
       'ingredients': [ingredient.toJson()],
       'recipes': {'product-1': ['invalid recipe line']},
     });
-    final store = Pos(repository: MemoryStoreRepository(value: raw));
+    final repository = MemoryStoreRepository(value: raw);
+    final store = Pos(repository: repository);
 
     await store.load();
 
-    expect(store.ingredients, isEmpty);
+    expect(store.recoveryRequired, isTrue);
+    expect(store.ingredients, hasLength(1));
+    expect(store.ingredients.single.id, 'partial');
     expect(store.recipes, isEmpty);
-    expect(store.products, isNotEmpty);
+    store.save();
+    await store.flush();
+    expect(repository.value, raw);
   });
 
   test('version 2 SQLite database upgrades without losing its legacy payload', () async {
