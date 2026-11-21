@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:crypto/crypto.dart';
 import 'advanced_features.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:share_plus/share_plus.dart';
 import 'storage.dart';
 
 final GlobalKey<ScaffoldMessengerState> appMessengerKey = GlobalKey<ScaffoldMessengerState>();
@@ -174,6 +175,14 @@ class Pos extends ChangeNotifier {
     'advanced': {'suppliers': suppliers.map((e)=>e.toJson()).toList(), 'purchases': purchases.map((e)=>e.toJson()).toList(), 'customers': customers.map((e)=>e.toJson()).toList(), 'reservations': reservations.map((e)=>e.toJson()).toList(), 'barcodes': productBarcodes},
   });
 
+  Future<String> exportBackup() async {
+    final directory = await getApplicationDocumentsDirectory();
+    final folder = Directory('${directory.path}/backups');
+    if (!await folder.exists()) await folder.create(recursive: true);
+    final file = File('${folder.path}/restaurant-pos-manual-${DateTime.now().toIso8601String().replaceAll(':','-')}.json');
+    await file.writeAsString(_snapshot(), flush: true);
+    return file.path;
+  }
   Future<List<BackupFile>> listBackups() => _repository.listBackups();
   Future<String?> readBackup(String name) => _repository.readBackup(name);
 
@@ -1581,6 +1590,19 @@ class _BackupManagerPageState extends State<BackupManagerPage> {
     backups = pos.listBackups();
   }
 
+  Future<void> _exportBackup() async {
+    setState(() => busy = true);
+    try {
+      final filePath = await pos.exportBackup();
+      await Share.shareXFiles([XFile(filePath)], text: 'Restaurant POS yerel veri yedeği');
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Yedek dışa aktarılamadı: $error')));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
   Future<void> _restore(BackupFile backup) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -1615,7 +1637,10 @@ class _BackupManagerPageState extends State<BackupManagerPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Yedekler')),
+    appBar: AppBar(title: const Text('Yedekler'), actions: [
+      IconButton(tooltip: 'Yedeği dışa aktar', onPressed: busy ? null : _exportBackup,
+        icon: const Icon(Icons.ios_share)),
+    ]),
     body: FutureBuilder<List<BackupFile>>(
       future: backups,
       builder: (context, snapshot) {
