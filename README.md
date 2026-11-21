@@ -11,7 +11,7 @@ Offline-first Flutter point-of-sale application for **Android and Windows**.
 - Fixed and percentage discounts with required reason and audit history.
 - Daily cash/card totals, 7-day revenue, best-selling products and transaction history.
 - Administrator access protected by a salted PIN hash, PIN changes and failed-attempt lockout.
-- Staff roster with role-based permissions; active waiters can enter without a PIN and are restricted to order entry.
+- Staff roster with role-based permissions: waiters can enter without a PIN and manage orders, cashiers use PIN sign-in for orders and register operations, and kitchen staff use PIN sign-in for kitchen status updates.
 - Azerbaijani manat (AZN) with qəpik precision and Azerbaijan UTC+4 business dates.
 
 ## Storage, migration and backups
@@ -39,7 +39,7 @@ On Windows, enable desktop support and run `flutter build windows --release`. Gi
 
 ## Security notes
 
-The administrator PIN and PIN-protected staff credentials are stored as salted SHA-256 hashes, not plaintext. Waiter accounts use PIN-free sign-in and are restricted in the application to order entry; administrator-only operations remain unavailable to waiters. This is local application-level protection, not a replacement for operating-system account security or encrypted device storage.
+The administrator PIN and PIN-protected cashier/kitchen staff credentials are stored as salted SHA-256 hashes, not plaintext. Waiters use PIN-free sign-in and can enter orders only; cashiers can enter orders and use the cash register; kitchen staff can update kitchen order states only. Staff can sign in only with a supported, active role. Administrator-only operations remain unavailable to staff. This is local application-level protection, not a replacement for operating-system account security or encrypted device storage.
 
 
 ## Maliyet, gider ve stok geçmişi (SQLite şema v4)
