@@ -61,7 +61,8 @@ void main() {
     });
 
     test('refund requires admin PIN, open register and cannot exceed original sale', () async {
-      final pos = Pos(repository: MemoryStoreRepository());
+      final repository = MemoryStoreRepository();
+      final pos = Pos(repository: repository);
       final admin = pos.staff.firstWhere((member) => member.name == 'Admin');
       admin.setPin('8642');
       final product = pos.products.first;
@@ -75,6 +76,8 @@ void main() {
       expect(product.stock, 4);
       final originalIndex = pos.sales.length - 1;
 
+      expect(pos.addStaff('Kasiyer', 'Kasiyer', '2468'), isTrue);
+      expect(pos.refundSale(originalIndex, product.price, 'Hatalı ürün', '2468'), isFalse);
       expect(pos.refundSale(originalIndex, product.price, 'Hatalı ürün', '0000'), isFalse);
       expect(pos.refundSale(originalIndex, product.price + 1, 'Hatalı ürün', '8642'), isFalse);
       expect(pos.refundSale(originalIndex, product.price, '', '8642'), isFalse);
@@ -94,6 +97,12 @@ void main() {
       expect(pos.costOfSale(pos.sales.last), -100);
       expect(await pos.integrityCheck(), isEmpty);
       await pos.flush();
+      final restored = Pos(repository: repository);
+      await restored.load();
+      expect(restored.sales.last.isRefund, isTrue);
+      expect(restored.sales.last.refundOfSaleIndex, originalIndex);
+      expect(restored.sales[originalIndex].stockReturned, isTrue);
+      expect(restored.cashMovements.last.type, 'Çıxış');
 
     });
 
