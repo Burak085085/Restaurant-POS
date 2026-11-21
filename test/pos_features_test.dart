@@ -75,6 +75,7 @@ void main() {
       expect(pos.add(table, product), isTrue);
       expect(pos.reservedIngredientStock('flour'), 100);
       expect(pos.sendKitchen(table), isTrue);
+      expect(pos.openRegister(1000), isTrue);
       expect(pos.checkout(table, [PaymentPart('Nakit', product.price)]), isTrue);
       expect(ingredient.stock, 900);
       expect(pos.sales.single.items.single.unitCost, 250);
@@ -87,6 +88,7 @@ void main() {
       final product = pos.products.first;
       expect(pos.add(table, product), isTrue);
       expect(pos.sendKitchen(table), isTrue);
+      expect(pos.openRegister(1000), isTrue);
 
       expect(pos.checkout(table, [PaymentPart('Nakit', product.price)],
         staffName: 'Ayşe Yılmaz'), isTrue);
@@ -106,6 +108,7 @@ void main() {
       final product = restored.products.first;
       expect(restored.add(table, product), isTrue);
       expect(restored.sendKitchen(table), isTrue);
+      expect(restored.openRegister(1000), isTrue);
       expect(restored.checkout(table, [PaymentPart('Nakit', product.price)], staffName: 'Ayşe Yılmaz'), isTrue);
       expect(restored.sales.single.staff, 'Ayşe Yılmaz');
       await restored.flush();
