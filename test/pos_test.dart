@@ -7,7 +7,16 @@ import 'package:restaurant_pos/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-void main() {
+void main() {\n  test('Baku timestamps store UTC instants and display fixed UTC+4 wall time', () {
+    final wallTime = DateTime.utc(2026, 11, 21, 19, 30);
+    final instant = bakuWallTimeToUtc(wallTime);
+    expect(instant, DateTime.utc(2026, 11, 21, 15, 30));
+    expect(azWallTime(instant), wallTime);
+    expect(bakuTimestamp(instant.toIso8601String()), '21.11.2026 19:30');
+    expect(azNow().isUtc, isTrue);
+  });
+
+
   test('Azerbaijani manat formatting uses qəpik precision', () {
     expect(money(0), '0,00 ₼');
     expect(money(5), '0,05 ₼');
