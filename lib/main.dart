@@ -197,9 +197,22 @@ class Pos extends ChangeNotifier {
     try {
       final decoded = jsonDecode(payload);
       if (decoded is! Map<String, dynamic>) return false;
-      for (final key in ['products', 'tables', 'sales']) {
+      for (final key in ['products', 'tables', 'sales', 'staff']) {
         if (decoded[key] is! List) return false;
       }
+      final staffRecords = decoded['staff'] as List;
+      final adminRecords = staffRecords.where((entry) =>
+          entry is Map && entry['name'] == 'Admin').toList();
+      if (adminRecords.isEmpty) return false;
+      final adminRecord = Map<String, dynamic>.from(adminRecords.first as Map);
+      final hasHashedPin = adminRecord['salt'] is String &&
+          (adminRecord['salt'] as String).isNotEmpty &&
+          adminRecord['pinHash'] is String &&
+          (adminRecord['pinHash'] as String).isNotEmpty;
+      final hasLegacyPin = adminRecord['pin'] is String &&
+          (adminRecord['pin'] as String).isNotEmpty;
+      if (!hasHashedPin && !hasLegacyPin) return false;
+
       final candidateRepository = MemoryStoreRepository(value: payload);
       final candidate = Pos(repository: candidateRepository);
       await candidate.load();
