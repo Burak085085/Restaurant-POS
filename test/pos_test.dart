@@ -477,6 +477,51 @@ void main() {
     expect(store.checkout(table, [PaymentPart('Nakit', 300)]), isFalse);
   });
 
+  test('cashier login grants order and register access only', () {
+    final store = Pos(repository: MemoryStoreRepository());
+    expect(store.addStaff('Mehmet', 'Kasiyer', '4826'), isTrue);
+    final cashier = store.staff.singleWhere((member) => member.name == 'Mehmet');
+
+    expect(store.loginAsStaff(cashier, pin: '0000'), isFalse);
+    expect(store.loginAsStaff(cashier, pin: '4826'), isTrue);
+    expect(store.isCashier, isTrue);
+    expect(store.can('orders'), isTrue);
+    expect(store.can('register'), isTrue);
+    for (final permission in ['inventory', 'reports', 'kitchen',
+      'discount', 'staff', 'table_manage']) {
+      expect(store.can(permission), isFalse,
+        reason: 'Cashier must not access $permission');
+    }
+  });
+
+  test('kitchen login grants kitchen status access only', () {
+    final store = Pos(repository: MemoryStoreRepository());
+    expect(store.addStaff('Aysel', 'Mutfak', '7391'), isTrue);
+    final kitchen = store.staff.singleWhere((member) => member.name == 'Aysel');
+
+    expect(store.loginAsStaff(kitchen, pin: '7391'), isTrue);
+    expect(store.isKitchenStaff, isTrue);
+    expect(store.can('kitchen'), isTrue);
+    for (final permission in ['orders', 'inventory', 'reports', 'register',
+      'discount', 'staff', 'table_manage']) {
+      expect(store.can(permission), isFalse,
+        reason: 'Kitchen staff must not access $permission');
+    }
+    final product = store.products.first;
+    final table = store.tables.first;
+    table.items.add(OrderLine(product.id, product.name, product.price, 1, sent: true));
+    expect(store.setKitchenLine(table, table.items.single, KitchenState.preparing), isTrue);
+    expect(store.checkout(table, [PaymentPart('Nakit', product.price)]), isFalse);
+  });
+
+  test('inactive staff cannot log in', () {
+    final store = Pos(repository: MemoryStoreRepository());
+    expect(store.addStaff('Pasif', 'Kasiyer', '2468'), isTrue);
+    final cashier = store.staff.singleWhere((member) => member.name == 'Pasif');
+    expect(store.setStaffActive(cashier, false), isTrue);
+    expect(store.loginAsStaff(cashier, pin: '2468'), isFalse);
+  });
+
   test('legacy Garson accounts migrate without requiring their old PIN', () {
     final oldHashedRecord = Staff('Eski Garson', 'Garson', pin: '2468').toJson()
       ..remove('pinRequired');
