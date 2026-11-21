@@ -514,6 +514,14 @@ void main() {
     expect(store.checkout(table, [PaymentPart('Nakit', product.price)]), isFalse);
   });
 
+  test('unknown staff roles cannot create a signed-in session', () {
+    final store = Pos(repository: MemoryStoreRepository());
+    final unknown = Staff('Bilinmeyen', 'Yetkisiz', pin: '5791');
+    store.staff.add(unknown);
+    expect(store.loginAsStaff(unknown, pin: '5791'), isFalse);
+    expect(store.currentUser, 'Admin');
+  });
+
   test('inactive staff cannot log in', () {
     final store = Pos(repository: MemoryStoreRepository());
     expect(store.addStaff('Pasif', 'Kasiyer', '2468'), isTrue);
