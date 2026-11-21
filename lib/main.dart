@@ -672,7 +672,7 @@ class _HomeState extends State<Home>{
     if(pos.isKitchenStaff)return KitchenPage(onLogout:_logout);
     if(pos.isCashier) {
       final pages=[TablesPage(onLogout:_logout),const RegisterPage()];
-      final index=tab.clamp(0,1);
+      final index=tab.clamp(0,1).toInt();
       return Scaffold(
         body:SafeArea(child:pages[index]),
         bottomNavigationBar:NavigationBar(
@@ -686,7 +686,7 @@ class _HomeState extends State<Home>{
       );
     }
     final pages=[TablesPage(onLogout:_logout),const KitchenPage(),const InventoryPage(),const ReportsPage(),const AdminPage()];
-    final index=tab.clamp(0,pages.length-1);
+    final index=tab.clamp(0,pages.length-1).toInt();
     return Scaffold(body:SafeArea(child:pages[index]),bottomNavigationBar:NavigationBar(selectedIndex:index,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:const [NavigationDestination(icon:Icon(Icons.table_restaurant),label:'Masalar'),NavigationDestination(icon:Icon(Icons.soup_kitchen),label:'Mutfak'),NavigationDestination(icon:Icon(Icons.inventory_2),label:'Stok'),NavigationDestination(icon:Icon(Icons.bar_chart),label:'Rapor'),NavigationDestination(icon:Icon(Icons.settings),label:'Yönetim')]));
   });
 }
