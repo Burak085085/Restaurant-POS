@@ -424,6 +424,34 @@ void main() {
     expect(store.stockMovements, isEmpty);
   });
 
+  test('stock ledger records the actual clamped inventory change', () {
+    final store = Pos(repository: MemoryStoreRepository());
+    final product = store.products.first;
+
+    product.stock = 999999;
+    expect(store.stockChange(product, 100, note: 'Üst sınır testi'), isTrue);
+    expect(product.stock, 1000000);
+    expect(store.stockMovements.last.type, 'Giriş');
+    expect(store.stockMovements.last.quantity, 1);
+    expect(store.stockMovements.last.beforeStock, 999999);
+    expect(store.stockMovements.last.afterStock, 1000000);
+
+    product.stock = 1;
+    expect(store.stockChange(product, -100, note: 'Alt sınır testi'), isTrue);
+    expect(product.stock, 0);
+    expect(store.stockMovements.last.type, 'Çıkış');
+    expect(store.stockMovements.last.quantity, 1);
+    expect(store.stockMovements.last.beforeStock, 1);
+    expect(store.stockMovements.last.afterStock, 0);
+  });
+
+  test('CSV export header contains a real line break', () {
+    final store = Pos(repository: MemoryStoreRepository());
+    final csv = store.buildCsv();
+    expect(csv, startsWith('Tarih;Tür;Açıklama;Adet;Ciro/Gider;Maliyet\r\n'));
+    expect(csv, isNot(contains(r'\r\n')));
+  });
+
   test('PIN-free waiter login grants order entry only', () {
     final store = Pos(repository: MemoryStoreRepository());
     final product = Product('waiter-test', 'Test', 'Test item', 300, stock: 3);
