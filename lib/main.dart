@@ -1969,8 +1969,8 @@ class _SuppliersPageState extends State<SuppliersPage> {
     String productId=pos.products.firstWhere((p)=>p.active).id;
     final quantity=TextEditingController(text:'1'), cost=TextEditingController();
     final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,set)=>AlertDialog(title:const Text('Mal alımı kaydet'),content:Column(mainAxisSize:MainAxisSize.min,children:[
-      DropdownButtonFormField<String>(value:supplierId,decoration:const InputDecoration(labelText:'Tedarikçi'),items:pos.suppliers.where((x)=>x.active).map((x)=>DropdownMenuItem(value:x.id,child:Text(x.name))).toList(),onChanged:(v)=>set(()=>supplierId=v??supplierId)),
-      DropdownButtonFormField<String>(value:productId,decoration:const InputDecoration(labelText:'Ürün'),items:pos.products.where((x)=>x.active).map((x)=>DropdownMenuItem(value:x.id,child:Text(x.name))).toList(),onChanged:(v)=>set(()=>productId=v??productId)),
+      DropdownButtonFormField<String>(initialValue:supplierId,decoration:const InputDecoration(labelText:'Tedarikçi'),items:pos.suppliers.where((x)=>x.active).map((x)=>DropdownMenuItem(value:x.id,child:Text(x.name))).toList(),onChanged:(v)=>set(()=>supplierId=v??supplierId)),
+      DropdownButtonFormField<String>(initialValue:productId,decoration:const InputDecoration(labelText:'Ürün'),items:pos.products.where((x)=>x.active).map((x)=>DropdownMenuItem(value:x.id,child:Text(x.name))).toList(),onChanged:(v)=>set(()=>productId=v??productId)),
       TextField(controller:quantity,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Alınan adet')),
       TextField(controller:cost,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Birim alış maliyeti (₼)')),
     ]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Stoka ekle'))])));
@@ -2015,7 +2015,7 @@ class _CustomersReservationsPageState extends State<CustomersReservationsPage> {
     final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,set)=>AlertDialog(title:const Text('Masa rezervasyonu'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
       TextField(controller:name,decoration:const InputDecoration(labelText:'Müşteri adı')),
       TextField(controller:phone,keyboardType:TextInputType.phone,decoration:const InputDecoration(labelText:'Telefon')),
-      DropdownButtonFormField<int>(value:tableId,decoration:const InputDecoration(labelText:'Masa'),items:List.generate(kTableCount,(i)=>DropdownMenuItem(value:i+1,child:Text('Masa ${i+1}'))),onChanged:(v)=>set(()=>tableId=v??1)),
+      DropdownButtonFormField<int>(initialValue:tableId,decoration:const InputDecoration(labelText:'Masa'),items:List.generate(kTableCount,(i)=>DropdownMenuItem(value:i+1,child:Text('Masa ${i+1}'))),onChanged:(v)=>set(()=>tableId=v??1)),
       TextField(controller:guests,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Kişi sayısı')),
       ListTile(contentPadding:EdgeInsets.zero,title:Text('Tarih: ${dayKey(date)}'),trailing:TextButton(onPressed:()async{final picked=await showDatePicker(context:c,initialDate:date.isBefore(DateTime.now())?DateTime.now():date,firstDate:DateTime.now(),lastDate:DateTime.now().add(const Duration(days:365)));if(picked!=null)set(()=>date=picked);},child:const Text('Değiştir'))),
       ListTile(contentPadding:EdgeInsets.zero,title:Text('Saat: ${time.format(c)}'),trailing:TextButton(onPressed:()async{final picked=await showTimePicker(context:c,initialTime:time);if(picked!=null)set(()=>time=picked);},child:const Text('Değiştir'))),
