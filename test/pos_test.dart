@@ -582,10 +582,8 @@ void main() {
   test('CSV export header contains a real line break', () {
     final store = Pos(repository: MemoryStoreRepository());
     final csv = store.buildCsv();
-    expect(csv, startsWith('Tarih;Tür;Açıklama;Adet;Ciro/Gider;Maliyet\r
-'));
-    expect(csv, isNot(contains(r'\r
-')));
+    expect(csv, startsWith('Tarih;Tür;Açıklama;Adet;Ciro/Gider;Maliyet\r\n'));
+    expect(csv, isNot(contains(r'\r\n')));
   });
 
   test('PIN-free waiter login grants order entry only', () {
