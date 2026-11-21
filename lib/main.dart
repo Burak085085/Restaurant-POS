@@ -484,10 +484,32 @@ class Pos extends ChangeNotifier {
     final i = products.indexWhere((e) => e.id == p.id); if (i < 0) products.add(p); else { p.active=products[i].active; products[i] = p; }
     log('Menü', '${p.name} kaydedildi'); save();
   }
-  bool stockChange(Product p, int delta, {String note='Manuel stok düzeltmesi'}) { if(!can('inventory')||delta==0||note.trim().isEmpty)return false;final before=p.stock;final next=(before+delta).clamp(0,1000000).toInt();if(next<reservedStock(p.id)||next==before)return false;p.stock=next;stockMovements.add(StockMovement(id:DateTime.now().microsecondsSinceEpoch,productId:p.id,productName:p.name,type:delta>0?'Giriş':'Çıkış',quantity:delta.abs(),beforeStock:before,afterStock:next,productCost:p.costPrice,at:azNow().toIso8601String(),note:note.trim()));log('Stok','${p.name}: $before → $next · ${note.trim()}');save();return true;}
+  bool stockChange(Product p, int delta, {String note='Manuel stok düzeltmesi'}) {
+    if (!can('inventory') || !products.contains(p) || delta == 0 || note.trim().isEmpty) return false;
+    final before = p.stock;
+    final next = (before + delta).clamp(0, 1000000).toInt();
+    final actualDelta = next - before;
+    if (next < reservedStock(p.id) || actualDelta == 0) return false;
+    p.stock = next;
+    stockMovements.add(StockMovement(
+      id: DateTime.now().microsecondsSinceEpoch,
+      productId: p.id,
+      productName: p.name,
+      type: actualDelta > 0 ? 'Giriş' : 'Çıkış',
+      quantity: actualDelta.abs(),
+      beforeStock: before,
+      afterStock: next,
+      productCost: p.costPrice,
+      at: azNow().toIso8601String(),
+      note: note.trim(),
+    ));
+    log('Stok', '${p.name}: $before → $next · ${note.trim()}');
+    save();
+    return true;
+  }
   bool addExpense(int amount,String category,String note){if(!can('reports')||amount<=0||category.trim().isEmpty||note.trim().isEmpty)return false;expenses.add(Expense(id:DateTime.now().microsecondsSinceEpoch,amount:amount,category:category.trim(),note:note.trim(),date:dayKey(azNow())));log('Gider','${category.trim()} · ${money(amount)} · ${note.trim()}');save();return true;}
   int costOfSale(Sale sale)=>sale.items.fold(0,(s,item)=>s+item.unitCost*item.qty);int get totalExpenses=>expenses.fold(0,(s,e)=>s+e.amount);int get totalCostOfSales=>sales.fold(0,(s,e)=>s+costOfSale(e));int get netProfit=>sales.fold(0,(s,e)=>s+e.total-costOfSale(e))-totalExpenses;
-  String buildCsv(){String q(Object? v)=>'"${v.toString().replaceAll('"','""')}"';final b=StringBuffer('Tarih;Tür;Açıklama;Adet;Ciro/Gider;Maliyet\\r\\n');for(final sale in sales){b.writeln([q(sale.date),q('Satış'),q('Masa ${sale.table}'),q(sale.items.fold<int>(0,(int n,OrderLine x)=>n+x.qty)),q(sale.total/100),q(costOfSale(sale)/100)].join(';'));}for(final e in expenses){b.writeln([q(e.date),q('Gider'),q('${e.category}: ${e.note}'),q(1),q(e.amount/100),q(0)].join(';'));}return b.toString();}
+  String buildCsv(){String q(Object? v)=>'"${v.toString().replaceAll('"','""')}"';final b=StringBuffer('Tarih;Tür;Açıklama;Adet;Ciro/Gider;Maliyet\r\n');for(final sale in sales){b.writeln([q(sale.date),q('Satış'),q('Masa ${sale.table}'),q(sale.items.fold<int>(0,(int n,OrderLine x)=>n+x.qty)),q(sale.total/100),q(costOfSale(sale)/100)].join(';'));}for(final e in expenses){b.writeln([q(e.date),q('Gider'),q('${e.category}: ${e.note}'),q(1),q(e.amount/100),q(0)].join(';'));}return b.toString();}
   bool checkout(PosTable t, List<PaymentPart> payments, {String? staffName}) {
     if (!can('register') || t.items.isEmpty || t.items.any((line) => !line.sent)) return false;
     final total = t.total;
