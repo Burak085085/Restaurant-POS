@@ -1635,6 +1635,7 @@ class _BackupManagerPageState extends State<BackupManagerPage> {
         throw const FormatException('Dosya boş, okunamıyor veya 20 MB sınırını aşıyor.');
       }
       final payload = utf8.decode(bytes);
+      if (!mounted) return;
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
