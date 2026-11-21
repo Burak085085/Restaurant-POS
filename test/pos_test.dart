@@ -209,14 +209,21 @@ void main() {
         previousStock);
   });
 
-  test('corrupt local data is backed up before defaults are restored', () async {
+  test('corrupt local data enters read-only recovery without replacing data', () async {
     final repository = MemoryStoreRepository(value: '{broken-json');
     final store = Pos(repository: repository);
     await store.load();
     expect(repository.corruptBackup, '{broken-json');
-    expect(repository.value, isNull);
-    expect(store.tables, hasLength(kTableCount));
-    expect(store.staff.single.name, 'Admin');
+    expect(repository.value, '{broken-json');
+    expect(store.recoveryRequired, isTrue);
+    store.save();
+    await store.flush();
+    expect(repository.value, '{broken-json');
+  });
+
+  test('manual and corrupt backups are discoverable for recovery', () {
+    expect(isRestorableBackupFileName('restaurant-pos-manual-2026-11-21T12-00-00.json'), isTrue);
+    expect(isRestorableBackupFileName('restaurant-pos-corrupt-2026-11-21T12-00-00.json'), isTrue);
   });
 
 
