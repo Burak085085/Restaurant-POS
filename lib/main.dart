@@ -171,7 +171,7 @@ class CashMovement {
     amount: j['amount'] ?? 0, note: j['note'] ?? '',
   );
 }
-class Sale { String date,time,staff; int table,total,discount; List<OrderLine> items; List<PaymentPart> payments; int? registerSessionId; bool isRefund,stockReturned; int? refundOfSaleIndex; String reason; Sale(this.date,this.time,this.staff,this.table,this.total,this.discount,this.items,this.payments,{this.registerSessionId,this.isRefund=false,this.refundOfSaleIndex,this.reason='',this.stockReturned=false}); Map<String,dynamic> toJson()=>{'date':date,'time':time,'staff':staff,'table':table,'total':total,'discount':discount,'registerSessionId':registerSessionId,'items':items.map((e)=>e.toJson()).toList(),'payments':payments.map((e)=>e.toJson()).toList(),'isRefund':isRefund,'refundOfSaleIndex':refundOfSaleIndex,'reason':reason,'stockReturned':stockReturned}; factory Sale.fromJson(Map<String,dynamic> j)=>Sale(j['date']??'',j['time']??'',j['staff']??'Admin',j['table']??0,j['total']??0,j['discount']??0,(j['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(),(j['payments'] as List? ?? []).map((e)=>PaymentPart(e['method']??'Nakit',e['amount']??0,tendered:e['tendered']??e['amount']??0)).toList(),registerSessionId:j['registerSessionId'],isRefund:j['isRefund']??false,refundOfSaleIndex:j['refundOfSaleIndex'],reason:j['reason']??'',stockReturned:j['stockReturned']??false); }
+class Sale { String date,time,staff; int table,total,discount; List<OrderLine> items; List<PaymentPart> payments; int? registerSessionId; bool isRefund,stockReturned; int? refundOfSaleIndex; String reason; Map<String,int>? ingredientUsage; Sale(this.date,this.time,this.staff,this.table,this.total,this.discount,this.items,this.payments,{this.registerSessionId,this.isRefund=false,this.refundOfSaleIndex,this.reason='',this.stockReturned=false,this.ingredientUsage}); Map<String,dynamic> toJson()=>{'date':date,'time':time,'staff':staff,'table':table,'total':total,'discount':discount,'registerSessionId':registerSessionId,'items':items.map((e)=>e.toJson()).toList(),'payments':payments.map((e)=>e.toJson()).toList(),'isRefund':isRefund,'refundOfSaleIndex':refundOfSaleIndex,'reason':reason,'stockReturned':stockReturned,'ingredientUsage':ingredientUsage}; factory Sale.fromJson(Map<String,dynamic> j)=>Sale(j['date']??'',j['time']??'',j['staff']??'Admin',j['table']??0,j['total']??0,j['discount']??0,(j['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(),(j['payments'] as List? ?? []).map((e)=>PaymentPart(e['method']??'Nakit',e['amount']??0,tendered:e['tendered']??e['amount']??0)).toList(),registerSessionId:j['registerSessionId'],isRefund:j['isRefund']??false,refundOfSaleIndex:j['refundOfSaleIndex'],reason:j['reason']??'',stockReturned:j['stockReturned']??false,ingredientUsage:j['ingredientUsage'] is Map ? Map<String,int>.from(j['ingredientUsage'] as Map) : null); }
 class Expense { final int id,amount; final String date,category,note; Expense({required this.id,required this.amount,required this.date,required this.category,required this.note}); Map<String,dynamic> toJson()=>{'id':id,'amount':amount,'date':date,'category':category,'note':note}; factory Expense.fromJson(Map<String,dynamic> j)=>Expense(id:j['id']??0,amount:j['amount']??0,date:j['date']??'',category:j['category']??'Diğer',note:j['note']??''); }
 class StockMovement { final int id,quantity,beforeStock,afterStock,productCost; final String productId,productName,type,at,note; StockMovement({required this.id,required this.productId,required this.productName,required this.type,required this.quantity,required this.beforeStock,required this.afterStock,required this.productCost,required this.at,required this.note}); Map<String,dynamic> toJson()=>{'id':id,'productId':productId,'productName':productName,'type':type,'quantity':quantity,'beforeStock':beforeStock,'afterStock':afterStock,'productCost':productCost,'at':at,'note':note}; factory StockMovement.fromJson(Map<String,dynamic> j)=>StockMovement(id:j['id']??0,productId:j['productId']??'',productName:j['productName']??'',type:j['type']??'',quantity:j['quantity']??0,beforeStock:j['beforeStock']??0,afterStock:j['afterStock']??0,productCost:j['productCost']??0,at:j['at']??'',note:j['note']??''); }
 class Staff {
@@ -369,6 +369,7 @@ class Pos extends ChangeNotifier {
   void save() {
     if (recoveryRequired) return;
     final snapshot = jsonEncode({
+      'timestampFormatVersion': 2,
       'products': products.map((e) => e.toJson()).toList(),
       'tables': tables.map((e) => e.toJson()).toList(),
       'sales': sales.map((e) => e.toJson()).toList(),
@@ -584,6 +585,7 @@ class Pos extends ChangeNotifier {
     final cancelledName = line.name;
     if (quantity == line.qty) { table.items.remove(line); } else { line.qty -= quantity; }
     if (table.items.isEmpty) { table.discount=0; table.discountPercent=false; table.discountReason=''; table.kitchen=KitchenState.queued; }
+    else if (table.discountPercent ? table.discount > 99 : table.discount >= table.subtotal) { table.discount=0; table.discountPercent=false; table.discountReason=''; log('İndirim sıfırlandı','Masa ${table.id}: iptal sonrası ara toplam değiştiği için indirim kaldırıldı'); }
     kitchenNotices.insert(0, KitchenNotice(id:DateTime.now().microsecondsSinceEpoch,tableId:table.id,quantity:quantity,at:azNow().toIso8601String(),productName:cancelledName,reason:reason.trim(),by:currentUser));
     log('Gönderilmiş ürün iptali', 'Masa ${table.id}: $cancelledName × $quantity · Neden: ${reason.trim()}');
     save();
@@ -712,7 +714,8 @@ class Pos extends ChangeNotifier {
     final original=sales[saleIndex]; final remaining=remainingRefundable(saleIndex);
     if(original.isRefund||amount>remaining||(returnStock&&(amount!=remaining||original.stockReturned)))return false;
     final productNeeds=<String,int>{}; final ingredientNeeds=<String,int>{};
-    if(returnStock){for(final line in original.items){productNeeds[line.productId]=(productNeeds[line.productId]??0)+line.qty;for(final recipeLine in recipes[line.productId]??const <RecipeLine>[]){ingredientNeeds[recipeLine.ingredientId]=(ingredientNeeds[recipeLine.ingredientId]??0)+recipeLine.quantity*line.qty;}}
+    if(returnStock){for(final line in original.items){productNeeds[line.productId]=(productNeeds[line.productId]??0)+line.qty;}
+      if(original.ingredientUsage!=null){ingredientNeeds.addAll(original.ingredientUsage!);}else{for(final line in original.items){for(final recipeLine in recipes[line.productId]??const <RecipeLine>[]){ingredientNeeds[recipeLine.ingredientId]=(ingredientNeeds[recipeLine.ingredientId]??0)+recipeLine.quantity*line.qty;}}}
       for(final entry in productNeeds.entries){final p=products.where((item)=>item.id==entry.key);if(p.isEmpty||p.first.stock+entry.value>100000000)return false;}
       for(final entry in ingredientNeeds.entries){final item=ingredients.where((x)=>x.id==entry.key);if(item.isEmpty||item.first.stock+entry.value>100000000)return false;}
     }
@@ -771,7 +774,7 @@ class Pos extends ChangeNotifier {
     }
     sales.add(Sale(dayKey(azWallTime(now)), stamp(azWallTime(now)), seller, t.id, total, t.subtotal-total,
       t.items.map((e) { final product=products.firstWhere((p)=>p.id==e.productId); return OrderLine(e.productId,e.name,e.price,e.qty,unitCost:product.costPrice + recipeCost(product)); }).toList(), payments,
-      registerSessionId: register?.id));
+      registerSessionId: register?.id, ingredientUsage: Map<String,int>.from(ingredientNeeds)));
     log('Ödeme', 'Masa ${t.id}: ${money(total)}');
     t.items = []; t.discount = 0; t.discountPercent = false; t.discountReason = ''; t.kitchen = KitchenState.queued;
     save(); return true;
