@@ -29,7 +29,10 @@ DateTime bakuWallTimeToUtc(DateTime wallTime) => DateTime.utc(
   wallTime.year, wallTime.month, wallTime.day, wallTime.hour, wallTime.minute,
   wallTime.second, wallTime.millisecond, wallTime.microsecond,
 ).subtract(const Duration(hours: 4));
-String bakuTimestamp(String value) {\n  final parsed = DateTime.tryParse(value);\n  return parsed == null ? value : stamp(azWallTime(parsed));\n}
+String bakuTimestamp(String value) {
+  final parsed = DateTime.tryParse(value);
+  return parsed == null ? value : stamp(azWallTime(parsed));
+}
 String _legacyBakuTimestamp(String value) {
   final parsed = DateTime.tryParse(value);
   if (parsed == null) return value;
