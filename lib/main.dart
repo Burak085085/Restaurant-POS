@@ -492,27 +492,36 @@ class Pos extends ChangeNotifier {
     if (!can('register') || t.items.isEmpty || t.items.any((line) => !line.sent)) return false;
     final total = t.total;
     if (payments.isEmpty || payments.any((part) => !part.isValid) || payments.fold(0, (sum, part) => sum + part.amount) != total) return false;
+    final seller = (staffName ?? currentUser).trim();
+    if (seller.isEmpty) return false;
+
+    final productNeeds = <String, int>{};
     final ingredientNeeds = <String, int>{};
     for (final line in t.items) {
-      final matches = products.where((product) => product.id == line.productId);
-      if (matches.isEmpty || matches.first.stock < line.qty) return false;
+      productNeeds[line.productId] =
+          (productNeeds[line.productId] ?? 0) + line.qty;
       for (final recipeLine in recipes[line.productId] ?? const <RecipeLine>[]) {
         ingredientNeeds[recipeLine.ingredientId] =
             (ingredientNeeds[recipeLine.ingredientId] ?? 0) + recipeLine.quantity * line.qty;
       }
     }
+    for (final entry in productNeeds.entries) {
+      final product = products.where((item) => item.id == entry.key);
+      if (product.isEmpty || product.first.stock < entry.value) return false;
+    }
     for (final entry in ingredientNeeds.entries) {
       final ingredient = ingredients.where((item) => item.id == entry.key);
       if (ingredient.isEmpty || ingredient.first.stock < entry.value) return false;
     }
+
     final now = azNow();
-    for (final line in t.items) {
-      final product = products.firstWhere((item) => item.id == line.productId);
+    for (final entry in productNeeds.entries) {
+      final product = products.firstWhere((item) => item.id == entry.key);
       final before = product.stock;
-      product.stock -= line.qty;
+      product.stock -= entry.value;
       stockMovements.add(StockMovement(id: DateTime.now().microsecondsSinceEpoch,
         productId: product.id, productName: product.name, type: 'Satış',
-        quantity: line.qty, beforeStock: before, afterStock: product.stock,
+        quantity: entry.value, beforeStock: before, afterStock: product.stock,
         productCost: product.costPrice, at: now.toIso8601String(),
         note: 'Masa ${t.id} satışı'));
     }
@@ -520,8 +529,6 @@ class Pos extends ChangeNotifier {
       final ingredient = ingredients.firstWhere((item) => item.id == entry.key);
       ingredient.stock -= entry.value;
     }
-    final seller = (staffName ?? currentUser).trim();
-    if (seller.isEmpty) return false;
     sales.add(Sale(dayKey(now), stamp(now), seller, t.id, total, t.subtotal-total,
       t.items.map((e) { final product=products.firstWhere((p)=>p.id==e.productId); return OrderLine(e.productId,e.name,e.price,e.qty,unitCost:product.costPrice + recipeCost(product)); }).toList(), payments,
       registerSessionId: activeRegister?.id));
