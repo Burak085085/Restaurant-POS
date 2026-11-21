@@ -259,6 +259,7 @@ void main() {
       expect(restored.pinLockRemainingForStaff(restored.staff.first), greaterThan(0));
       expect(restored.verifyAdminPin('2468'), isFalse);
     } finally {
+      await repository.close();
       await directory.delete(recursive: true);
     }
   });
