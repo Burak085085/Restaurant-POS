@@ -112,6 +112,19 @@ void main() {
 
     });
 
+    test('new saves keep UTC timestamp format version and do not remigrate timestamps', () async {
+      final repository = MemoryStoreRepository();
+      final pos = Pos(repository: repository);
+      const timestamp = '2026-11-22T01:02:03.000Z';
+      pos.cashMovements.add(CashMovement(id:1,sessionId:77,at:timestamp,type:'Giriş',amount:100,note:'test'));
+      pos.save();
+      await pos.flush();
+      expect(repository.value, contains('"timestampFormatVersion":2'));
+      final restored = Pos(repository: repository);
+      await restored.load();
+      expect(restored.cashMovements.single.at, timestamp);
+    });
+
     test('table move, merge and partial split preserve order quantities', () async {
       final pos = Pos(repository: MemoryStoreRepository());
       final first = pos.tables[0];
