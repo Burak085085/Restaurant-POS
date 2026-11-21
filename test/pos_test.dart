@@ -162,6 +162,12 @@ void main() {
     expect(repository.backupFiles, isEmpty);
   });
 
+  test('manual and corrupt backup names are restorable but not daily backups', () {
+    expect(isRestorableBackupFileName('restaurant-pos-manual-2026-11-21T12-30-00.json'), isTrue);
+    expect(isRestorableBackupFileName('restaurant-pos-corrupt-2026-11-21T12-30-00.json'), isTrue);
+    expect(isRestorableBackupFileName('../restaurant-pos-manual-2026-11-21.json'), isFalse);
+    expect(isRestorableBackupFileName('restaurant-pos-manual-not-json.txt'), isFalse);
+  });
   test('backup retention matches only dated daily JSON files', () {
     expect(isDailyBackupFileName('restaurant-pos-2026-11-19.json'), isTrue);
     expect(isDailyBackupFileName('restaurant-pos-corrupt-2026-11-19T12-00-00.json'), isFalse);
