@@ -18,8 +18,9 @@ void main() {
       await pos.flush();
     });
 
-    test('sent kitchen order line can be reduced or cancelled and stock reservation is released', () async {
-      final pos = Pos(repository: MemoryStoreRepository());
+    test('sent kitchen line cancellation requires a reason and supervisor PIN and alerts kitchen', () async {
+      final repository = MemoryStoreRepository();
+      final pos = Pos(repository: repository);
       final table = pos.tables.first;
       final product = pos.products.first;
 
@@ -27,15 +28,73 @@ void main() {
       expect(pos.add(table, product), isTrue);
       expect(pos.sendKitchen(table), isTrue);
       expect(pos.reservedStock(product.id), 2);
+      final line = table.items.single;
 
-      expect(pos.qty(table, 0, -1), isTrue);
-      expect(table.items.single.qty, 1);
+      expect(pos.qty(table, 0, -1), isFalse);
+      expect(pos.cancelSentLine(table, line, 1, '', '1234'), isFalse);
+      expect(pos.cancelSentLine(table, line, 1, 'Müşteri vazgeçti', '0000'), isFalse);
+      expect(pos.cancelSentLine(table, line, 1, 'Müşteri vazgeçti', '1234'), isTrue);
+      expect(line.qty, 1);
       expect(pos.reservedStock(product.id), 1);
+      expect(pos.kitchenNotices.single.reason, 'Müşteri vazgeçti');
+      expect(pos.kitchenNotices.single.quantity, 1);
+      expect(pos.acknowledgeKitchenNotice(pos.kitchenNotices.single), isFalse);
 
-      expect(pos.qty(table, 0, -1), isTrue);
+      expect(pos.cancelSentLine(table, line, 1, 'Tam iptal', '1234'), isTrue);
       expect(table.items, isEmpty);
       expect(pos.reservedStock(product.id), 0);
       await pos.flush();
+
+      final restored = Pos(repository: repository);
+      await restored.load();
+      expect(restored.kitchenNotices, hasLength(2));
+      expect(restored.audit.where((entry) => entry.action == 'Gönderilmiş ürün iptali'), hasLength(2));
+    });
+
+    test('cashier PIN can authorize a sent kitchen line cancellation', () {
+      final pos = Pos(repository: MemoryStoreRepository());
+      expect(pos.addStaff('Kasiyer', 'Kasiyer', '2468'), isTrue);
+      final table = pos.tables.first;
+      expect(pos.add(table, pos.products.first), isTrue);
+      expect(pos.sendKitchen(table), isTrue);
+      expect(pos.cancelSentLine(table, table.items.single, 1, 'Yanlış sipariş', '2468'), isTrue);
+    });
+
+    test('refund requires admin PIN, open register and cannot exceed original sale', () async {
+      final pos = Pos(repository: MemoryStoreRepository());
+      final admin = pos.staff.firstWhere((member) => member.name == 'Admin');
+      admin.setPin('8642');
+      final product = pos.products.first;
+      product.stock = 5;
+      product.costPrice = 100;
+      final table = pos.tables.first;
+      expect(pos.add(table, product), isTrue);
+      expect(pos.sendKitchen(table), isTrue);
+      expect(pos.openRegister(5000), isTrue);
+      expect(pos.checkout(table, [PaymentPart('Kart', product.price)]), isTrue);
+      expect(product.stock, 4);
+      final originalIndex = pos.sales.length - 1;
+
+      expect(pos.refundSale(originalIndex, product.price, 'Hatalı ürün', '0000'), isFalse);
+      expect(pos.refundSale(originalIndex, product.price + 1, 'Hatalı ürün', '8642'), isFalse);
+      expect(pos.refundSale(originalIndex, product.price, '', '8642'), isFalse);
+      expect(pos.refundSale(originalIndex, product.price, 'Hatalı ürün', '8642', returnStock: true), isTrue);
+
+      expect(product.stock, 5);
+      expect(pos.sales.last.isRefund, isTrue);
+      expect(pos.sales.last.total, -product.price);
+      expect(pos.sales.last.refundOfSaleIndex, originalIndex);
+      expect(pos.sales.last.reason, 'Hatalı ürün');
+      expect(pos.sales.last.items.single.qty, 1);
+      expect(pos.cashMovements.last.type, 'Çıxış');
+      expect(pos.cashMovements.last.amount, product.price);
+      expect(pos.remainingRefundable(originalIndex), 0);
+      expect(pos.refundSale(originalIndex, 1, 'İkinci iade', '8642'), isFalse);
+      expect(pos.stockMovements.last.type, 'İade');
+      expect(pos.costOfSale(pos.sales.last), -100);
+      expect(await pos.integrityCheck(), isEmpty);
+      await pos.flush();
+
     });
 
     test('table move, merge and partial split preserve order quantities', () async {
