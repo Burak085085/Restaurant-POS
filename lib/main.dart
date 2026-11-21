@@ -406,11 +406,8 @@ class Pos extends ChangeNotifier {
   bool get isCashier => _activeStaff?.role == 'Kasiyer';
   bool get isKitchenStaff => _activeStaff?.role == 'Mutfak';
   bool get isAdmin => currentUser == 'Admin' && staff.any((member) => member.name == 'Admin' && member.active);
-  bool verifySupervisorPin(String pin) {
-    final admin = staff.where((member) => member.name == 'Admin' && member.active);
-    if (admin.isNotEmpty && admin.first.verifyPin(pin)) return true;
-    return staff.any((member) => member.active && member.role == 'Kasiyer' && member.verifyPin(pin));
-  }
+  bool verifyAdminPin(String pin) => staff.any((member) => member.name == 'Admin' && member.active && member.verifyPin(pin));
+  bool verifySupervisorPin(String pin) => verifyAdminPin(pin) || staff.any((member) => member.active && member.role == 'Kasiyer' && member.verifyPin(pin));
   bool can(String permission) {
     if (isAdmin) return true;
     if (isWaiter) return permission == 'orders';
@@ -710,7 +707,7 @@ class Pos extends ChangeNotifier {
   int refundedAmountForSale(int saleIndex) => sales.where((sale)=>sale.isRefund&&sale.refundOfSaleIndex==saleIndex).fold<int>(0,(sum,sale)=>sum-sale.total);
   int remainingRefundable(int saleIndex) { if(saleIndex<0||saleIndex>=sales.length||sales[saleIndex].isRefund)return 0; return (sales[saleIndex].total-refundedAmountForSale(saleIndex)).clamp(0,1<<30).toInt(); }
   bool refundSale(int saleIndex,int amount,String reason,String adminPin,{bool returnStock=false}) {
-    if(!isAdmin||!verifySupervisorPin(adminPin)||activeRegister==null||saleIndex<0||saleIndex>=sales.length||amount<=0||reason.trim().isEmpty)return false;
+    if(!isAdmin||!verifyAdminPin(adminPin)||activeRegister==null||saleIndex<0||saleIndex>=sales.length||amount<=0||reason.trim().isEmpty)return false;
     final original=sales[saleIndex]; final remaining=remainingRefundable(saleIndex);
     if(original.isRefund||amount>remaining||(returnStock&&(amount!=remaining||original.stockReturned)))return false;
     final productNeeds=<String,int>{}; final ingredientNeeds=<String,int>{};
@@ -719,6 +716,7 @@ class Pos extends ChangeNotifier {
       for(final entry in ingredientNeeds.entries){final item=ingredients.where((x)=>x.id==entry.key);if(item.isEmpty||item.first.stock+entry.value>100000000)return false;}
     }
     final now=azNow(); final session=activeRegister!;
+    if(expectedRegisterCash(session)<amount)return false;
     cashMovements.add(CashMovement(id:DateTime.now().microsecondsSinceEpoch,sessionId:session.id,at:now.toIso8601String(),type:'Çıxış',amount:amount,note:'Satış iadesi · Masa ${original.table} · ${reason.trim()}'));
     if(returnStock){for(final entry in productNeeds.entries){final product=products.firstWhere((item)=>item.id==entry.key);final before=product.stock;product.stock+=entry.value;stockMovements.add(StockMovement(id:DateTime.now().microsecondsSinceEpoch,productId:product.id,productName:product.name,type:'İade',quantity:entry.value,beforeStock:before,afterStock:product.stock,productCost:product.costPrice,at:now.toIso8601String(),note:'Satış iadesi · Masa ${original.table}'));}
       for(final entry in ingredientNeeds.entries){ingredients.firstWhere((item)=>item.id==entry.key).stock+=entry.value;} original.stockReturned=true;}
