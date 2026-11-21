@@ -141,10 +141,10 @@ void main() {
   });
 
   test('backup restore preserves the current state before replacing it', () async {
-    final repository = MemoryStoreRepository(value: '{"products":[{"id":"old","category":"Test","name":"Old","price":100,"stock":5,"lowAt":1,"active":true}],"tables":[],"sales":[],"staff":[],"audit":[]}');
+    final repository = MemoryStoreRepository(value: '{"products":[{"id":"old","category":"Test","name":"Old","price":100,"stock":5,"lowAt":1,"active":true}],"tables":[],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"8642","active":true}],"audit":[]}');
     final store = Pos(repository: repository);
     await store.load();
-    const backup = '{"products":[{"id":"new","category":"Test","name":"Restored","price":250,"stock":8,"lowAt":2,"active":true}],"tables":[],"sales":[],"staff":[],"audit":[]}';
+    const backup = '{"products":[{"id":"new","category":"Test","name":"Restored","price":250,"stock":8,"lowAt":2,"active":true}],"tables":[],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"2468","active":true}],"audit":[]}';
 
     expect(await store.restoreBackup(backup), isTrue);
     expect(store.products.single.name, 'Restored');
@@ -160,6 +160,16 @@ void main() {
     expect(await store.restoreBackup('{broken-json'), isFalse);
     expect(store.products.single.name, 'Old');
     expect(repository.backupFiles, isEmpty);
+  });
+
+  test('backup without an explicit administrator credential is rejected', () async {
+    final repository = MemoryStoreRepository(value: '{"products":[],"tables":[],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"8642","active":true}],"audit":[]}');
+    final store = Pos(repository: repository);
+    await store.load();
+    const backup = '{"products":[],"tables":[],"sales":[],"staff":[],"audit":[]}';
+    expect(await store.restoreBackup(backup), isFalse);
+    expect(repository.backupFiles, isEmpty);
+    expect(store.staff.single.verifyPin('8642'), isTrue);
   });
 
   test('manual and corrupt backup names are restorable but not daily backups', () {
