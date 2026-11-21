@@ -645,6 +645,9 @@ class Pos extends ChangeNotifier {
     if (!can('register') || t.items.isEmpty || t.items.any((line) => !line.sent)) return false;
     final total = t.total;
     if (payments.isEmpty || payments.any((part) => !part.isValid) || payments.fold(0, (sum, part) => sum + part.amount) != total) return false;
+    final register = activeRegister;
+    final hasCashPayment = payments.any((part) => part.method == 'Nakit');
+    if (hasCashPayment && register == null) return false;
     final seller = (staffName ?? currentUser).trim();
     if (seller.isEmpty) return false;
 
@@ -684,7 +687,7 @@ class Pos extends ChangeNotifier {
     }
     sales.add(Sale(dayKey(now), stamp(now), seller, t.id, total, t.subtotal-total,
       t.items.map((e) { final product=products.firstWhere((p)=>p.id==e.productId); return OrderLine(e.productId,e.name,e.price,e.qty,unitCost:product.costPrice + recipeCost(product)); }).toList(), payments,
-      registerSessionId: activeRegister?.id));
+      registerSessionId: register?.id));
     log('Ödeme', 'Masa ${t.id}: ${money(total)}');
     t.items = []; t.discount = 0; t.discountPercent = false; t.discountReason = ''; t.kitchen = KitchenState.queued;
     save(); return true;
