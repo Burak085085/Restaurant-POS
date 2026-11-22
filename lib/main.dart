@@ -22,7 +22,61 @@ String money(int cents) {
   final fractional = (absoluteCents % 100).toString().padLeft(2, '0');
   return '${isNegative ? '-' : ''}$whole,$fractional ₼';
 }
-int parseMoney(String s) { final value = double.tryParse(s.replaceAll(',', '.')); if (value == null || !value.isFinite || value <= 0 || value > 10000000) return 0; return (value * 100).round(); }
+int? parseMoney(String input, {bool allowZero = false}) {
+  var value = input.trim().replaceAll('₼', '').replaceAll(RegExp(r'[\s\u00a0\u202f]'), '');
+  if (value.isEmpty) return null;
+  if (value.startsWith('+')) value = value.substring(1);
+  if (value.isEmpty || value.startsWith('-')) return null;
+
+  String whole;
+  String fraction = '';
+  final hasComma = value.contains(',');
+  final hasDot = value.contains('.');
+  String? decimalSeparator;
+  String? groupingSeparator;
+
+  if (hasComma && hasDot) {
+    decimalSeparator = value.lastIndexOf(',') > value.lastIndexOf('.') ? ',' : '.';
+    groupingSeparator = decimalSeparator == ',' ? '.' : ',';
+  } else if (hasComma || hasDot) {
+    final separator = hasComma ? ',' : '.';
+    final pieces = value.split(separator);
+    if (pieces.any((piece) => piece.isEmpty)) return null;
+    if (pieces.length > 2) {
+      if (pieces.first.isEmpty || pieces.first.length > 3 ||
+          pieces.skip(1).any((piece) => piece.length != 3 || !RegExp(r'^\d{3}$').hasMatch(piece))) return null;
+      groupingSeparator = separator;
+    } else if (pieces.last.length == 3 && pieces.first.length <= 3) {
+      groupingSeparator = separator;
+    } else {
+      decimalSeparator = separator;
+    }
+  }
+
+  if (decimalSeparator != null) {
+    final pieces = value.split(decimalSeparator);
+    if (pieces.length != 2 || pieces.last.isEmpty || pieces.last.length > 2 ||
+        !RegExp(r'^\d+$').hasMatch(pieces.last)) return null;
+    whole = pieces.first;
+    fraction = pieces.last.padRight(2, '0');
+  } else {
+    whole = value;
+  }
+
+  if (groupingSeparator != null) {
+    final groups = whole.split(groupingSeparator);
+    if (groups.length < 2 || groups.first.isEmpty || groups.first.length > 3 ||
+        !RegExp(r'^\d+$').hasMatch(groups.first) ||
+        groups.skip(1).any((group) => group.length != 3 || !RegExp(r'^\d{3}$').hasMatch(group))) return null;
+    whole = groups.join();
+  }
+  if (!RegExp(r'^\d+$').hasMatch(whole)) return null;
+  final wholeValue = int.tryParse(whole);
+  if (wholeValue == null || wholeValue > 10000000) return null;
+  final cents = wholeValue * 100 + (fraction.isEmpty ? 0 : int.parse(fraction));
+  if (cents > 1000000000 || (cents == 0 && !allowZero)) return null;
+  return cents;
+}
 DateTime azNow() => DateTime.now().toUtc();
 DateTime azWallTime(DateTime instant) => instant.toUtc().add(const Duration(hours: 4));
 DateTime bakuWallTimeToUtc(DateTime wallTime) => DateTime.utc(
@@ -931,11 +985,27 @@ class Pos extends ChangeNotifier {
 final pos=Pos();
 Future<void> main() async {WidgetsFlutterBinding.ensureInitialized();await pos.load();runApp(const PosApp());}
 class PosLogo extends StatelessWidget { final double size; const PosLogo({super.key, this.size = 112}); @override Widget build(BuildContext context) => Image.asset('assets/branding/restoram_logo.jpg', width: size, height: size, fit: BoxFit.contain); }
-class PosApp extends StatelessWidget {const PosApp({super.key});@override Widget build(BuildContext context)=>MaterialApp(scaffoldMessengerKey:appMessengerKey,title:'Restaurant POS',debugShowCheckedModeBanner:false,theme:ThemeData(useMaterial3:true,colorScheme:ColorScheme.fromSeed(seedColor:ink),scaffoldBackgroundColor:bg,appBarTheme:const AppBarTheme(backgroundColor:ink,foregroundColor:Colors.white)),home:pos.recoveryRequired ? const RecoveryPage() : const Home());}
+class PosApp extends StatelessWidget {const PosApp({super.key});@override Widget build(BuildContext context)=>MaterialApp(scaffoldMessengerKey:appMessengerKey,title:'Restaurant POS',debugShowCheckedModeBanner:false,locale:const Locale('tr','TR'),supportedLocales:const [Locale('tr','TR')],localizationsDelegates: GlobalMaterialLocalizations.delegates,theme:ThemeData(useMaterial3:true,colorScheme:ColorScheme.fromSeed(seedColor:ink),scaffoldBackgroundColor:bg,appBarTheme:const AppBarTheme(backgroundColor:ink,foregroundColor:Colors.white)),home:pos.recoveryRequired ? const RecoveryPage() : const Home());}
 
 class Home extends StatefulWidget {const Home({super.key});@override State<Home> createState()=>_HomeState();}
-class _HomeState extends State<Home>{
+class _HomeState extends State<Home> with WidgetsBindingObserver {
   int tab=0; bool authenticated=false;
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+      pos.flush().catchError((Object _) {});
+    }
+  }
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
   void _logout(){pos.currentUser='';tab=0;setState(()=>authenticated=false);}
   @override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(context,_){
     if(!authenticated)return PinGate(
@@ -1117,7 +1187,7 @@ Future<void> _cancelSentLine(BuildContext context,OrderLine line) async {
   quantity.dispose();reason.dispose();pin.dispose();
 }
 Widget _ticket()=>Container(color:Colors.white,child:Column(children:[Padding(padding:const EdgeInsets.all(12),child:Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Sipariş',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),Text('Mutfak: ${kitchenLabel(t)}') ])),Expanded(child:ListView.builder(itemCount:t.items.length,itemBuilder:(c,i){final x=t.items[i];return ListTile(title:Text(x.name),subtitle:Text('${money(x.price)} × ${x.qty}'),trailing:Row(mainAxisSize:MainAxisSize.min,children:[IconButton(tooltip:x.sent?'Gönderilmiş ürünü iptal et':'Adedi azalt',onPressed:!pos.can('orders')?null:()=>x.sent?_cancelSentLine(c,x):pos.qty(t,i,-1),icon:const Icon(Icons.remove)),IconButton(onPressed:pos.can('orders')?(){if(!pos.qty(t,i,1)){ScaffoldMessenger.of(c).showSnackBar(SnackBar(content:Text(x.sent?'Mutfağa gönderilen ürünün miktarı değiştirilemez. Yeni ürün satırı ekleyin.':'Stok yetersiz.')));}}:null,icon:const Icon(Icons.add))]));})),Padding(padding:const EdgeInsets.all(12),child:Column(children:[Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Ara toplam'),Text(money(t.subtotal))]),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('İndirim'),Text(money(t.subtotal-t.total))]),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('TOPLAM',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),Text(money(t.total),style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold))]),Wrap(spacing:8,children:[if(pos.can('discount')) OutlinedButton.icon(onPressed:t.items.isEmpty?null:()=>_discount(context),icon:const Icon(Icons.percent),label:const Text('İndirim')),if(t.discount>0&&pos.can('discount')) OutlinedButton(onPressed:()=>pos.clearDiscount(t),child:const Text('İndirimi kaldır')),OutlinedButton(onPressed:!t.items.any((item)=>!item.sent)||!pos.can('orders')?null:()=>pos.sendKitchen(t),child:Text(t.items.any((item)=>!item.sent)?'Mutfağa gönder':'Gönderilecek yeni ürün yok'))]),if(pos.can('register')) SizedBox(width:double.infinity,child:FilledButton(onPressed:t.items.isEmpty||t.items.any((item)=>!item.sent)?null:()=>_pay(context),child:Text(t.items.any((item)=>!item.sent)?'Önce mutfağa gönder':'Ödeme al')))]))]));
-Future<void> _discount(BuildContext context)async{final value=TextEditingController(text:t.discountPercent?t.discount.toString():(t.discount/100).toStringAsFixed(2));final reason=TextEditingController(text:t.discountReason);bool percent=t.discountPercent;final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,set)=>AlertDialog(title:const Text('İndirim tanımla'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:value,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'İndirim tutarı / yüzde')),SwitchListTile(title:const Text('Yüzde olarak uygula'),value:percent,onChanged:(v)=>set(()=>percent=v)),TextField(controller:reason,decoration:const InputDecoration(labelText:'İndirim nedeni'))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Vazgeç')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Uygula'))])));if(!context.mounted)return;if(ok==true){final n=percent?(int.tryParse(value.text)??0):parseMoney(value.text);if(!pos.setDiscount(t,n,percent,reason.text)){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('İndirim için geçerli bir tutar ve neden girin.')));}}}
+Future<void> _discount(BuildContext context)async{final value=TextEditingController(text:t.discountPercent?t.discount.toString():(t.discount/100).toStringAsFixed(2));final reason=TextEditingController(text:t.discountReason);bool percent=t.discountPercent;final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,set)=>AlertDialog(title:const Text('İndirim tanımla'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:value,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'İndirim tutarı / yüzde')),SwitchListTile(title:const Text('Yüzde olarak uygula'),value:percent,onChanged:(v)=>set(()=>percent=v)),TextField(controller:reason,decoration:const InputDecoration(labelText:'İndirim nedeni'))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Vazgeç')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Uygula'))])));if(!context.mounted)return;if(ok==true){final n=percent?int.tryParse(value.text):parseMoney(value.text);if(n==null||!pos.setDiscount(t,n,percent,reason.text)){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('İndirim için geçerli bir tutar ve neden girin.')));}}}
 Future<void> _pay(BuildContext context) async {
   final payment = await showDialog<PaymentResult>(
     context: context,
@@ -1136,7 +1206,7 @@ Future<void> _pay(BuildContext context) async {
 
 int? _addPart(List<PaymentPart> parts, String method, TextEditingController ctrl, int remaining) {
   final received = parseMoney(ctrl.text);
-  if (received <= 0) return null;
+  if (received == null || received <= 0) return null;
   if (method == 'Nakit') {
     final applied = received > remaining ? remaining : received;
     parts.add(PaymentPart(method, applied, tendered: received));
@@ -1389,13 +1459,14 @@ class InventoryPage extends StatelessWidget {
       ),
     );
     final parsedPrice = parseMoney(price.text);
-    if (ok == true && name.text.trim().isNotEmpty && parsedPrice > 0) {
+    final parsedCost = cost.text.trim().isEmpty ? 0 : parseMoney(cost.text);
+    if (ok == true && name.text.trim().isNotEmpty && parsedPrice != null && parsedPrice > 0 && parsedCost != null) {
       pos.upsertProduct(Product(
         old?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
         category.text.trim().isEmpty ? 'Genel' : category.text.trim(),
         name.text.trim(),
         parsedPrice,
-        costPrice: parseMoney(cost.text),
+        costPrice: parsedCost,
         stock: (int.tryParse(stock.text) ?? 0).clamp(0, 1000000).toInt(),
         lowAt: (int.tryParse(low.text) ?? 5).clamp(0, 1000000).toInt(),
       ));
@@ -1435,7 +1506,7 @@ class RecipePage extends StatelessWidget {
       final item = Ingredient(id: DateTime.now().microsecondsSinceEpoch.toString(),
         name: name.text.trim(), unit: unit.text.trim(),
         stock: int.tryParse(stock.text) ?? -1, lowAt: int.tryParse(low.text) ?? -1,
-        costPerUnit: parseMoney(cost.text));
+        costPerUnit: parseMoney(cost.text) ?? -1);
       if (!pos.addIngredient(item) && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Malzeme bilgileri geçersiz.')));
       }
@@ -1573,10 +1644,10 @@ class ReportsPage extends StatelessWidget {
     if(remaining<=0)return;
     final amount=TextEditingController(text:(remaining/100).toStringAsFixed(2)),reason=TextEditingController(),pin=TextEditingController(); bool returnStock=false;
     final ok=await showDialog<bool>(context:context,builder:(dialogContext)=>StatefulBuilder(builder:(dialogContext,setDialog)=>AlertDialog(title:Text('Satış #${saleIndex+1} için iade'),content:Column(mainAxisSize:MainAxisSize.min,children:[Text('İade edilebilir tutar: ${money(remaining)}'),TextField(controller:amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'İade tutarı (₼)')),TextField(controller:reason,maxLines:2,decoration:const InputDecoration(labelText:'İade nedeni (zorunlu)')),TextField(controller:pin,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'Yönetici PIN')),CheckboxListTile(contentPadding:EdgeInsets.zero,value:returnStock,onChanged:(value)=>setDialog(()=>returnStock=value??false),title:const Text('Ürünleri ve reçete malzemelerini stoğa geri al'),subtitle:const Text('Stok iadesi yalnızca satışın kalan tutarının tamamı iade edilirse yapılır.'))]),actions:[TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Vazgeç')),FilledButton(onPressed:()=>Navigator.pop(dialogContext,true),child:const Text('İadeyi kaydet'))])));
-    if(context.mounted&&ok==true){final success=pos.refundSale(saleIndex,parseMoney(amount.text),reason.text,pin.text.trim(),returnStock:returnStock);ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(success?'İade kaydedildi ve kasa çıkışı işlendi.':'İade yapılamadı. PIN, tutar, açık kasa ve stok durumunu kontrol edin.')));}
+    if(context.mounted&&ok==true){final success=pos.refundSale(saleIndex,parseMoney(amount.text) ?? 0,reason.text,pin.text.trim(),returnStock:returnStock);ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(success?'İade kaydedildi ve kasa çıkışı işlendi.':'İade yapılamadı. PIN, tutar, açık kasa ve stok durumunu kontrol edin.')));}
     amount.dispose();reason.dispose();pin.dispose();
   }
-  Future<void> _addExpense(BuildContext context) async {final amount=TextEditingController(),category=TextEditingController(text:'Diğer'),note=TextEditingController();final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('İşletme gideri ekle'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Tutar (₼)')),TextField(controller:category,decoration:const InputDecoration(labelText:'Kategori')),TextField(controller:note,decoration:const InputDecoration(labelText:'Açıklama'))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Kaydet'))]));if(ok==true&&!pos.addExpense(parseMoney(amount.text),category.text,note.text)&&context.mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Gider kaydedilemedi.')));amount.dispose();category.dispose();note.dispose();}
+  Future<void> _addExpense(BuildContext context) async {final amount=TextEditingController(),category=TextEditingController(text:'Diğer'),note=TextEditingController();final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('İşletme gideri ekle'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Tutar (₼)')),TextField(controller:category,decoration:const InputDecoration(labelText:'Kategori')),TextField(controller:note,decoration:const InputDecoration(labelText:'Açıklama'))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Kaydet'))]));if(ok==true&&!pos.addExpense(parseMoney(amount.text) ?? 0,category.text,note.text)&&context.mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Gider kaydedilemedi.')));amount.dispose();category.dispose();note.dispose();}
   Future<void> _exportCsv(BuildContext context) async {try{final dir=await getApplicationDocumentsDirectory();final file=File('${dir.path}/restoram-rapor-${dayKey(azWallTime(azNow()))}.csv');await file.writeAsString(pos.buildCsv(),flush:true);if(context.mounted)showDialog<void>(context:context,builder:(c)=>AlertDialog(title:const Text('CSV raporu hazır'),content:SelectableText(file.path),actions:[TextButton(onPressed:()=>Navigator.pop(c),child:const Text('Kapat'))]));}catch(e){if(context.mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('CSV oluşturulamadı: $e')));}}
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
@@ -2118,21 +2189,36 @@ class RegisterPage extends StatelessWidget {
   const RegisterPage({super.key});
 
   Future<int?> _amountDialog(BuildContext context, String title,
-      {required String label, String initial = '0'}) async {
+      {required String label, String initial = '', bool allowZero = false}) async {
     final controller = TextEditingController(text: initial);
+    String? error;
     final value = await showDialog<int>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(title),
-        content: TextField(controller: controller, autofocus: true,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: InputDecoration(labelText: label)),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('İptal')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, parseMoney(controller.text)),
-            child: const Text('Davam et')),
-        ],
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: Text(title),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: InputDecoration(labelText: label, errorText: error),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('İptal')),
+            FilledButton(
+              onPressed: () {
+                final amount = parseMoney(controller.text, allowZero: allowZero);
+                if (amount == null) {
+                  setDialogState(() => error = 'Geçerli bir tutar girin.');
+                  return;
+                }
+                Navigator.pop(dialogContext, amount);
+              },
+              child: const Text('Devam et'),
+            ),
+          ],
+        ),
       ),
     );
     controller.dispose();
@@ -2146,12 +2232,12 @@ class RegisterPage extends StatelessWidget {
       builder: (dialogContext) => AlertDialog(
         title: Text(title),
         content: TextField(controller: controller, autofocus: true, maxLines: 2,
-          decoration: const InputDecoration(labelText: 'Qeyd / səbəb')),
+          decoration: const InputDecoration(labelText: 'Not / neden')),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext),
             child: const Text('İptal')),
           FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text),
-            child: const Text('Yadda saxla')),
+            child: const Text('Kaydet')),
         ],
       ),
     );
@@ -2160,9 +2246,9 @@ class RegisterPage extends StatelessWidget {
   }
 
   Future<void> _open(BuildContext context) async {
-    final amount = await _amountDialog(context, 'Kasayı aç', label: 'Açılış nakdi (₼)');
+    final amount = await _amountDialog(context, 'Kasayı aç', label: 'Açılış nakdi (₼)', allowZero: true);
     if (!context.mounted || amount == null) return;
-    final note = await _noteDialog(context, 'Açılış qeydi');
+    final note = await _noteDialog(context, 'Açılış notu');
     if (!context.mounted || note == null) return;
     final success = pos.openRegister(amount, note: note);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -2184,8 +2270,8 @@ class RegisterPage extends StatelessWidget {
 
   Future<void> _close(BuildContext context, RegisterSession session) async {
     final expected = pos.expectedRegisterCash(session);
-    final amount = await _amountDialog(context, 'Kasanı bağla',
-      label: 'Faktiki sayılmış nağd (₼)', initial: (expected / 100).toStringAsFixed(2));
+    final amount = await _amountDialog(context, 'Kasayı kapat',
+      label: 'Sayılmış nakit (₼)', allowZero: true);
     if (!context.mounted || amount == null) return;
     final success = pos.closeRegister(amount);
     if (!context.mounted) return;
@@ -2201,7 +2287,7 @@ class RegisterPage extends StatelessWidget {
       final session = pos.activeRegister;
       final sessions = pos.registerSessions.reversed.toList();
       return Scaffold(
-        appBar: AppBar(title: const Text('Kasa və növbə idarəetməsi')),
+        appBar: AppBar(title: const Text('Kasa ve vardiya yönetimi')),
         body: ListView(padding: const EdgeInsets.all(12), children: [
           Card(child: Padding(padding: const EdgeInsets.all(16),
             child: session == null
@@ -2209,7 +2295,7 @@ class RegisterPage extends StatelessWidget {
                   const Text('Aktiv kasa növbəsi yoxdur.',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
                   const SizedBox(height: 8),
-                  const Text('Yeni növbə açarkən kassadakı başlanğıc nağd məbləği daxil edin.'),
+                  const Text('Yeni vardiya açarken kasadaki başlangıç nakit tutarını girin.'),
                   const SizedBox(height: 12),
                   FilledButton.icon(
                     onPressed: pos.can('register') ? () => _open(context) : null,
@@ -2222,14 +2308,14 @@ class RegisterPage extends StatelessWidget {
                   const Divider(),
                   _metric('Açılış nakdi', money(session.openingCash)),
                   _metric('Nakit satış', money(pos.cashSalesForSession(session.id))),
-                  _metric('Nağd hərəkət', money(pos.cashMovementsForSession(session.id))),
+                  _metric('Nakit hareketi', money(pos.cashMovementsForSession(session.id))),
                   _metric('Beklenen nakit', money(pos.expectedRegisterCash(session))),
                   const SizedBox(height: 8),
                   Wrap(spacing: 8, runSpacing: 8, children: [
                     OutlinedButton.icon(onPressed: () => _movement(context, 'Giriş'),
-                      icon: const Icon(Icons.add), label: const Text('Pul girişi')),
+                      icon: const Icon(Icons.add), label: const Text('Para girişi')),
                     OutlinedButton.icon(onPressed: () => _movement(context, 'Çıxış'),
-                      icon: const Icon(Icons.remove), label: const Text('Pul çıxışı')),
+                      icon: const Icon(Icons.remove), label: const Text('Para çıkışı')),
                     FilledButton.icon(onPressed: () => _close(context, session),
                       icon: const Icon(Icons.lock), label: const Text('Vardiyayı kapat')),
                   ]),
@@ -2239,7 +2325,7 @@ class RegisterPage extends StatelessWidget {
           const Text('Nakit hareketleri',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
           if (session == null || !pos.cashMovements.any((m) => m.sessionId == session.id))
-            const ListTile(title: Text('Aktiv növbədə nakit hareketi yoxdur.')),
+            const ListTile(title: Text('Aktif vardiyada nakit hareketi yok.')),
           if (session != null)
             for (final movement in pos.cashMovements.where((m) => m.sessionId == session.id).toList().reversed)
               ListTile(
@@ -2253,7 +2339,7 @@ class RegisterPage extends StatelessWidget {
             const ListTile(title: Text('Henüz vardiya kaydı yok.')),
           for (final item in sessions)
             Card(child: ExpansionTile(
-              title: Text('${bakuTimestamp(item.openedAt)} · ${item.isOpen ? 'Açıq' : 'Bağlı'}'),
+              title: Text('${bakuTimestamp(item.openedAt)} · ${item.isOpen ? 'Açık' : 'Kapalı'}'),
               subtitle: Text('Açılış ${money(item.openingCash)} · Nakit satış ${money(pos.cashSalesForSession(item.id))}'),
               children: [
                 ListTile(title: const Text('Beklenen nakit'),
@@ -2308,7 +2394,7 @@ class _SuppliersPageState extends State<SuppliersPage> {
       TextField(controller:cost,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Birim alış maliyeti (₼)')),
     ]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Stoka ekle'))])));
     if(ok==true) {
-      final success=pos.recordPurchase(supplierId:supplierId,productId:productId,quantity:int.tryParse(quantity.text)??0,unitCost:parseMoney(cost.text));
+      final success=pos.recordPurchase(supplierId:supplierId,productId:productId,quantity:int.tryParse(quantity.text)??0,unitCost:parseMoney(cost.text) ?? 0);
       if(!success&&mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Mal alımı kaydedilemedi. Miktar ve maliyeti kontrol edin.')));
     }
     quantity.dispose();cost.dispose();
