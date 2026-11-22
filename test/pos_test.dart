@@ -468,7 +468,8 @@ void main() {
       ],
       'sales': [
         {'date': '2026-11-19', 'time': '12:30', 'staff': 'Admin',
-          'table': 1, 'total': 650, 'discount': 50, 'registerSessionId': 123,
+          'table': 1, 'total': 650, 'discount': 50, 'discountReason': 'Sadakat',
+          'discountPercent': true, 'registerSessionId': 123,
           'items': [
             {'productId': 'p1', 'name': 'Tavuk döner', 'price': 350,
               'qty': 2, 'unitCost': 0, 'sent': true, 'kitchen': 3},
@@ -506,6 +507,9 @@ void main() {
       expect(restored['products'], payload['products']);
       expect(restored['tables'], payload['tables']);
       expect(restored['sales'], payload['sales']);
+      final restoredSale = (restored['sales'] as List).single as Map<String, dynamic>;
+      expect(restoredSale['discountReason'], 'Sadakat');
+      expect(restoredSale['discountPercent'], isTrue);
       expect(restored['registerSessions'], payload['registerSessions']);
       expect(restored['cashMovements'], payload['cashMovements']);
       expect(restored['staff'], payload['staff']);
@@ -515,6 +519,15 @@ void main() {
       await repository.close();
       await directory.delete(recursive: true);
     }
+  });
+
+  test('sale discount reason and percentage survive model serialization', () {
+    final sale = Sale('2026-11-22', '12:00', 'Admin', 1, 900, 100, [],
+      [PaymentPart('Kart', 900)], discountReason: 'Sadakat indirimi', discountPercent: true);
+    final restored = Sale.fromJson(Map<String, dynamic>.from(jsonDecode(jsonEncode(sale.toJson()))));
+    expect(restored.discountReason, 'Sadakat indirimi');
+    expect(restored.discountPercent, isTrue);
+    expect(restored.discount, 100);
   });
 
   test('legacy SharedPreferences payload is read without premature migration', () async {
