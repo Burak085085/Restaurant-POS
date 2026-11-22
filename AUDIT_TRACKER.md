@@ -24,20 +24,25 @@ Repo: Burak085085/Restaurant-POS, target branch main. Flutter Android + Windows,
 - K1 remains incomplete: android/windows runners are generated in CI, release identity/signing/versioning unresolved.
 - These are partial statuses, not blanket closure.
 
-## Batch 01 (branch fix/audit-batch-01)
-- [ ] O14 strict localized money parser and validation.
-- [ ] O3 blind cash count and invalid amount feedback.
-- [ ] O12 flush pending writes on paused/detached.
-- [ ] O5 Turkish Material localization and register text cleanup.
-- [ ] Y11 atomic backup write and Baku calendar date.
-- [ ] Run analyze, all tests, Android APK, Windows build in Actions.
-- [ ] Merge only after green; record final SHA and CI run here.
+## Batch 01 (branch fix/audit-batch-01) — completed
+- [x] O14 strict localized money parser and validation.
+- [x] O3 blind cash count and invalid amount feedback (open/close amount validation; open-table warning still pending).
+- [x] O12 flush pending writes on paused/detached.
+- [x] O5 Turkish Material localization and register screen text cleanup (full UI translation still pending).
+- [x] Y11 atomic daily backup write and Baku calendar date (hourly retention, failure reporting and last-success status still pending).
+- [x] Analyze, tests, Android APK and Windows build passed.
+- [x] Merged to main; SHA 5a8c6178019524952c868ec53fe4c1d095f9318b; workflow 45013742998 passed.
+
+## Batch 02 (branch feat/audit-batch-02) — completed
+- [x] Y3 partial: Sale.discountReason/discountPercent, JSON serialization, SQLite schema v5 and v4→v5 migration tests. Critical-vs-ordinary audit retention is still open.
+- [x] Android and Windows feature-branch CI passed (run 45014651421).
+- [x] Merged to main; SHA b600c772f050dbedc5bb902edba8efc149ebded6; main workflow 45015276991 passed both Android and Windows.
 
 ## Critical
 - [ ] K1: commit Android/Windows runner projects; fixed applicationId; user-owned keystore through GitHub Secrets; generate key.properties in CI; increase versionCode. Never create/commit Burak's keystore.
 - [ ] K2: recovery mode on corrupt DB; no writes before choice; inspect/restore; preserve admin hash; atomic load; preserve suppliers, purchases, customers, reservations, barcodes.
 - [x] K3: negative money formatting fixed; keep tests for -1, -30, -99, -100, -120, -250.
-- [ ] K4: file backup import, manual listing, repository-backed export, validate restore.
+- [x] K4: file backup import, manual listing, repository-backed atomic export, restore validation; SQLite export/list/read regression test added.
 ## High
 - [x] Y1: open register required for cash checkout.
 - [ ] Y2: sent-line cancellation reason/elevated PIN/audit product+qty+amount/user/kitchen alert; refund with admin PIN/reason/negative sale/cash ledger/optional stock.
@@ -91,6 +96,12 @@ Repo: Burak085085/Restaurant-POS, target branch main. Flutter Android + Windows,
 - [ ] PDF Turkish/Azerbaijani glyphs.
 - [ ] Payment/register/table widget tests; small screens/large text; role-based home.
 - [ ] Android and Windows launch/basic-flow smoke tests.
+
+## Latest verified main state
+- Main SHA before current K4 change: b600c772f050dbedc5bb902edba8efc149ebded6.
+- Main workflow 45015276991 completed successfully: Android analyze/test/release APK and Windows build jobs both green.
+- K3 was already implemented before this handoff and its exact negative values (-1, -30, -99, -100, -120, -250 qəpik) are tested.
+- Current change in progress: K4 manual export now routed through StoreRepository, atomic temp-file rename, and SQLite regression test. Do not mark merged/green until PR main workflow passes.
 
 ## Next chat handoff
 Read this tracker first, inspect current main SHA and latest Actions run, compare each item to code/tests, and continue only with open findings. Do not ask Burak to paste the audit again. Preserve all constraints above.

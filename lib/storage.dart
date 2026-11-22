@@ -32,6 +32,7 @@ abstract class StoreRepository {
   Future<void> write(String payload);
   Future<void> backupCorrupt(String payload);
   Future<void> backupBeforeRestore(String payload);
+  Future<String> writeManualBackup(String payload);
   Future<List<BackupFile>> listBackups();
   Future<String?> readBackup(String name);
 }
@@ -501,6 +502,22 @@ class SqliteStoreRepository implements StoreRepository {
   }
 
   @override
+  Future<String> writeManualBackup(String payload) async {
+    final directory = await _backupDirectory();
+    final stamp = DateTime.now().toUtc().toIso8601String().replaceAll(':', '-');
+    final file = File(path.join(directory.path, 'restaurant-pos-manual-$stamp.json'));
+    final temporary = File('${file.path}.tmp');
+    await temporary.writeAsString(payload, flush: true);
+    try {
+      await temporary.rename(file.path);
+    } on FileSystemException {
+      if (await file.exists()) await file.delete();
+      await temporary.rename(file.path);
+    }
+    return file.path;
+  }
+
+  @override
   Future<List<BackupFile>> listBackups() async {
     final directory = await _backupDirectory();
     final files = await directory.list()
@@ -566,6 +583,14 @@ class MemoryStoreRepository implements StoreRepository {
 
   @override
   Future<String?> readBackup(String name) async => backupFiles[name];
+
+  @override
+  Future<String> writeManualBackup(String payload) async {
+    final stamp = DateTime.now().toUtc().toIso8601String().replaceAll(':', '-');
+    final name = 'restaurant-pos-manual-$stamp.json';
+    backupFiles[name] = payload;
+    return name;
+  }
 
   @override
   Future<void> backupCorrupt(String payload) async {
