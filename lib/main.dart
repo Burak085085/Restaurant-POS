@@ -7,7 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:crypto/crypto.dart';
 import 'advanced_features.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_localizations/flutter_localizations.dart' hide GlobalMaterialLocalizations, GlobalCupertinoLocalizations;
 import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'storage.dart';
@@ -986,7 +986,7 @@ class Pos extends ChangeNotifier {
 final pos=Pos();
 Future<void> main() async {WidgetsFlutterBinding.ensureInitialized();await pos.load();runApp(const PosApp());}
 class PosLogo extends StatelessWidget { final double size; const PosLogo({super.key, this.size = 112}); @override Widget build(BuildContext context) => Image.asset('assets/branding/restoram_logo.jpg', width: size, height: size, fit: BoxFit.contain); }
-class PosApp extends StatelessWidget {const PosApp({super.key});@override Widget build(BuildContext context)=>MaterialApp(scaffoldMessengerKey:appMessengerKey,title:'Restaurant POS',debugShowCheckedModeBanner:false,locale:const Locale('tr','TR'),supportedLocales:const [Locale('tr','TR')],localizationsDelegates:const [GlobalMaterialLocalizations.delegate,GlobalWidgetsLocalizations.delegate,GlobalCupertinoLocalizations.delegate],theme:ThemeData(useMaterial3:true,colorScheme:ColorScheme.fromSeed(seedColor:ink),scaffoldBackgroundColor:bg,appBarTheme:const AppBarTheme(backgroundColor:ink,foregroundColor:Colors.white)),home:pos.recoveryRequired ? const RecoveryPage() : const Home());}
+class PosApp extends StatelessWidget {const PosApp({super.key});@override Widget build(BuildContext context)=>MaterialApp(scaffoldMessengerKey:appMessengerKey,title:'Restaurant POS',debugShowCheckedModeBanner:false,locale:const Locale('tr','TR'),supportedLocales:const [Locale('tr','TR')],localizationsDelegates:const [GlobalMaterialLocalizations.delegate,GlobalWidgetsLocalizations.delegate],theme:ThemeData(useMaterial3:true,colorScheme:ColorScheme.fromSeed(seedColor:ink),scaffoldBackgroundColor:bg,appBarTheme:const AppBarTheme(backgroundColor:ink,foregroundColor:Colors.white)),home:pos.recoveryRequired ? const RecoveryPage() : const Home());}
 
 class Home extends StatefulWidget {const Home({super.key});@override State<Home> createState()=>_HomeState();}
 class _HomeState extends State<Home> with WidgetsBindingObserver {
