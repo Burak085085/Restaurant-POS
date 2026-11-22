@@ -785,7 +785,7 @@ void main() {
     await tester.pumpWidget(const PosApp());
     final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
     expect(app.locale, const Locale('tr', 'TR'));
-    expect(app.localizationsDelegates, contains(GlobalMaterialLocalizations.delegate));
+    expect(app.localizationsDelegates, containsAll(GlobalMaterialLocalizations.delegates));
   });
 
   test('SQLite daily backup is atomically written using the Baku calendar date', () async {
