@@ -530,6 +530,35 @@ void main() {
     expect(restored.discount, 100);
   });
 
+  test('SQLite v4 sales table migrates discount audit fields to schema v5', () async {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+    final directory = await Directory.systemTemp.createTemp('restaurant-pos-v4-');
+    final databasePath = '${directory.path}/pos.sqlite3';
+    final oldDatabase = await openDatabase(databasePath, version: 4, onCreate: (db, version) async {
+      await db.execute("CREATE TABLE sales (position INTEGER PRIMARY KEY, date TEXT NOT NULL, time TEXT NOT NULL, staff TEXT NOT NULL, table_id INTEGER NOT NULL, total INTEGER NOT NULL, discount INTEGER NOT NULL, register_session_id INTEGER)");
+    });
+    await oldDatabase.close();
+    final repository = SqliteStoreRepository(databasePath: databasePath, backupDirectoryPath: directory.path);
+    try {
+      // read() opens and upgrades the v4 database before later schema reads fail
+      // because this fixture intentionally contains only the legacy sales table.
+      await expectLater(repository.read(), throwsA(anything));
+      await repository.close();
+      final migrated = await openDatabase(databasePath, readOnly: true);
+      try {
+        final columns = await migrated.rawQuery('PRAGMA table_info(sales)');
+        expect(columns.any((column) => column['name'] == 'discount_reason'), isTrue);
+        expect(columns.any((column) => column['name'] == 'discount_percent'), isTrue);
+      } finally {
+        await migrated.close();
+      }
+    } finally {
+      await repository.close();
+      await directory.delete(recursive: true);
+    }
+  });
+
   test('legacy SharedPreferences payload is read without premature migration', () async {
     SharedPreferences.setMockInitialValues({
       legacyStoreKey: '{"products":[],"tables":[],"sales":[],"staff":[],"audit":[]}',
