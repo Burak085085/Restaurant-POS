@@ -468,7 +468,8 @@ void main() {
       ],
       'sales': [
         {'date': '2026-11-19', 'time': '12:30', 'staff': 'Admin',
-          'table': 1, 'total': 650, 'discount': 50, 'registerSessionId': 123,
+          'table': 1, 'total': 650, 'discount': 50, 'discountReason': 'Sadakat',
+          'discountPercent': true, 'registerSessionId': 123,
           'items': [
             {'productId': 'p1', 'name': 'Tavuk döner', 'price': 350,
               'qty': 2, 'unitCost': 0, 'sent': true, 'kitchen': 3},
@@ -506,11 +507,52 @@ void main() {
       expect(restored['products'], payload['products']);
       expect(restored['tables'], payload['tables']);
       expect(restored['sales'], payload['sales']);
+      final restoredSale = (restored['sales'] as List).single as Map<String, dynamic>;
+      expect(restoredSale['discountReason'], 'Sadakat');
+      expect(restoredSale['discountPercent'], isTrue);
       expect(restored['registerSessions'], payload['registerSessions']);
       expect(restored['cashMovements'], payload['cashMovements']);
       expect(restored['staff'], payload['staff']);
       expect(restored['audit'], payload['audit']);
       expect(restored['currentUser'], 'Admin');
+    } finally {
+      await repository.close();
+      await directory.delete(recursive: true);
+    }
+  });
+
+  test('sale discount reason and percentage survive model serialization', () {
+    final sale = Sale('2026-11-22', '12:00', 'Admin', 1, 900, 100, [],
+      [PaymentPart('Kart', 900)], discountReason: 'Sadakat indirimi', discountPercent: true);
+    final restored = Sale.fromJson(Map<String, dynamic>.from(jsonDecode(jsonEncode(sale.toJson()))));
+    expect(restored.discountReason, 'Sadakat indirimi');
+    expect(restored.discountPercent, isTrue);
+    expect(restored.discount, 100);
+  });
+
+  test('SQLite v4 sales table migrates discount audit fields to schema v5', () async {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+    final directory = await Directory.systemTemp.createTemp('restaurant-pos-v4-');
+    final databasePath = '${directory.path}/pos.sqlite3';
+    final oldDatabase = await openDatabase(databasePath, version: 4, onCreate: (db, version) async {
+      await db.execute("CREATE TABLE sales (position INTEGER PRIMARY KEY, date TEXT NOT NULL, time TEXT NOT NULL, staff TEXT NOT NULL, table_id INTEGER NOT NULL, total INTEGER NOT NULL, discount INTEGER NOT NULL, register_session_id INTEGER)");
+    });
+    await oldDatabase.close();
+    final repository = SqliteStoreRepository(databasePath: databasePath, backupDirectoryPath: directory.path);
+    try {
+      // read() opens and upgrades the v4 database before later schema reads fail
+      // because this fixture intentionally contains only the legacy sales table.
+      await expectLater(repository.read(), throwsA(anything));
+      await repository.close();
+      final migrated = await openDatabase(databasePath, readOnly: true);
+      try {
+        final columns = await migrated.rawQuery('PRAGMA table_info(sales)');
+        expect(columns.any((column) => column['name'] == 'discount_reason'), isTrue);
+        expect(columns.any((column) => column['name'] == 'discount_percent'), isTrue);
+      } finally {
+        await migrated.close();
+      }
     } finally {
       await repository.close();
       await directory.delete(recursive: true);
