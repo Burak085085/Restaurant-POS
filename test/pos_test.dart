@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:restaurant_pos/storage.dart';
 import 'package:restaurant_pos/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -81,7 +83,14 @@ void main() {
   test('money parser converts comma decimals to qəpik', () {
     expect(parseMoney('12,50'), 1250);
     expect(parseMoney('3.25'), 325);
-    expect(parseMoney('invalid'), 0);
+    expect(parseMoney('1.234,56'), 123456);
+    expect(parseMoney('1,234.56'), 123456);
+    expect(parseMoney('1.234'), 123400);
+    expect(parseMoney('1 234,56'), 123456);
+    expect(parseMoney('invalid'), isNull);
+    expect(parseMoney('0'), isNull);
+    expect(parseMoney('0', allowZero: true), 0);
+    expect(parseMoney('1,2345'), isNull);
   });
 
   test('stock is reserved across all open tables', () {
@@ -397,8 +406,8 @@ void main() {
 
 
   test('money parser rejects non-finite values', () {
-    expect(parseMoney('NaN'), 0);
-    expect(parseMoney('Infinity'), 0);
+    expect(parseMoney('NaN'), isNull);
+    expect(parseMoney('Infinity'), isNull);
   });
   test('cash and mixed payments require an open register while card-only does not', () {
     final store = Pos(repository: MemoryStoreRepository());
@@ -773,4 +782,34 @@ void main() {
     expect(plainWaiter.pinRequired, isFalse);
     expect(plainWaiter.verifyPin('1234'), isFalse);
   });
+  testWidgets('PosApp uses Turkish Material localization', (tester) async {
+    await tester.pumpWidget(const PosApp());
+    final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
+    expect(app.locale, const Locale('tr', 'TR'));
+    expect(app.localizationsDelegates, contains(GlobalMaterialLocalizations.delegate));
+  });
+
+  test('SQLite daily backup is atomically written using the Baku calendar date', () async {
+    SharedPreferences.setMockInitialValues({});
+    final directory = await Directory.systemTemp.createTemp('restaurant-pos-backup-atomic-');
+    final repository = SqliteStoreRepository(
+      databasePath: '${directory.path}/pos.sqlite3',
+      backupDirectoryPath: directory.path,
+    );
+    try {
+      await repository.write(jsonEncode({
+        'products': [], 'tables': [], 'sales': [], 'staff': [], 'audit': [],
+      }));
+      final backups = await repository.listBackups();
+      final bakuNow = DateTime.now().toUtc().add(const Duration(hours: 4));
+      final date = '${bakuNow.year.toString().padLeft(4, '0')}-${bakuNow.month.toString().padLeft(2, '0')}-${bakuNow.day.toString().padLeft(2, '0')}';
+      expect(backups.map((backup) => backup.name), contains('restaurant-pos-$date.json'));
+      final backupDirectory = Directory('${directory.path}/backups');
+      expect(await backupDirectory.list().where((entry) => entry.path.endsWith('.tmp')).length, 0);
+    } finally {
+      await repository.close();
+      await directory.delete(recursive: true);
+    }
+  });
+
 }

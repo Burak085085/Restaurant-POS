@@ -467,9 +467,17 @@ class SqliteStoreRepository implements StoreRepository {
 
   Future<void> _writeRotatingBackup(String payload) async {
     final directory = await _backupDirectory();
-    final date = DateTime.now().toUtc().toIso8601String().substring(0, 10);
+    final bakuNow = DateTime.now().toUtc().add(const Duration(hours: 4));
+    final date = '${bakuNow.year.toString().padLeft(4, '0')}-${bakuNow.month.toString().padLeft(2, '0')}-${bakuNow.day.toString().padLeft(2, '0')}';
     final file = File(path.join(directory.path, 'restaurant-pos-$date.json'));
-    await file.writeAsString(payload, flush: true);
+    final temporary = File('${file.path}.tmp');
+    await temporary.writeAsString(payload, flush: true);
+    try {
+      await temporary.rename(file.path);
+    } on FileSystemException {
+      if (await file.exists()) await file.delete();
+      await temporary.rename(file.path);
+    }
     final backups = await directory.list()
         .where((entry) => entry is File && isDailyBackupFileName(path.basename(entry.path)))
         .cast<File>().toList();
