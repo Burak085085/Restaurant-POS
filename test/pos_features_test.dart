@@ -38,6 +38,8 @@ void main() {
       expect(pos.reservedStock(product.id), 1);
       expect(pos.kitchenNotices.single.reason, 'Müşteri vazgeçti');
       expect(pos.kitchenNotices.single.quantity, 1);
+      expect(pos.kitchenNotices.single.amount, product.price);
+      expect(pos.audit.first.detail, contains(money(product.price)));
       expect(pos.acknowledgeKitchenNotice(pos.kitchenNotices.single), isTrue);
 
       expect(pos.cancelSentLine(table, line, 1, 'Tam iptal', '1234'), isTrue);
