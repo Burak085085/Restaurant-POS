@@ -506,6 +506,13 @@ class Pos extends ChangeNotifier {
   bool get isCashier => _activeStaff?.role == 'Kasiyer';
   bool get isKitchenStaff => _activeStaff?.role == 'Mutfak';
   bool get isAdmin => currentUser == 'Admin' && staff.any((member) => member.name == 'Admin' && member.active);
+  void lockSession({String reason = 'Oturum kilitlendi'}) {
+    if (currentUser.isEmpty) return;
+    final previousUser = currentUser;
+    log(reason, '$previousUser oturumu kapatıldı');
+    currentUser = '';
+    save();
+  }
   int pinLockRemainingSeconds(String scope) {
     final state=pinSecurity[scope]; final raw=state?['lockedUntil']?.toString();
     if(raw==null)return 0; final until=DateTime.tryParse(raw)?.toUtc();
@@ -1030,11 +1037,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     super.dispose();
   }
   void _logout(){
-    if (pos.currentUser.isNotEmpty) {
-      pos.log('Oturum kilitlendi', '${pos.currentUser} oturumu kapatıldı veya uygulama arka plana alındı');
-      pos.currentUser = '';
-      pos.save();
-    }
+    pos.lockSession(reason: 'Oturum kilitlendi');
     tab=0;
     setState(()=>authenticated=false);
   }
