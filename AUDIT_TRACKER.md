@@ -31,7 +31,7 @@ Repo: Burak085085/Restaurant-POS, target branch main. Flutter Android + Windows,
 - [x] O5 Turkish Material localization and register text cleanup.
 - [x] Y11 atomic backup write and Baku calendar date.
 - [x] Run analyze, all tests, Android APK, Windows build in Actions.
-- [x] Merge only after green; record final SHA and CI run here.
+- [x] Merged to main after green CI. Final batch commit: `5a8c6178019524952c868ec53fe4c1d095f9318b`; workflow run `45013742998` passed Android + Windows.
 
 ## Critical
 - [ ] K1: commit Android/Windows runner projects; fixed applicationId; user-owned keystore through GitHub Secrets; generate key.properties in CI; increase versionCode. Never create/commit Burak's keystore.
