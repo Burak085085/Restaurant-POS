@@ -1,3 +1,4 @@
+import 'package:path/path.dart' as path;
 import 'dart:convert';
 import 'dart:io';
 
@@ -339,6 +340,33 @@ void main() {
     expect(isRestorableBackupFileName('../restaurant-pos-manual-2026-11-21.json'), isFalse);
     expect(isRestorableBackupFileName('restaurant-pos-manual-not-json.txt'), isFalse);
   });
+  test('manual backup export is repository-backed, atomic and immediately discoverable', () async {
+    SharedPreferences.setMockInitialValues({});
+    final directory = await Directory.systemTemp.createTemp('pos-manual-backup-');
+    final repository = SqliteStoreRepository(
+      databasePath: '${directory.path}/restaurant-pos.sqlite3',
+      backupDirectoryPath: directory.path,
+    );
+    try {
+      final store = Pos(repository: repository);
+      await store.load();
+      store.products.first.name = 'Exported product';
+      final exportedPath = await store.exportBackup();
+      final exportedFile = File(exportedPath);
+      expect(await exportedFile.exists(), isTrue);
+      final payload = await exportedFile.readAsString();
+      expect(payload, contains('Exported product'));
+      final backups = await store.listBackups();
+      expect(backups.map((backup) => backup.name), contains(path.basename(exportedPath)));
+      expect(await store.readBackup(path.basename(exportedPath)), payload);
+      final backupDirectory = Directory('${directory.path}/backups');
+      expect(await backupDirectory.list().where((entry) => entry.path.endsWith('.tmp')).isEmpty, isTrue);
+    } finally {
+      await repository.close();
+      await directory.delete(recursive: true);
+    }
+  });
+
   test('backup retention matches only dated daily JSON files', () {
     expect(isDailyBackupFileName('restaurant-pos-2026-11-19.json'), isTrue);
     expect(isDailyBackupFileName('restaurant-pos-corrupt-2026-11-19T12-00-00.json'), isFalse);
