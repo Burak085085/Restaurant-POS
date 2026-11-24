@@ -315,21 +315,7 @@ class Pos extends ChangeNotifier {
     'advanced': {'suppliers': suppliers.map((e)=>e.toJson()).toList(), 'purchases': purchases.map((e)=>e.toJson()).toList(), 'customers': customers.map((e)=>e.toJson()).toList(), 'reservations': reservations.map((e)=>e.toJson()).toList(), 'barcodes': productBarcodes},
   });
 
-  Future<String> exportBackup() async {
-    final directory = await getApplicationDocumentsDirectory();
-    final folder = Directory('${directory.path}/backups');
-    if (!await folder.exists()) await folder.create(recursive: true);
-    final file = File('${folder.path}/restaurant-pos-manual-${DateTime.now().toUtc().toIso8601String().replaceAll(':','-')}.json');
-    final temporary = File('${file.path}.tmp');
-    await temporary.writeAsString(_snapshot(), flush: true);
-    try {
-      await temporary.rename(file.path);
-    } on FileSystemException {
-      if (await file.exists()) await file.delete();
-      await temporary.rename(file.path);
-    }
-    return file.path;
-  }
+  Future<String> exportBackup() => _repository.writeManualBackup(_snapshot());
   Future<List<BackupFile>> listBackups() => _repository.listBackups();
   Future<String?> readBackup(String name) => _repository.readBackup(name);
 
