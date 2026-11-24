@@ -286,7 +286,7 @@ class Staff {
     return Staff(name, role, pin: (j['pin'] ?? '1234').toString(), active: j['active'] ?? true, pinRequired: pinRequired);
   }
 }
-class KitchenNotice { final int id,tableId,quantity; final String at,productName,reason,by; bool acknowledged; KitchenNotice({required this.id,required this.tableId,required this.quantity,required this.at,required this.productName,required this.reason,required this.by,this.acknowledged=false}); Map<String,dynamic> toJson()=>{'id':id,'tableId':tableId,'quantity':quantity,'at':at,'productName':productName,'reason':reason,'by':by,'acknowledged':acknowledged}; factory KitchenNotice.fromJson(Map<String,dynamic> j)=>KitchenNotice(id:j['id']??0,tableId:j['tableId']??0,quantity:j['quantity']??0,at:j['at']??'',productName:j['productName']??'',reason:j['reason']??'',by:j['by']??'',acknowledged:j['acknowledged']??false); }
+class KitchenNotice { final int id,tableId,quantity,amount; final String at,productName,reason,by; bool acknowledged; KitchenNotice({required this.id,required this.tableId,required this.quantity,required this.at,required this.productName,required this.reason,required this.by,this.amount=0,this.acknowledged=false}); Map<String,dynamic> toJson()=>{'id':id,'tableId':tableId,'quantity':quantity,'amount':amount,'at':at,'productName':productName,'reason':reason,'by':by,'acknowledged':acknowledged}; factory KitchenNotice.fromJson(Map<String,dynamic> j)=>KitchenNotice(id:j['id']??0,tableId:j['tableId']??0,quantity:j['quantity']??0,amount:j['amount']??0,at:j['at']??'',productName:j['productName']??'',reason:j['reason']??'',by:j['by']??'',acknowledged:j['acknowledged']??false); }
 class Audit { String at,user,action,detail; Audit(this.at,this.user,this.action,this.detail); Map<String,dynamic> toJson()=>{'at':at,'user':user,'action':action,'detail':detail}; factory Audit.fromJson(Map<String,dynamic> j)=>Audit(j['at']??'',j['user']??'',j['action']??'',j['detail']??''); }
 
 class Pos extends ChangeNotifier {
@@ -315,14 +315,7 @@ class Pos extends ChangeNotifier {
     'advanced': {'suppliers': suppliers.map((e)=>e.toJson()).toList(), 'purchases': purchases.map((e)=>e.toJson()).toList(), 'customers': customers.map((e)=>e.toJson()).toList(), 'reservations': reservations.map((e)=>e.toJson()).toList(), 'barcodes': productBarcodes},
   });
 
-  Future<String> exportBackup() async {
-    final directory = await getApplicationDocumentsDirectory();
-    final folder = Directory('${directory.path}/backups');
-    if (!await folder.exists()) await folder.create(recursive: true);
-    final file = File('${folder.path}/restaurant-pos-manual-${DateTime.now().toIso8601String().replaceAll(':','-')}.json');
-    await file.writeAsString(_snapshot(), flush: true);
-    return file.path;
-  }
+  Future<String> exportBackup() => _repository.writeManualBackup(_snapshot());
   Future<List<BackupFile>> listBackups() => _repository.listBackups();
   Future<String?> readBackup(String name) => _repository.readBackup(name);
 
@@ -349,7 +342,9 @@ class Pos extends ChangeNotifier {
       final candidateRepository = MemoryStoreRepository(value: payload);
       final candidate = Pos(repository: candidateRepository);
       await candidate.load();
-      if (candidateRepository.corruptBackup != null) return false;
+      if (candidate.recoveryRequired || candidateRepository.corruptBackup != null) return false;
+      final candidateIssues = await candidate.integrityCheck();
+      if (candidateIssues.isNotEmpty) return false;
 
       await _repository.backupBeforeRestore(_snapshot());
       await _repository.write(candidate._snapshot());
@@ -497,6 +492,13 @@ class Pos extends ChangeNotifier {
   bool get isCashier => _activeStaff?.role == 'Kasiyer';
   bool get isKitchenStaff => _activeStaff?.role == 'Mutfak';
   bool get isAdmin => currentUser == 'Admin' && staff.any((member) => member.name == 'Admin' && member.active);
+  void lockSession({String reason = 'Oturum kilitlendi'}) {
+    if (currentUser.isEmpty) return;
+    final previousUser = currentUser;
+    log(reason, '$previousUser oturumu kapatıldı');
+    currentUser = '';
+    save();
+  }
   int pinLockRemainingSeconds(String scope) {
     final state=pinSecurity[scope]; final raw=state?['lockedUntil']?.toString();
     if(raw==null)return 0; final until=DateTime.tryParse(raw)?.toUtc();
@@ -629,12 +631,21 @@ class Pos extends ChangeNotifier {
     if (supplier.isEmpty || product.isEmpty) return false;
     final item = product.first;
     if (item.stock + quantity > 100000000) return false;
-    final previousValue = item.stock * item.costPrice;
-    item.stock += quantity;
-    item.costPrice = ((previousValue + quantity * unitCost) / item.stock).round();
-    purchases.add(PurchaseRecord(id: DateTime.now().microsecondsSinceEpoch.toString(),
+    final beforeStock = item.stock;
+    final previousValue = beforeStock * item.costPrice;
+    final nextStock = beforeStock + quantity;
+    // Integer-only weighted average avoids floating-point drift in qəpik values.
+    item.costPrice = ((previousValue + quantity * unitCost + nextStock ~/ 2) ~/ nextStock);
+    item.stock = nextStock;
+    final now = azNow();
+    final movementId = now.microsecondsSinceEpoch;
+    purchases.add(PurchaseRecord(id: movementId.toString(),
       supplierId: supplier.first.id, supplierName: supplier.first.name, productId: item.id,
-      productName: item.name, quantity: quantity, unitCost: unitCost, at: azNow().toIso8601String()));
+      productName: item.name, quantity: quantity, unitCost: unitCost, at: now.toIso8601String()));
+    stockMovements.add(StockMovement(id: movementId, productId: item.id,
+      productName: item.name, type: 'Alım', quantity: quantity,
+      beforeStock: beforeStock, afterStock: nextStock, productCost: unitCost,
+      at: now.toIso8601String(), note: 'Mal alımı · ${supplier.first.name}'));
     log('Mal alımı', '${supplier.first.name}: ${item.name} × $quantity'); save(); return true;
   }
   bool addCustomer(CustomerRecord customer) {
@@ -710,11 +721,12 @@ class Pos extends ChangeNotifier {
     if (!can('orders') || !table.items.contains(line) || !line.sent || quantity <= 0 ||
         quantity > line.qty || reason.trim().isEmpty || !verifySupervisorPin(supervisorPin)) return false;
     final cancelledName = line.name;
+    final cancelledAmount = line.price * quantity;
     if (quantity == line.qty) { table.items.remove(line); } else { line.qty -= quantity; }
     if (table.items.isEmpty) { table.discount=0; table.discountPercent=false; table.discountReason=''; table.kitchen=KitchenState.queued; }
     else if (table.discountPercent ? table.discount > 99 : table.discount >= table.subtotal) { table.discount=0; table.discountPercent=false; table.discountReason=''; log('İndirim sıfırlandı','Masa ${table.id}: iptal sonrası ara toplam değiştiği için indirim kaldırıldı'); }
-    kitchenNotices.insert(0, KitchenNotice(id:DateTime.now().microsecondsSinceEpoch,tableId:table.id,quantity:quantity,at:azNow().toIso8601String(),productName:cancelledName,reason:reason.trim(),by:currentUser));
-    log('Gönderilmiş ürün iptali', 'Masa ${table.id}: $cancelledName × $quantity · Neden: ${reason.trim()}');
+    kitchenNotices.insert(0, KitchenNotice(id:DateTime.now().microsecondsSinceEpoch,tableId:table.id,quantity:quantity,amount:cancelledAmount,at:azNow().toIso8601String(),productName:cancelledName,reason:reason.trim(),by:currentUser));
+    log('Gönderilmiş ürün iptali', 'Masa ${table.id}: $cancelledName × $quantity · Tutar: ${money(cancelledAmount)} · Neden: ${reason.trim()}');
     save();
     return true;
   }
@@ -998,7 +1010,12 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
-      pos.flush().catchError((Object _) {});
+      // Lock the UI when the app leaves the foreground; persist pending writes first.
+      pos.flush().then((_) {
+        if (mounted && authenticated) _logout();
+      }).catchError((Object _) {
+        if (mounted && authenticated) _logout();
+      });
     }
   }
   @override
@@ -1006,7 +1023,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
-  void _logout(){pos.currentUser='';tab=0;setState(()=>authenticated=false);}
+  void _logout(){
+    pos.lockSession(reason: 'Oturum kilitlendi');
+    tab=0;
+    setState(()=>authenticated=false);
+  }
   @override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(context,_){
     if(!authenticated)return PinGate(
       onAuthenticated:()=>setState(()=>authenticated=true),
@@ -1330,7 +1351,7 @@ class KitchenPage extends StatelessWidget {
             itemBuilder:(context,index){final notice=notices[index];return Card(color:Colors.red.shade50,child:ListTile(
               leading:const Icon(Icons.notification_important,color:red),
               title:Text('İPTAL · Masa ${notice.tableId} · ${notice.quantity} × ${notice.productName}',style:const TextStyle(fontWeight:FontWeight.bold)),
-              subtitle:Text('${notice.reason} · ${notice.by} · ${bakuTimestamp(notice.at)}'),
+              subtitle:Text('${notice.reason} · ${money(notice.amount)} · ${notice.by} · ${bakuTimestamp(notice.at)}'),
               trailing:IconButton(tooltip:'Görüldü',onPressed:()=>pos.acknowledgeKitchenNotice(notice),icon:const Icon(Icons.check_circle_outline)),
             ));},
           )),

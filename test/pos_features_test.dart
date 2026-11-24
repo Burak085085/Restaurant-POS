@@ -38,6 +38,8 @@ void main() {
       expect(pos.reservedStock(product.id), 1);
       expect(pos.kitchenNotices.single.reason, 'Müşteri vazgeçti');
       expect(pos.kitchenNotices.single.quantity, 1);
+      expect(pos.kitchenNotices.single.amount, product.price);
+      expect(pos.audit.first.detail, contains(money(product.price)));
       expect(pos.acknowledgeKitchenNotice(pos.kitchenNotices.single), isTrue);
 
       expect(pos.cancelSentLine(table, line, 1, 'Tam iptal', '1234'), isTrue);
@@ -213,6 +215,12 @@ void main() {
       expect(product.stock, 20);
       expect(product.costPrice, 200);
       expect(pos.purchases.single.total, 3000);
+      expect(pos.stockMovements, hasLength(1));
+      expect(pos.stockMovements.single.type, 'Alım');
+      expect(pos.stockMovements.single.quantity, 10);
+      expect(pos.stockMovements.single.beforeStock, 10);
+      expect(pos.stockMovements.single.afterStock, 20);
+      expect(pos.stockMovements.single.productCost, 300);
       await pos.flush();
     });
 
@@ -254,6 +262,31 @@ void main() {
       await restored.load();
       expect(restored.customers.single.name, 'Aysel');
       expect(restored.suppliers.single.name, 'Anbar');
+    });
+
+
+    test('session lock clears the active identity and persists a security audit event', () async {
+      final repository = MemoryStoreRepository();
+      final pos = Pos(repository: repository);
+      expect(pos.isAdmin, isTrue);
+      pos.lockSession();
+      expect(pos.currentUser, isEmpty);
+      expect(pos.isAdmin, isFalse);
+      expect(pos.audit.last.action, 'Oturum kilitlendi');
+      await pos.flush();
+      final restored = Pos(repository: repository);
+      await restored.load();
+      expect(restored.currentUser, 'Admin');
+      expect(restored.audit.last.action, 'Oturum kilitlendi');
+    });
+
+    test('backup restore rejects inconsistent state before replacing live data', () async {
+      final repository = MemoryStoreRepository();
+      final pos = Pos(repository: repository);
+      const invalidBackup = '{"products":[{"id":"p1","name":"Bozuk","stock":-5,"price":100,"costPrice":0}],"tables":[],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","salt":"salt","pinHash":"hash","pinRequired":true,"active":true}]}';
+      expect(await pos.restoreBackup(invalidBackup), isFalse);
+      expect(repository.value, isNull);
+      expect(pos.products.first.name, 'Tavuk döner');
     });
 
     test('integrity check reports a clean new store', () async {

@@ -33,6 +33,14 @@ Repo: Burak085085/Restaurant-POS, target branch main. Flutter Android + Windows,
 - [x] Run analyze, all tests, Android APK, Windows build in Actions.
 - [x] Merged to main after green CI. Final batch commit: `5a8c6178019524952c868ec53fe4c1d095f9318b`; workflow run `45013742998` passed Android + Windows.
 
+## Batch 03 (branch feature/priority-audit-hardening) — implementation in review
+- [x] K4: repository-backed manual export, atomic temporary-file rename, discoverability/readback test; restore now runs integrity validation before replacing live data.
+- [x] Y2 partial: sent-line cancellation records reason, supervisor PIN, product, quantity, amount, actor and kitchen notice; existing refund flow records negative sale and cash movement with admin PIN/reason. Additional refund edge cases and stock-return audit remain open.
+- [x] Y8 partial: supplier purchase writes a stock movement and weighted-average unit cost uses integer arithmetic. Ingredient stock movement ledger and full reconciliation remain open.
+- [x] Y9 partial: PBKDF2 and persistent escalating PIN lockouts were already present; app background now flushes and locks the session with an audit event. Configurable inactivity timeout and cross-platform lifecycle smoke tests remain open.
+- [ ] K1: release identity/signing and committed platform runners remain blocked on owner-confirmed Android application ID and user-owned keystore/GitHub Secrets. No signing secret was created or committed.
+- [ ] Android and Windows CI for this batch must both pass before merge.
+
 ## Critical
 - [ ] K1: commit Android/Windows runner projects; fixed applicationId; user-owned keystore through GitHub Secrets; generate key.properties in CI; increase versionCode. Never create/commit Burak's keystore.
 - [ ] K2: recovery mode on corrupt DB; no writes before choice; inspect/restore; preserve admin hash; atomic load; preserve suppliers, purchases, customers, reservations, barcodes.

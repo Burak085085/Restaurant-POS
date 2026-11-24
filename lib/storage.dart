@@ -32,6 +32,7 @@ abstract class StoreRepository {
   Future<void> write(String payload);
   Future<void> backupCorrupt(String payload);
   Future<void> backupBeforeRestore(String payload);
+  Future<String> writeManualBackup(String payload);
   Future<List<BackupFile>> listBackups();
   Future<String?> readBackup(String name);
 }
@@ -192,6 +193,8 @@ class SqliteStoreRepository implements StoreRepository {
         where: 'key = ?', whereArgs: ['advanced_json'], limit: 1);
     final pinSecurityRows = await db.query('app_meta', columns: ['value'],
         where: 'key = ?', whereArgs: ['pin_security_json'], limit: 1);
+    final kitchenNoticeRows = await db.query('app_meta', columns: ['value'],
+        where: 'key = ?', whereArgs: ['kitchen_notices_json'], limit: 1);
     final ingredientData = ingredientRows.isEmpty ? <dynamic>[] :
         (jsonDecode(_string(ingredientRows.first['value'])) as List? ?? <dynamic>[]);
     final recipeData = recipeRows.isEmpty ? <String, dynamic>{} :
@@ -200,6 +203,8 @@ class SqliteStoreRepository implements StoreRepository {
         (jsonDecode(_string(advancedRows.first['value'])) as Map? ?? <String, dynamic>{});
     final pinSecurityData = pinSecurityRows.isEmpty ? <String, dynamic>{} :
         (jsonDecode(_string(pinSecurityRows.first['value'])) as Map? ?? <String, dynamic>{});
+    final kitchenNoticeData = kitchenNoticeRows.isEmpty ? <dynamic>[] :
+        (jsonDecode(_string(kitchenNoticeRows.first['value'])) as List? ?? <dynamic>[]);
 
     return {
       'products': products.map((product) => {
@@ -247,6 +252,7 @@ class SqliteStoreRepository implements StoreRepository {
       }).toList(),
       'currentUser': currentUserRows.isEmpty ? 'Admin' : _string(currentUserRows.first['value'], 'Admin'),
       'pinSecurity': pinSecurityData,
+      'kitchenNotices': kitchenNoticeData,
       'ingredients': ingredientData,
       'recipes': recipeData,
       'advanced': advancedData,
@@ -277,6 +283,10 @@ class SqliteStoreRepository implements StoreRepository {
       await transaction.insert('app_meta', {
         'key': 'pin_security_json',
         'value': jsonEncode(decoded['pinSecurity'] ?? <String, dynamic>{}),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await transaction.insert('app_meta', {
+        'key': 'kitchen_notices_json',
+        'value': jsonEncode(decoded['kitchenNotices'] ?? <dynamic>[]),
       }, conflictAlgorithm: ConflictAlgorithm.replace);
       await transaction.delete('payments');
       await transaction.delete('sale_items');
@@ -501,6 +511,22 @@ class SqliteStoreRepository implements StoreRepository {
   }
 
   @override
+  Future<String> writeManualBackup(String payload) async {
+    final directory = await _backupDirectory();
+    final stamp = DateTime.now().toUtc().toIso8601String().replaceAll(':', '-');
+    final file = File(path.join(directory.path, 'restaurant-pos-manual-$stamp.json'));
+    final temporary = File('${file.path}.tmp');
+    await temporary.writeAsString(payload, flush: true);
+    try {
+      await temporary.rename(file.path);
+    } on FileSystemException {
+      if (await file.exists()) await file.delete();
+      await temporary.rename(file.path);
+    }
+    return file.path;
+  }
+
+  @override
   Future<List<BackupFile>> listBackups() async {
     final directory = await _backupDirectory();
     final files = await directory.list()
@@ -566,6 +592,14 @@ class MemoryStoreRepository implements StoreRepository {
 
   @override
   Future<String?> readBackup(String name) async => backupFiles[name];
+
+  @override
+  Future<String> writeManualBackup(String payload) async {
+    final stamp = DateTime.now().toUtc().toIso8601String().replaceAll(':', '-');
+    final name = 'restaurant-pos-manual-$stamp.json';
+    backupFiles[name] = payload;
+    return name;
+  }
 
   @override
   Future<void> backupCorrupt(String payload) async {
