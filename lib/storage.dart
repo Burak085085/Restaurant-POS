@@ -57,7 +57,10 @@ class SqliteStoreRepository implements StoreRepository {
       resolvedPath,
       version: storeDatabaseVersion,
       onConfigure: (db) async {
-        await db.execute('PRAGMA journal_mode = WAL');
+        // PRAGMA journal_mode returns a result row, so it must go through
+        // rawQuery: execute() throws on Android ("Queries can be performed
+        // using SQLiteDatabase query or rawQuery methods only").
+        await db.rawQuery('PRAGMA journal_mode = WAL');
         await db.execute('PRAGMA synchronous = FULL');
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -101,6 +104,22 @@ class SqliteStoreRepository implements StoreRepository {
   bool _bool(Object? value, [bool fallback = false]) =>
       value is bool ? value : value is num ? value != 0 : fallback;
 
+  /// Sale fields that have no dedicated column (refund link, refund reason,
+  /// stock-return flag, ingredient usage). They are kept in app_meta under
+  /// `sales_extra_json`, keyed by sale position, and only for sales that
+  /// actually carry one of them.
+  Map<String, dynamic> _saleExtras(Map<String, dynamic> sale) {
+    final extras = <String, dynamic>{};
+    if (_bool(sale['isRefund'])) extras['isRefund'] = true;
+    if (sale['refundOfSaleIndex'] != null) extras['refundOfSaleIndex'] = _int(sale['refundOfSaleIndex']);
+    final reason = _string(sale['reason']);
+    if (reason.isNotEmpty) extras['reason'] = reason;
+    if (_bool(sale['stockReturned'])) extras['stockReturned'] = true;
+    final usage = sale['ingredientUsage'];
+    if (usage is Map) extras['ingredientUsage'] = usage;
+    return extras;
+  }
+
   @override
   Future<String?> read() async {
     final db = await _open();
@@ -143,6 +162,10 @@ class SqliteStoreRepository implements StoreRepository {
       });
     }
 
+    final salesExtraRows = await db.query('app_meta', columns: ['value'],
+        where: 'key = ?', whereArgs: ['sales_extra_json'], limit: 1);
+    final salesExtra = salesExtraRows.isEmpty ? <String, dynamic>{} :
+        (jsonDecode(_string(salesExtraRows.first['value'])) as Map? ?? <String, dynamic>{});
     final sessionRows = await db.query('register_sessions', orderBy: 'opened_at');
     final movementRows = await db.query('cash_movements', orderBy: 'at');
     final saleRows = await db.query('sales', orderBy: 'position');
@@ -153,7 +176,7 @@ class SqliteStoreRepository implements StoreRepository {
           where: 'sale_position = ?', whereArgs: [salePosition], orderBy: 'position');
       final payments = await db.query('payments',
           where: 'sale_position = ?', whereArgs: [salePosition], orderBy: 'position');
-      sales.add({
+      final saleMap = <String, dynamic>{
         'date': _string(sale['date']),
         'time': _string(sale['time']),
         'staff': _string(sale['staff']),
@@ -177,7 +200,10 @@ class SqliteStoreRepository implements StoreRepository {
           'amount': _int(payment['amount']),
           'tendered': _int(payment['tendered']),
         }).toList(),
-      });
+      };
+      final extra = salesExtra['$salePosition'];
+      if (extra is Map) saleMap.addAll(Map<String, dynamic>.from(extra));
+      sales.add(saleMap);
     }
 
     final expenseRows=await db.query('expenses',orderBy:'date,id');final stockRows=await db.query('stock_movements',orderBy:'at,id');final staffRows = await db.query('staff', orderBy: 'name');
@@ -192,6 +218,10 @@ class SqliteStoreRepository implements StoreRepository {
         where: 'key = ?', whereArgs: ['advanced_json'], limit: 1);
     final pinSecurityRows = await db.query('app_meta', columns: ['value'],
         where: 'key = ?', whereArgs: ['pin_security_json'], limit: 1);
+    final kitchenNoticeRows = await db.query('app_meta', columns: ['value'],
+        where: 'key = ?', whereArgs: ['kitchen_notices_json'], limit: 1);
+    final timestampVersionRows = await db.query('app_meta', columns: ['value'],
+        where: 'key = ?', whereArgs: ['timestamp_format_version'], limit: 1);
     final ingredientData = ingredientRows.isEmpty ? <dynamic>[] :
         (jsonDecode(_string(ingredientRows.first['value'])) as List? ?? <dynamic>[]);
     final recipeData = recipeRows.isEmpty ? <String, dynamic>{} :
@@ -200,8 +230,12 @@ class SqliteStoreRepository implements StoreRepository {
         (jsonDecode(_string(advancedRows.first['value'])) as Map? ?? <String, dynamic>{});
     final pinSecurityData = pinSecurityRows.isEmpty ? <String, dynamic>{} :
         (jsonDecode(_string(pinSecurityRows.first['value'])) as Map? ?? <String, dynamic>{});
+    final kitchenNoticeData = kitchenNoticeRows.isEmpty ? <dynamic>[] :
+        (jsonDecode(_string(kitchenNoticeRows.first['value'])) as List? ?? <dynamic>[]);
 
     return {
+      if (timestampVersionRows.isNotEmpty)
+        'timestampFormatVersion': _int(timestampVersionRows.first['value']),
       'products': products.map((product) => {
         'id': _string(product['id']),
         'category': _string(product['category']),
@@ -245,6 +279,7 @@ class SqliteStoreRepository implements StoreRepository {
         'action': _string(entry['action']),
         'detail': _string(entry['detail']),
       }).toList(),
+      'kitchenNotices': kitchenNoticeData,
       'currentUser': currentUserRows.isEmpty ? 'Admin' : _string(currentUserRows.first['value'], 'Admin'),
       'pinSecurity': pinSecurityData,
       'ingredients': ingredientData,
@@ -278,6 +313,20 @@ class SqliteStoreRepository implements StoreRepository {
         'key': 'pin_security_json',
         'value': jsonEncode(decoded['pinSecurity'] ?? <String, dynamic>{}),
       }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await transaction.insert('app_meta', {
+        'key': 'kitchen_notices_json',
+        'value': jsonEncode(decoded['kitchenNotices'] ?? <dynamic>[]),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      final timestampVersion = decoded['timestampFormatVersion'];
+      if (timestampVersion != null) {
+        await transaction.insert('app_meta', {
+          'key': 'timestamp_format_version',
+          'value': _string(timestampVersion),
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      } else {
+        await transaction.delete('app_meta',
+            where: 'key = ?', whereArgs: ['timestamp_format_version']);
+      }
       await transaction.delete('payments');
       await transaction.delete('sale_items');
       await transaction.delete('sales');
@@ -367,10 +416,13 @@ class SqliteStoreRepository implements StoreRepository {
         }
       }
 
+      final salesExtra = <String, dynamic>{};
       final sales = decoded['sales'];
       if (sales is List) {
         for (var index = 0; index < sales.length; index++) {
           final sale = Map<String, dynamic>.from(sales[index] as Map);
+          final extras = _saleExtras(sale);
+          if (extras.isNotEmpty) salesExtra['$index'] = extras;
           await transaction.insert('sales', {
             'position': index,
             'date': _string(sale['date']),
@@ -415,6 +467,10 @@ class SqliteStoreRepository implements StoreRepository {
           }
         }
       }
+      await transaction.insert('app_meta', {
+        'key': 'sales_extra_json',
+        'value': jsonEncode(salesExtra),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
 
       final expenses=decoded['expenses'];if(expenses is List)for(final raw in expenses){final e=Map<String,dynamic>.from(raw as Map);await transaction.insert('expenses',{'id':_int(e['id']),'date':_string(e['date']),'category':_string(e['category']),'amount':_int(e['amount']),'note':_string(e['note'])});}final stockRows=decoded['stockMovements'];if(stockRows is List)for(final raw in stockRows){final e=Map<String,dynamic>.from(raw as Map);await transaction.insert('stock_movements',{'id':_int(e['id']),'product_id':_string(e['productId']),'product_name':_string(e['productName']),'type':_string(e['type']),'quantity':_int(e['quantity']),'before_stock':_int(e['beforeStock']),'after_stock':_int(e['afterStock']),'product_cost':_int(e['productCost']),'at':_string(e['at']),'note':_string(e['note'])});}
       final staff = decoded['staff'];
