@@ -340,6 +340,35 @@ void main() {
     expect(isRestorableBackupFileName('../restaurant-pos-manual-2026-11-21.json'), isFalse);
     expect(isRestorableBackupFileName('restaurant-pos-manual-not-json.txt'), isFalse);
   });
+  test('SQLite persists kitchen cancellation notice and cancelled amount', () async {
+    SharedPreferences.setMockInitialValues({});
+    final directory = await Directory.systemTemp.createTemp('pos-kitchen-notice-');
+    final repository = SqliteStoreRepository(
+      databasePath: '${directory.path}/restaurant-pos.sqlite3',
+      backupDirectoryPath: directory.path,
+    );
+    try {
+      final store = Pos(repository: repository);
+      final table = store.tables.first;
+      final product = store.products.first;
+      expect(store.add(table, product), isTrue);
+      expect(store.sendKitchen(table), isTrue);
+      expect(store.cancelSentLine(table, table.items.single, 1, 'Müşteri vazgeçti', '1234'), isTrue);
+      await store.flush();
+
+      final restored = Pos(repository: repository);
+      await restored.load();
+      expect(restored.kitchenNotices, hasLength(1));
+      expect(restored.kitchenNotices.single.productName, product.name);
+      expect(restored.kitchenNotices.single.quantity, 1);
+      expect(restored.kitchenNotices.single.amount, product.price);
+      expect(restored.audit.first.detail, contains(money(product.price)));
+    } finally {
+      await repository.close();
+      await directory.delete(recursive: true);
+    }
+  });
+
   test('manual backup export is repository-backed, atomic and immediately discoverable', () async {
     SharedPreferences.setMockInitialValues({});
     final directory = await Directory.systemTemp.createTemp('pos-manual-backup-');
