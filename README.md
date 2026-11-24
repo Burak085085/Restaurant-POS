@@ -20,7 +20,7 @@ Offline-first Flutter point-of-sale application for **Android and Windows**.
 - Order lines, sale items and payments use foreign keys and explicit positions so item and transaction order survives reloads.
 - State writes replace the normalized records inside one database transaction. SQLite uses WAL journaling, `synchronous=FULL` and foreign-key enforcement.
 - Existing version-1 `app_state` JSON and `restaurant_pos_v2` SharedPreferences data remain readable. They are converted to normalized records on the first successful save; the old SharedPreferences key is removed only after the SQLite transaction commits.
-- The database uses schema version 4. Version 3 adds cash-register sessions and cash movements; version 4 adds product cost, sale-item cost snapshots, expenses and stock movement history. Historical sales remain valid with no assigned shift.
+- The database uses schema version 5. Version 5 preserves discount reason and percentage on completed sales; older version-4 databases are migrated automatically. Version 3 adds cash-register sessions and cash movements; version 4 adds product cost, sale-item cost snapshots, expenses and stock movement history. Historical sales remain valid with no assigned shift.
 - A daily JSON snapshot is written under the app documents directory in `backups/`. The seven most recent daily backups are retained.
 - Corrupt legacy JSON is preserved as a separate recovery file before the app starts with safe defaults.
 - Android and Windows devices keep separate local databases. This is not cloud synchronization.
