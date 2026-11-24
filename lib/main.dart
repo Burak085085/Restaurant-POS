@@ -319,8 +319,15 @@ class Pos extends ChangeNotifier {
     final directory = await getApplicationDocumentsDirectory();
     final folder = Directory('${directory.path}/backups');
     if (!await folder.exists()) await folder.create(recursive: true);
-    final file = File('${folder.path}/restaurant-pos-manual-${DateTime.now().toIso8601String().replaceAll(':','-')}.json');
-    await file.writeAsString(_snapshot(), flush: true);
+    final file = File('${folder.path}/restaurant-pos-manual-${DateTime.now().toUtc().toIso8601String().replaceAll(':','-')}.json');
+    final temporary = File('${file.path}.tmp');
+    await temporary.writeAsString(_snapshot(), flush: true);
+    try {
+      await temporary.rename(file.path);
+    } on FileSystemException {
+      if (await file.exists()) await file.delete();
+      await temporary.rename(file.path);
+    }
     return file.path;
   }
   Future<List<BackupFile>> listBackups() => _repository.listBackups();
@@ -349,7 +356,9 @@ class Pos extends ChangeNotifier {
       final candidateRepository = MemoryStoreRepository(value: payload);
       final candidate = Pos(repository: candidateRepository);
       await candidate.load();
-      if (candidateRepository.corruptBackup != null) return false;
+      if (candidate.recoveryRequired || candidateRepository.corruptBackup != null) return false;
+      final candidateIssues = await candidate.integrityCheck();
+      if (candidateIssues.isNotEmpty) return false;
 
       await _repository.backupBeforeRestore(_snapshot());
       await _repository.write(candidate._snapshot());
@@ -629,12 +638,21 @@ class Pos extends ChangeNotifier {
     if (supplier.isEmpty || product.isEmpty) return false;
     final item = product.first;
     if (item.stock + quantity > 100000000) return false;
-    final previousValue = item.stock * item.costPrice;
-    item.stock += quantity;
-    item.costPrice = ((previousValue + quantity * unitCost) / item.stock).round();
-    purchases.add(PurchaseRecord(id: DateTime.now().microsecondsSinceEpoch.toString(),
+    final beforeStock = item.stock;
+    final previousValue = beforeStock * item.costPrice;
+    final nextStock = beforeStock + quantity;
+    // Integer-only weighted average avoids floating-point drift in qəpik values.
+    item.costPrice = ((previousValue + quantity * unitCost + nextStock ~/ 2) ~/ nextStock);
+    item.stock = nextStock;
+    final now = azNow();
+    final movementId = now.microsecondsSinceEpoch;
+    purchases.add(PurchaseRecord(id: movementId.toString(),
       supplierId: supplier.first.id, supplierName: supplier.first.name, productId: item.id,
-      productName: item.name, quantity: quantity, unitCost: unitCost, at: azNow().toIso8601String()));
+      productName: item.name, quantity: quantity, unitCost: unitCost, at: now.toIso8601String()));
+    stockMovements.add(StockMovement(id: movementId, productId: item.id,
+      productName: item.name, type: 'Alım', quantity: quantity,
+      beforeStock: beforeStock, afterStock: nextStock, productCost: unitCost,
+      at: now.toIso8601String(), note: 'Mal alımı · ${supplier.first.name}'));
     log('Mal alımı', '${supplier.first.name}: ${item.name} × $quantity'); save(); return true;
   }
   bool addCustomer(CustomerRecord customer) {
@@ -998,7 +1016,12 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
-      pos.flush().catchError((Object _) {});
+      // Lock the UI when the app leaves the foreground; persist pending writes first.
+      pos.flush().then((_) {
+        if (mounted && authenticated) _logout();
+      }).catchError((Object _) {
+        if (mounted && authenticated) _logout();
+      });
     }
   }
   @override
@@ -1006,7 +1029,15 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
-  void _logout(){pos.currentUser='';tab=0;setState(()=>authenticated=false);}
+  void _logout(){
+    if (pos.currentUser.isNotEmpty) {
+      pos.log('Oturum kilitlendi', '${pos.currentUser} oturumu kapatıldı veya uygulama arka plana alındı');
+      pos.currentUser = '';
+      pos.save();
+    }
+    tab=0;
+    setState(()=>authenticated=false);
+  }
   @override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(context,_){
     if(!authenticated)return PinGate(
       onAuthenticated:()=>setState(()=>authenticated=true),
