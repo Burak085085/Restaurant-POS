@@ -17,3 +17,13 @@ local.properties
 analyze.log
 test.log
 build.log
+
+# Real restaurant data must never be committed (the repo may be public).
+# Local databases and backups contain sales history and PIN hashes.
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.db
+restaurant-pos-*.json
+restoram-rapor-*.csv
+backups/
