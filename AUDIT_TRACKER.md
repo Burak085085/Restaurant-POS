@@ -25,13 +25,13 @@ Repo: Burak085085/Restaurant-POS, target branch main. Flutter Android + Windows,
 - These are partial statuses, not blanket closure.
 
 ## Batch 01 (branch fix/audit-batch-01)
-- [ ] O14 strict localized money parser and validation.
-- [ ] O3 blind cash count and invalid amount feedback.
-- [ ] O12 flush pending writes on paused/detached.
-- [ ] O5 Turkish Material localization and register text cleanup.
-- [ ] Y11 atomic backup write and Baku calendar date.
-- [ ] Run analyze, all tests, Android APK, Windows build in Actions.
-- [ ] Merge only after green; record final SHA and CI run here.
+- [x] O14 strict localized money parser and validation.
+- [x] O3 blind cash count and invalid amount feedback.
+- [x] O12 flush pending writes on paused/detached.
+- [x] O5 Turkish Material localization and register text cleanup.
+- [x] Y11 atomic backup write and Baku calendar date.
+- [x] Run analyze, all tests, Android APK, Windows build in Actions.
+- [x] Merge only after green; record final SHA and CI run here.
 
 ## Critical
 - [ ] K1: commit Android/Windows runner projects; fixed applicationId; user-owned keystore through GitHub Secrets; generate key.properties in CI; increase versionCode. Never create/commit Burak's keystore.
