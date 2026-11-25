@@ -20,7 +20,7 @@ Repo: Burak085085/Restaurant-POS, target branch main. Flutter Android + Windows,
 - Y5 UTC/Baku display conversion exists; audit remaining time paths.
 - Y9 PBKDF2 and persistent lockout data exist; verify every PIN path/expiry.
 - K2 recovery mode exists, but recovery edge cases remain.
-- K4 file import/manual listing exist; export still needs repository-backed safe writing.
+- K4 repository-backed manual export, manual listing, restore validation and atomic write are implemented on main.
 - K1 remains incomplete: android/windows runners are generated in CI, release identity/signing/versioning unresolved.
 - These are partial statuses, not blanket closure.
 
@@ -33,7 +33,7 @@ Repo: Burak085085/Restaurant-POS, target branch main. Flutter Android + Windows,
 - [x] Run analyze, all tests, Android APK, Windows build in Actions.
 - [x] Merged to main after green CI. Final batch commit: `5a8c6178019524952c868ec53fe4c1d095f9318b`; workflow run `45013742998` passed Android + Windows.
 
-## Batch 03 (branch feature/priority-audit-hardening) — implementation in review
+## Batch 03 (branch feature/priority-audit-hardening) — merged to main; CI passed
 - [x] K4: repository-backed manual export, atomic temporary-file rename, discoverability/readback test; restore now runs integrity validation before replacing live data.
 - [x] Y2 partial: sent-line cancellation records reason, supervisor PIN, product, quantity, amount, actor and kitchen notice; existing refund flow records negative sale and cash movement with admin PIN/reason. Additional refund edge cases and stock-return audit remain open.
 - [x] Y8 partial: supplier purchase writes a stock movement and weighted-average unit cost uses integer arithmetic. Ingredient stock movement ledger and full reconciliation remain open.
@@ -45,17 +45,17 @@ Repo: Burak085085/Restaurant-POS, target branch main. Flutter Android + Windows,
 - [ ] K1: commit Android/Windows runner projects; fixed applicationId; user-owned keystore through GitHub Secrets; generate key.properties in CI; increase versionCode. Never create/commit Burak's keystore.
 - [ ] K2: recovery mode on corrupt DB; no writes before choice; inspect/restore; preserve admin hash; atomic load; preserve suppliers, purchases, customers, reservations, barcodes.
 - [x] K3: negative money formatting fixed; keep tests for -1, -30, -99, -100, -120, -250.
-- [ ] K4: file backup import, manual listing, repository-backed export, validate restore.
+- [x] K4: file backup import, manual listing, repository-backed atomic export, integrity-validated restore.
 ## High
 - [x] Y1: open register required for cash checkout.
-- [ ] Y2: sent-line cancellation reason/elevated PIN/audit product+qty+amount/user/kitchen alert; refund with admin PIN/reason/negative sale/cash ledger/optional stock.
+- [x] Y2 core: sent-line cancellation reason/elevated PIN/audit product+qty+amount/user/kitchen alert; refund with admin PIN/reason/negative sale/cash ledger/optional stock. Remaining refund edge cases and reconciliation tests stay open.
 - [ ] Y3: Sale discountReason/discountPercent, schema migration, critical vs ordinary audit retention.
 - [ ] Y4: differential SQLite writes, debounced backups, batch reads, paginated/date-filtered reports.
 - [ ] Y5: consistent Baku/UTC timestamps, legacy conversion and timezone tests.
 - [ ] Y6: precise ingredient unit costs and migration.
 - [ ] Y7: ingredient stock ledger/purchasing/weighted average/waste and unambiguous costing.
 - [ ] Y8: stock movement for all edits/purchases; bool upsert result; ledger continuity and sale-total integrity checks.
-- [ ] Y9: persistent escalating lockout on every PIN path; PBKDF2; audit login/logout/failures.
+- [x] Y9 core: PBKDF2 PIN hashes, persistent escalating lockout for admin/staff/supervisor verification paths and audit of attempts. Remaining payment-PIN path verification and lifecycle smoke tests stay open.
 - [ ] Y10: background/inactivity session lock with configurable timeout.
 - [ ] Y11: atomic temp+rename; daily + hourly retention; Baku date; surfaced backup failures; last successful backup; cleanup policy.
 - [ ] Y12: verify Windows sqlite3.dll and smoke test. Move DB to Application Support only after Burak's explicit approval.
@@ -102,3 +102,20 @@ Repo: Burak085085/Restaurant-POS, target branch main. Flutter Android + Windows,
 
 ## Next chat handoff
 Read this tracker first, inspect current main SHA and latest Actions run, compare each item to code/tests, and continue only with open findings. Do not ask Burak to paste the audit again. Preserve all constraints above.
+
+
+## Batch 04 (branch fix/critical-recovery-audit) — in progress
+- [x] Cleanup: closed stale PR #5 as superseded by merged PR #6; no code was removed from main.
+- [x] Added regression test for restore preserving supplier, purchase, customer, reservation, barcode and hashed administrator PIN data.
+- [ ] Run Android + Windows analyze/test/release builds; merge only after both jobs pass.
+- [ ] Extend recovery validation with malformed/partial legacy payload fixtures, failed-write injection and backup restore rollback verification.
+- [ ] Reconcile README security wording and audit tracker against current implementation.
+
+## Owner inputs required before release signing (K1)
+- [ ] Burak must confirm the final Android application ID/package name.
+- [ ] Burak must provide/create and retain ownership of the Android upload/signing keystore; credentials must be entered directly into GitHub Secrets by the owner. Never request or commit the keystore or passwords in chat/repository.
+- [ ] After owner inputs, commit stable Android/Windows runner projects, configure signing in CI and set versionCode/versionName.
+
+## Cleanup notes
+- PR #5 (manual backup export) was closed on 2026-11-25 because the same implementation had already landed through merged PR #6 and is present on main.
+- The project in scope is exclusively this Restaurant-POS repository. Do not switch to or perform work on any unrelated/abandoned project.
