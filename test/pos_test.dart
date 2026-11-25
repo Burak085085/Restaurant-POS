@@ -392,6 +392,94 @@ void main() {
     expect(repository.backupFiles, hasLength(1));
   });
 
+  test('malformed nested legacy backup cannot replace current data', () async {
+    final repository = MemoryStoreRepository(
+      value: '{"products":[{"id":"old","category":"Test","name":"Old","price":100,"stock":5,"lowAt":1,"active":true}],"tables":[],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"8642","active":true}],"audit":[]}',
+    );
+    final store = Pos(repository: repository);
+    await store.load();
+    const malformedLegacyBackup = '{"products":[{"id":"new","category":"Test","name":"Broken","price":100,"stock":5,"lowAt":1,"active":true}],"tables":[{"id":1,"items":[null]}],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"2468","active":true}],"audit":[]}';
+
+    expect(await store.restoreBackup(malformedLegacyBackup), isFalse);
+    expect(store.products.single.name, 'Old');
+    expect(repository.value, contains('"Old"'));
+    expect(repository.value, isNot(contains('"Broken"')));
+    expect(repository.backupFiles, isEmpty);
+  });
+
+  test('SQLite transaction failure during backup replacement preserves the previous database', () async {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+    SharedPreferences.setMockInitialValues({});
+    final directory = await Directory.systemTemp.createTemp('pos-sqlite-restore-failure-');
+    final databasePath = '${directory.path}/restaurant-pos.sqlite3';
+    final repository = SqliteStoreRepository(
+      databasePath: databasePath,
+      backupDirectoryPath: directory.path,
+    );
+    try {
+      final store = Pos(repository: repository);
+      await store.load();
+      store.products.first.name = 'Original';
+      // A fresh store starts with the built-in demo menu (several products),
+      // so compare against the real saved count instead of assuming one row.
+      final originalProductCount = store.products.length;
+      expect(originalProductCount, greaterThan(1));
+      store.save();
+      await store.flush();
+      await repository.close();
+
+      // Install a persistent SQLite trigger, then close that connection before
+      // the repository reopens the file. This avoids testing against two
+      // simultaneously cached sqflite handles for the same database path.
+      final triggerDatabase = await openDatabase(databasePath);
+      await triggerDatabase.execute("""
+        CREATE TRIGGER reject_restore_product_delete
+        BEFORE DELETE ON products
+        BEGIN
+          SELECT RAISE(ABORT, 'Simulated SQLite restore write failure');
+        END;
+      """);
+      final triggerRows = await triggerDatabase.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'reject_restore_product_delete'");
+      expect(triggerRows, hasLength(1));
+      await triggerDatabase.close();
+
+      const backup = '{"products":[{"id":"restored","category":"Test","name":"Restored","price":250,"costPrice":0,"stock":8,"lowAt":2,"active":true}],"tables":[],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"2468","active":true}],"audit":[]}';
+
+      // The injected DELETE failure must abort the actual repository
+      // transaction without committing any of its preceding DELETE/INSERTs.
+      await expectLater(
+        repository.write(backup),
+        throwsA(isA<DatabaseException>()),
+      );
+      await repository.close();
+
+      final inspectionDatabase = await openDatabase(databasePath);
+      try {
+        final products = await inspectionDatabase.query('products', orderBy: 'rowid');
+        expect(products, hasLength(originalProductCount));
+        expect(products.first['name'], 'Original');
+        expect(products.any((row) => row['id'] == 'restored'), isFalse);
+        final integrity = await inspectionDatabase.rawQuery('PRAGMA integrity_check');
+        expect(integrity.single.values.single, 'ok');
+        await inspectionDatabase.execute('DROP TRIGGER reject_restore_product_delete');
+      } finally {
+        await inspectionDatabase.close();
+      }
+
+      final reloaded = Pos(repository: repository);
+      await reloaded.load();
+      expect(reloaded.recoveryRequired, isFalse);
+      expect(reloaded.products, hasLength(originalProductCount));
+      expect(reloaded.products.first.name, 'Original');
+      expect(reloaded.products.any((product) => product.id == 'restored'), isFalse);
+      expect(await reloaded.integrityCheck(), isEmpty);
+    } finally {
+      await repository.close();
+      await directory.delete(recursive: true);
+    }
+  });
   test('invalid backup cannot replace current data', () async {
     final repository = MemoryStoreRepository(value: '{"products":[{"id":"old","category":"Test","name":"Old","price":100,"stock":5,"lowAt":1,"active":true}],"tables":[],"sales":[],"staff":[],"audit":[]}');
     final store = Pos(repository: repository);
