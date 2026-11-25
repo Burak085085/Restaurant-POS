@@ -11,15 +11,16 @@ import 'package:restaurant_pos/advanced_features.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-class FailAfterFirstWriteRepository extends MemoryStoreRepository {
-  FailAfterFirstWriteRepository({super.value});
+class FailOnWriteRepository extends MemoryStoreRepository {
+  FailOnWriteRepository({super.value});
 
-  bool failNextWrite = true;
+  int writeCount = 0;
+  int? failOnWriteNumber;
 
   @override
   Future<void> write(String payload) async {
-    if (failNextWrite) {
-      failNextWrite = false;
+    writeCount++;
+    if (writeCount == failOnWriteNumber) {
       value = payload;
       throw StateError('Simulated disk failure after partial replacement.');
     }
@@ -345,14 +346,31 @@ void main() {
   });
 
   test('failed backup replacement rolls the previous POS state back', () async {
-    final repository = FailAfterFirstWriteRepository(
+    final repository = FailOnWriteRepository(
       value: '{"products":[{"id":"old","category":"Test","name":"Old","price":100,"stock":5,"lowAt":1,"active":true}],"tables":[],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"8642","active":true}],"audit":[]}',
     );
     final store = Pos(repository: repository);
     await store.load();
     // Loading this legacy fixture may perform its one-time migration write.
     // Arm the simulated partial-write failure only after the initial load.
-    repository.failNextWrite = true;
+    repository.failOnWriteNumber = repository.writeCount + 1;
+    const backup = '{"products":[{"id":"new","category":"Test","name":"Restored","price":250,"stock":8,"lowAt":2,"active":true}],"tables":[],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"2468","active":true}],"audit":[]}';
+
+    expect(await store.restoreBackup(backup), isFalse);
+    expect(store.recoveryRequired, isFalse);
+    expect(store.products.single.name, 'Old');
+    expect(repository.value, contains('"Old"'));
+    expect(repository.value, isNot(contains('"Restored"')));
+    expect(repository.backupFiles, hasLength(1));
+  });
+
+  test('failed final restore persistence rolls back the previous POS state', () async {
+    final repository = FailOnWriteRepository(
+      value: '{"products":[{"id":"old","category":"Test","name":"Old","price":100,"stock":5,"lowAt":1,"active":true}],"tables":[],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"8642","active":true}],"audit":[]}',
+    );
+    final store = Pos(repository: repository);
+    await store.load();
+    repository.failOnWriteNumber = repository.writeCount + 2;
     const backup = '{"products":[{"id":"new","category":"Test","name":"Restored","price":250,"stock":8,"lowAt":2,"active":true}],"tables":[],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"2468","active":true}],"audit":[]}';
 
     expect(await store.restoreBackup(backup), isFalse);
