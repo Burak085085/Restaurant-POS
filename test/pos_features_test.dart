@@ -291,6 +291,18 @@ void main() {
     });
 
 
+    test('inactivity timeout setting persists and rejects unsupported values', () async {
+      final repository = MemoryStoreRepository();
+      final pos = Pos(repository: repository);
+      expect(pos.inactivityTimeoutMinutes, 15);
+      pos.setInactivityTimeoutMinutes(30);
+      expect(pos.inactivityTimeoutMinutes, 30);
+      await pos.flush();
+      final restored = Pos(repository: repository);
+      await restored.load();
+      expect(restored.inactivityTimeoutMinutes, 30);
+    });
+
     test('session lock clears the active identity and persists a security audit event', () async {
       final repository = MemoryStoreRepository();
       final pos = Pos(repository: repository);
