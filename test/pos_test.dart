@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:restaurant_pos/storage.dart';
 import 'package:restaurant_pos/main.dart';
+import 'package:restaurant_pos/advanced_features.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
