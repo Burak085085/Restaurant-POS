@@ -320,7 +320,13 @@ class Pos extends ChangeNotifier {
   Future<String?> readBackup(String name) => _repository.readBackup(name);
 
   Future<bool> restoreBackup(String payload) async {
+    var previousSnapshot = '';
+    var replacementStarted = false;
     try {
+      // Drain queued writes before capturing the rollback point so an older
+      // save cannot race with and overwrite the restored snapshot.
+      await flush();
+      previousSnapshot = _snapshot();
       final decoded = jsonDecode(payload);
       if (decoded is! Map<String, dynamic>) return false;
       for (final key in ['products', 'tables', 'sales', 'staff']) {
@@ -346,14 +352,37 @@ class Pos extends ChangeNotifier {
       final candidateIssues = await candidate.integrityCheck();
       if (candidateIssues.isNotEmpty) return false;
 
-      await _repository.backupBeforeRestore(_snapshot());
+      await _repository.backupBeforeRestore(previousSnapshot);
+      replacementStarted = true;
       await _repository.write(candidate._snapshot());
       await load();
+      if (recoveryRequired) {
+        throw StateError('Restored backup could not be loaded safely.');
+      }
+      final restoredIssues = await integrityCheck();
+      if (restoredIssues.isNotEmpty) {
+        throw StateError('Restored backup failed post-write integrity validation.');
+      }
       log('Yedek geri yüklendi', 'Yerel yedek dosyasından veriler geri yüklendi');
-      save();
-      await flush();
+      // save() intentionally reports storage errors through the UI and
+      // resolves its queue. Restore must instead observe a failed final write
+      // so it can roll back rather than report a false success.
+      await _repository.write(_snapshot());
+      notifyListeners();
       return true;
     } catch (_) {
+      if (replacementStarted) {
+        try {
+          await _repository.write(previousSnapshot);
+          await load();
+          if (recoveryRequired) {
+            throw StateError('Previous POS state could not be restored.');
+          }
+          await flush();
+        } catch (_) {
+          recoveryRequired = true;
+        }
+      }
       return false;
     }
   }

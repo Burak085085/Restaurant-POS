@@ -11,6 +11,23 @@ import 'package:restaurant_pos/advanced_features.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+class FailOnWriteRepository extends MemoryStoreRepository {
+  FailOnWriteRepository({super.value});
+
+  int writeCount = 0;
+  int? failOnWriteNumber;
+
+  @override
+  Future<void> write(String payload) async {
+    writeCount++;
+    if (writeCount == failOnWriteNumber) {
+      value = payload;
+      throw StateError('Simulated disk failure after partial replacement.');
+    }
+    await super.write(payload);
+  }
+}
+
 void main() {
   test('legacy Baku timestamps migrate once to UTC instants without shifting displayed time', () async {
     final legacy = jsonEncode({
@@ -58,6 +75,19 @@ void main() {
     expect(store.stockMovements.single.at, '2026-11-21T15:00:00.000Z');
   });
 
+
+  test('Baku wall-time conversion handles midnight and year boundaries', () {
+    final newYearWallTime = DateTime.utc(2027, 1, 1, 0, 15);
+    final storedInstant = bakuWallTimeToUtc(newYearWallTime);
+
+    expect(storedInstant, DateTime.utc(2026, 12, 31, 20, 15));
+    expect(azWallTime(storedInstant), newYearWallTime);
+    expect(dayKey(azWallTime(storedInstant)), '2027-01-01');
+    expect(bakuTimestamp(storedInstant.toIso8601String()), '01.01.2027 00:15');
+
+    final monthEndWallTime = DateTime.utc(2026, 3, 1, 0, 5);
+    expect(bakuWallTimeToUtc(monthEndWallTime), DateTime.utc(2026, 2, 28, 20, 5));
+  });
 
   test('Baku timestamps store UTC instants and display fixed UTC+4 wall time', () {
     final wallTime = DateTime.utc(2026, 11, 21, 19, 30);
@@ -313,6 +343,42 @@ void main() {
     expect(store.products.single.name, 'Restored');
     expect(repository.backupFiles, hasLength(1));
     expect(repository.backupFiles.values.single, contains('"Old"'));
+  });
+
+  test('failed backup replacement rolls the previous POS state back', () async {
+    final repository = FailOnWriteRepository(
+      value: '{"products":[{"id":"old","category":"Test","name":"Old","price":100,"stock":5,"lowAt":1,"active":true}],"tables":[],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"8642","active":true}],"audit":[]}',
+    );
+    final store = Pos(repository: repository);
+    await store.load();
+    // Loading this legacy fixture may perform its one-time migration write.
+    // Arm the simulated partial-write failure only after the initial load.
+    repository.failOnWriteNumber = repository.writeCount + 1;
+    const backup = '{"products":[{"id":"new","category":"Test","name":"Restored","price":250,"stock":8,"lowAt":2,"active":true}],"tables":[],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"2468","active":true}],"audit":[]}';
+
+    expect(await store.restoreBackup(backup), isFalse);
+    expect(store.recoveryRequired, isFalse);
+    expect(store.products.single.name, 'Old');
+    expect(repository.value, contains('"Old"'));
+    expect(repository.value, isNot(contains('"Restored"')));
+    expect(repository.backupFiles, hasLength(1));
+  });
+
+  test('failed final restore persistence rolls back the previous POS state', () async {
+    final repository = FailOnWriteRepository(
+      value: '{"products":[{"id":"old","category":"Test","name":"Old","price":100,"stock":5,"lowAt":1,"active":true}],"tables":[],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"8642","active":true}],"audit":[]}',
+    );
+    final store = Pos(repository: repository);
+    await store.load();
+    repository.failOnWriteNumber = repository.writeCount + 2;
+    const backup = '{"products":[{"id":"new","category":"Test","name":"Restored","price":250,"stock":8,"lowAt":2,"active":true}],"tables":[],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"2468","active":true}],"audit":[]}';
+
+    expect(await store.restoreBackup(backup), isFalse);
+    expect(store.recoveryRequired, isFalse);
+    expect(store.products.single.name, 'Old');
+    expect(repository.value, contains('"Old"'));
+    expect(repository.value, isNot(contains('"Restored"')));
+    expect(repository.backupFiles, hasLength(1));
   });
 
   test('invalid backup cannot replace current data', () async {
