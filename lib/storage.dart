@@ -148,7 +148,7 @@ class SqliteStoreRepository implements StoreRepository {
           'qty': _int(line['qty']),
           'sent': _int(line['sent']) == 1,
           'kitchen': _int(line['kitchen']),
-          'ingredientUsage': line['ingredient_usage'] == null ? null : jsonDecode(_string(line['ingredient_usage'])),
+          if (line['ingredient_usage'] != null) 'ingredientUsage': jsonDecode(_string(line['ingredient_usage'])),
         }).toList(),
       });
     }
