@@ -429,32 +429,23 @@ void main() {
       await repository.close();
       final triggerDatabase = await openDatabase(databasePath);
       try {
-        // The normalized writer inserts product rows after its metadata writes.
-        // Fail a product INSERT, which is a direct, non-REPLACE write on the
-        // restore path and cannot be bypassed by conflict handling.
+        // The normalized writer always clears existing products before restoring.
+        // Fail that DELETE so the injected error is guaranteed even if the
+        // incoming backup contains no products.
         await triggerDatabase.execute("""
-          CREATE TRIGGER reject_restore_product_insert
-          BEFORE INSERT ON products
+          CREATE TRIGGER reject_restore_product_delete
+          BEFORE DELETE ON products
           BEGIN
             SELECT RAISE(ABORT, 'Simulated SQLite restore write failure');
           END;
         """);
         final triggerRows = await triggerDatabase.rawQuery(
-          "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'reject_restore_product_insert'");
+          "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'reject_restore_product_delete'");
         expect(triggerRows, hasLength(1));
 
-        // Prove the exact operation used by StoreRepository.write is rejected.
+        // Prove the exact repository connection rejects its products DELETE.
         await expectLater(
-          triggerDatabase.insert('products', {
-            'id': 'restore_failure_probe',
-            'category': 'Test',
-            'name': 'Must not be written',
-            'price': 1,
-            'cost_price': 0,
-            'stock': 1,
-            'low_at': 0,
-            'active': 1,
-          }),
+          repository.write(backup),
           throwsA(isA<DatabaseException>()),
         );
         final probeRows = await triggerDatabase.query(
