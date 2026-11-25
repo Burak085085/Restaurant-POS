@@ -117,11 +117,12 @@ Read this tracker first, inspect current main SHA and latest Actions run, compar
 - [x] Android + Windows analyze/test/release builds passed; PR #8 merged as `9069988db4ab231749e0ee4617f1af410895668c`.
 - [ ] Extend malformed/partial legacy backup fixtures and verify rollback against SQLite write faults.
 
-## Batch 06 (branch fix/stock-ledger-integrity) — in progress
+## Batch 06 (branch fix/stock-ledger-integrity) — covered on main; stale branch superseded
 - [x] Validate stock movement direction, quantity, before/after balances, product references and cost values.
 - [x] Validate continuity between consecutive product stock movements and reconcile the latest movement against current stock.
-- [x] Add regression coverage for malformed movement quantities.
-- [ ] Android + Windows analyze/test/release builds must pass before merge.
+- [x] Regression coverage for malformed stock movement quantities is present on main.
+- [x] Ingredient movement integrity validation and reconciliation are also present on main through the merged ingredient-ledger work (PR #16).
+- [x] No separate merge required; the older branch is behind main and does not contain the newer ingredient-ledger implementation.
 
 ## Owner inputs required before release signing (K1)
 - [ ] Burak must confirm the final Android application ID/package name.
@@ -131,3 +132,16 @@ Read this tracker first, inspect current main SHA and latest Actions run, compar
 ## Cleanup notes
 - PR #5 (manual backup export) was closed on 2026-11-25 because the same implementation had already landed through merged PR #6 and is present on main.
 - The project in scope is exclusively this Restaurant-POS repository. Do not switch to or perform work on any unrelated/abandoned project.
+
+
+## Batch 07 (PR #18) — merged to main
+- [x] Test sequential partial and final refunds, including remaining refundable amount and duplicate-refund rejection.
+- [x] Verify stock is returned once, cash outflow reconciles, and refund/stock state survives reload.
+- [x] Verify insufficient register cash rejects a refund without changing sales, cash movements or stock.
+- [x] Android + Windows analyze/test/build passed before merge; PR #18 merged as `7e6f57f9be8ad43d705b2958a33918e1378cc595`.
+- [x] Post-merge main workflow run `45715458770` is currently running; verify both platform jobs before marking main green.
+
+## Batch 08 (PR #19) — in progress
+- [x] Reject malformed nested legacy backup records without replacing live data.
+- [x] Exercise a real SQLite transaction failure during restore and verify the previous database remains loadable and passes integrity checks.
+- [ ] Android + Windows analyze/test/build must pass before merge.
