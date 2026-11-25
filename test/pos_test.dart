@@ -910,4 +910,47 @@ void main() {
     }
   });
 
+
+  test('critical restore preserves advanced records and hashed administrator credential', () async {
+    final sourceRepository = MemoryStoreRepository();
+    final source = Pos(repository: sourceRepository);
+    source.staff.first.setPin('8642');
+    final supplier = SupplierRecord(id: 'restore-supplier', name: 'Kurtarma Tedarikçisi');
+    expect(source.addSupplier(supplier), isTrue);
+    expect(source.recordPurchase(
+      supplierId: supplier.id,
+      productId: source.products.first.id,
+      quantity: 3,
+      unitCost: 125,
+    ), isTrue);
+    expect(source.addCustomer(CustomerRecord(
+      id: 'restore-customer', name: 'Kurtarma Müşterisi', phone: '0500000000',
+    )), isTrue);
+    final reservationTime = azWallTime(azNow()).add(const Duration(days: 3));
+    expect(source.addReservation(ReservationRecord(
+      id: 'restore-reservation',
+      customerName: 'Kurtarma Müşterisi',
+      phone: '0500000000',
+      dateTime: bakuWallTimeToUtc(reservationTime).toIso8601String(),
+      tableId: 7,
+      guests: 4,
+    )), isTrue);
+    expect(source.setProductBarcode(source.products.first, '4891234567890'), isTrue);
+    source.save();
+    await source.flush();
+    final backup = sourceRepository.value!;
+
+    final targetRepository = MemoryStoreRepository();
+    final target = Pos(repository: targetRepository);
+    await target.load();
+    expect(await target.restoreBackup(backup), isTrue);
+
+    expect(target.suppliers.single.id, supplier.id);
+    expect(target.purchases.single.total, 375);
+    expect(target.customers.single.name, 'Kurtarma Müşterisi');
+    expect(target.reservations.single.tableId, 7);
+    expect(target.productBarcodes[source.products.first.id], '4891234567890');
+    expect(target.staff.single.verifyPin('8642'), isTrue);
+    expect(await target.integrityCheck(), isEmpty);
+  });
 }
