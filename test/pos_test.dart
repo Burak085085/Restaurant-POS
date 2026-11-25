@@ -429,31 +429,37 @@ void main() {
       await repository.close();
       final triggerDatabase = await openDatabase(databasePath);
       try {
-        // Every normalized SQLite write begins by inserting app_meta rows.
-        // Fail that first write, rather than depending on a DELETE that can
-        // legitimately affect zero rows and therefore never invoke a trigger.
+        // The normalized writer inserts product rows after its metadata writes.
+        // Fail a product INSERT, which is a direct, non-REPLACE write on the
+        // restore path and cannot be bypassed by conflict handling.
         await triggerDatabase.execute("""
-          CREATE TRIGGER reject_restore_meta_insert
-          BEFORE INSERT ON app_meta
+          CREATE TRIGGER reject_restore_product_insert
+          BEFORE INSERT ON products
           BEGIN
             SELECT RAISE(ABORT, 'Simulated SQLite restore write failure');
           END;
         """);
         final triggerRows = await triggerDatabase.rawQuery(
-          "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'reject_restore_meta_insert'");
+          "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'reject_restore_product_insert'");
         expect(triggerRows, hasLength(1));
 
         // Prove the exact operation used by StoreRepository.write is rejected.
         await expectLater(
-          triggerDatabase.insert('app_meta', {
-            'key': 'restore_failure_probe',
-            'value': 'must-not-be-written',
+          triggerDatabase.insert('products', {
+            'id': 'restore_failure_probe',
+            'category': 'Test',
+            'name': 'Must not be written',
+            'price': 1,
+            'cost_price': 0,
+            'stock': 1,
+            'low_at': 0,
+            'active': 1,
           }),
           throwsA(isA<DatabaseException>()),
         );
         final probeRows = await triggerDatabase.query(
-          'app_meta',
-          where: 'key = ?',
+          'products',
+          where: 'id = ?',
           whereArgs: ['restore_failure_probe'],
         );
         expect(probeRows, isEmpty);
