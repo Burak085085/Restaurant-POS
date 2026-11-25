@@ -11,6 +11,22 @@ import 'package:restaurant_pos/advanced_features.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+class FailAfterFirstWriteRepository extends MemoryStoreRepository {
+  FailAfterFirstWriteRepository({super.value});
+
+  bool failNextWrite = true;
+
+  @override
+  Future<void> write(String payload) async {
+    if (failNextWrite) {
+      failNextWrite = false;
+      value = payload;
+      throw StateError('Simulated disk failure after partial replacement.');
+    }
+    await super.write(payload);
+  }
+}
+
 void main() {
   test('legacy Baku timestamps migrate once to UTC instants without shifting displayed time', () async {
     final legacy = jsonEncode({
@@ -313,6 +329,22 @@ void main() {
     expect(store.products.single.name, 'Restored');
     expect(repository.backupFiles, hasLength(1));
     expect(repository.backupFiles.values.single, contains('"Old"'));
+  });
+
+  test('failed backup replacement rolls the previous POS state back', () async {
+    final repository = FailAfterFirstWriteRepository(
+      value: '{"products":[{"id":"old","category":"Test","name":"Old","price":100,"stock":5,"lowAt":1,"active":true}],"tables":[],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"8642","active":true}],"audit":[]}',
+    );
+    final store = Pos(repository: repository);
+    await store.load();
+    const backup = '{"products":[{"id":"new","category":"Test","name":"Restored","price":250,"stock":8,"lowAt":2,"active":true}],"tables":[],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"2468","active":true}],"audit":[]}';
+
+    expect(await store.restoreBackup(backup), isFalse);
+    expect(store.recoveryRequired, isFalse);
+    expect(store.products.single.name, 'Old');
+    expect(repository.value, contains('"Old"'));
+    expect(repository.value, isNot(contains('"Restored"')));
+    expect(repository.backupFiles, hasLength(1));
   });
 
   test('invalid backup cannot replace current data', () async {
