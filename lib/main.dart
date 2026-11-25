@@ -320,9 +320,13 @@ class Pos extends ChangeNotifier {
   Future<String?> readBackup(String name) => _repository.readBackup(name);
 
   Future<bool> restoreBackup(String payload) async {
-    final previousSnapshot = _snapshot();
+    var previousSnapshot = '';
     var replacementStarted = false;
     try {
+      // Drain queued writes before capturing the rollback point so an older
+      // save cannot race with and overwrite the restored snapshot.
+      await flush();
+      previousSnapshot = _snapshot();
       final decoded = jsonDecode(payload);
       if (decoded is! Map<String, dynamic>) return false;
       for (final key in ['products', 'tables', 'sales', 'staff']) {
@@ -360,8 +364,11 @@ class Pos extends ChangeNotifier {
         throw StateError('Restored backup failed post-write integrity validation.');
       }
       log('Yedek geri yüklendi', 'Yerel yedek dosyasından veriler geri yüklendi');
-      save();
-      await flush();
+      // save() intentionally reports storage errors through the UI and
+      // resolves its queue. Restore must instead observe a failed final write
+      // so it can roll back rather than report a false success.
+      await _repository.write(_snapshot());
+      notifyListeners();
       return true;
     } catch (_) {
       if (replacementStarted) {
