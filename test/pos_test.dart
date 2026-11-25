@@ -424,6 +424,9 @@ void main() {
       store.save();
       await store.flush();
 
+      // Reopen the repository after installing the trigger so its SQLite
+      // connection refreshes the schema before the restore transaction.
+      await repository.close();
       final triggerDatabase = await openDatabase(databasePath);
       try {
         await triggerDatabase.execute("""
