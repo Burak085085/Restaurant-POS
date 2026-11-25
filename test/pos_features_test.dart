@@ -331,5 +331,27 @@ void main() {
       final pos = Pos(repository: MemoryStoreRepository());
       expect(await pos.integrityCheck(), isEmpty);
     });
+    test('open order keeps its original recipe after the recipe is edited', () async {
+      final pos = Pos(repository: MemoryStoreRepository());
+      final product = pos.products.first;
+      final ingredient = Ingredient(id: 'flour', name: 'Un', unit: 'gram',
+        stock: 1000, lowAt: 100, costPerUnit: 2);
+      expect(pos.addIngredient(ingredient), isTrue);
+      expect(pos.setRecipe(product, const [RecipeLine(ingredientId: 'flour', quantity: 100)]), isTrue);
+      final table = pos.tables.first;
+      expect(pos.add(table, product), isTrue);
+      expect(pos.setRecipe(product, const [RecipeLine(ingredientId: 'flour', quantity: 200)]), isTrue);
+      expect(pos.reservedIngredientStock('flour'), 100);
+      expect(pos.add(table, product), isTrue);
+      expect(pos.reservedIngredientStock('flour'), 300);
+      expect(pos.sendKitchen(table), isTrue);
+      expect(pos.openRegister(1000), isTrue);
+      expect(pos.checkout(table, [PaymentPart('Kart', product.price * 2)]), isTrue);
+      expect(ingredient.stock, 700);
+      expect(pos.sales.single.ingredientUsage, {'flour': 300});
+      await pos.flush();
+      expect(await pos.integrityCheck(), isEmpty);
+    });
+
   });
 }
