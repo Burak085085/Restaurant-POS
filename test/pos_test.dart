@@ -429,16 +429,27 @@ void main() {
       await repository.close();
       final triggerDatabase = await openDatabase(databasePath);
       try {
+        // Store writes always delete the current staff rows inside the
+        // replacement transaction. A DELETE trigger avoids INSERT OR REPLACE
+        // conflict handling and makes the injected failure deterministic.
         await triggerDatabase.execute("""
-          CREATE TRIGGER reject_restored_product
-          BEFORE INSERT ON products
+          CREATE TRIGGER reject_restore_staff_delete
+          BEFORE DELETE ON staff
           BEGIN
             SELECT RAISE(ABORT, 'Simulated SQLite restore write failure');
           END;
         """);
         final triggerRows = await triggerDatabase.rawQuery(
-          "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'reject_restored_product'");
+          "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'reject_restore_staff_delete'");
         expect(triggerRows, hasLength(1));
+
+        // Prove the trigger actually fires before relying on it in restore.
+        await expectLater(
+          triggerDatabase.delete('staff'),
+          throwsA(isA<DatabaseException>()),
+        );
+        final staffRows = await triggerDatabase.rawQuery('SELECT COUNT(*) AS count FROM staff');
+        expect(staffRows.single['count'], greaterThan(0));
       } finally {
         await triggerDatabase.close();
       }
