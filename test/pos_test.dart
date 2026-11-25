@@ -464,10 +464,15 @@ void main() {
         );
         expect(probeRows, isEmpty);
 
-        // Keep the schema-owning connection open while the repository opens
-        // its own connection for restore. This avoids closing/reopening the
-        // only connection that installed the fault injector before it is used.
         const backup = '{"products":[{"id":"restored","category":"Test","name":"Restored","price":250,"costPrice":0,"stock":8,"lowAt":2,"active":true}],"tables":[],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"2468","active":true}],"audit":[]}';
+
+        // Prove the fault is visible through the exact repository connection
+        // used by Pos.restoreBackup, not merely through the trigger connection.
+        // The write transaction must abort and roll back before restore is tested.
+        await expectLater(
+          repository.write(backup),
+          throwsA(isA<DatabaseException>()),
+        );
         expect(await store.restoreBackup(backup), isFalse);
         expect(store.recoveryRequired, isFalse);
         expect(store.products.first.name, 'Original');
