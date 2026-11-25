@@ -1,5 +1,6 @@
 // ignore_for_file: curly_braces_in_flow_control_structures
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:io';
@@ -292,12 +293,13 @@ class Audit { String at,user,action,detail; Audit(this.at,this.user,this.action,
 class Pos extends ChangeNotifier {
   List<Product> products=[Product('p1','Dönerler','Tavuk döner',300),Product('p2','Dönerler','Dana döner',500),Product('p3','Dönerler','Dürüm döner',400),Product('p4','Dönerler','Porsiyon döner',700),Product('p5','İçecekler','Kola',200),Product('p6','İçecekler','Fanta',200),Product('p7','İçecekler','Ayran',100),Product('p8','İçecekler','Su',50),Product('p9','Ekstra','Patates',200),Product('p10','Ekstra','Ketçap',50),Product('p11','Ekstra','Mayonez',50)];
   List<PosTable> tables=List.generate(kTableCount,(i)=>PosTable(i+1)); List<Sale> sales=[]; List<RegisterSession> registerSessions=[]; List<CashMovement> cashMovements=[]; List<Expense> expenses=[]; List<StockMovement> stockMovements=[]; List<Ingredient> ingredients=[]; Map<String,List<RecipeLine>> recipes={}; List<Staff> staff=[Staff('Admin','Yönetici')]; List<Audit> audit=[]; List<KitchenNotice> kitchenNotices=[]; String currentUser='Admin';
-  List<SupplierRecord> suppliers=[]; List<PurchaseRecord> purchases=[]; List<CustomerRecord> customers=[]; List<ReservationRecord> reservations=[]; Map<String,String> productBarcodes={}; Map<String,Map<String,dynamic>> pinSecurity={}; bool recoveryRequired=false; final StoreRepository _repository; Future<void> _queue=Future.value();
+  List<SupplierRecord> suppliers=[]; List<PurchaseRecord> purchases=[]; List<CustomerRecord> customers=[]; List<ReservationRecord> reservations=[]; Map<String,String> productBarcodes={}; Map<String,Map<String,dynamic>> pinSecurity={}; bool recoveryRequired=false; int inactivityTimeoutMinutes=15; final StoreRepository _repository; Future<void> _queue=Future.value();
   Pos({StoreRepository? repository}) : _repository = repository ?? SqliteStoreRepository();
-  Future<void> load() async { final raw=await _repository.read(); if(raw==null)return; try { final j=jsonDecode(raw) as Map<String,dynamic>; final needsTimestampMigration=(j['timestampFormatVersion'] as num?)?.toInt()!=2; if(needsTimestampMigration)_migrateLegacyTimestamps(j); pinSecurity=(j['pinSecurity'] as Map? ?? {}).map((key,value)=>MapEntry(key.toString(),Map<String,dynamic>.from(value as Map))); products=(j['products'] as List? ?? []).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList(); tables=List.generate(kTableCount,(i)=>PosTable(i+1)); for(final x in (j['tables'] as List? ?? [])){final m=Map<String,dynamic>.from(x); final id=m['id'] as int; if(id<1||id>kTableCount)continue; final t=tables[id-1]; t.items=(m['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(); t.kitchen=KitchenState.values[(m['kitchen']??0).clamp(0,3).toInt()]; final rawItems=(m['items'] as List? ?? []); for(var lineIndex=0;lineIndex<t.items.length;lineIndex++){final rawLine=Map<String,dynamic>.from(rawItems[lineIndex]);if(!rawLine.containsKey('kitchen'))t.items[lineIndex].kitchen=t.kitchen;} t.discount=m['discount']??0;t.discountPercent=m['discountPercent']??false;t.discountReason=m['discountReason']??'';} sales=(j['sales'] as List? ?? []).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList(); expenses=(j['expenses'] as List? ?? []).map((e)=>Expense.fromJson(Map<String,dynamic>.from(e))).toList(); stockMovements=(j['stockMovements'] as List? ?? []).map((e)=>StockMovement.fromJson(Map<String,dynamic>.from(e))).toList(); ingredients=(j['ingredients'] as List? ?? []).map((e)=>Ingredient.fromJson(Map<String,dynamic>.from(e))).toList(); recipes=(j['recipes'] as Map? ?? {}).map((key,value)=>MapEntry(key.toString(),(value as List).map((e)=>RecipeLine.fromJson(Map<String,dynamic>.from(e))).toList())); registerSessions=(j['registerSessions'] as List? ?? []).map((e)=>RegisterSession.fromJson(Map<String,dynamic>.from(e))).toList(); cashMovements=(j['cashMovements'] as List? ?? []).map((e)=>CashMovement.fromJson(Map<String,dynamic>.from(e))).toList(); final legacyStaff=(j['staff'] as List? ?? []).map((e)=>Staff.fromJson(Map<String,dynamic>.from(e))).toList(); final admins=legacyStaff.where((member)=>member.name=='Admin').toList(); final admin=admins.isNotEmpty ? admins.first : Staff('Admin','Yönetici'); admin.active=true; final names=<String>{'admin'}; staff=[admin,...legacyStaff.where((member)=>member.name!='Admin'&&member.name.trim().isNotEmpty&&names.add(member.name.trim().toLowerCase()))]; audit=(j['audit'] as List? ?? []).map((e)=>Audit.fromJson(Map<String,dynamic>.from(e))).toList(); kitchenNotices=(j['kitchenNotices'] as List? ?? []).map((e)=>KitchenNotice.fromJson(Map<String,dynamic>.from(e))).toList(); final advanced=Map<String,dynamic>.from(j['advanced'] as Map? ?? {}); suppliers=(advanced['suppliers'] as List? ?? []).map((e)=>SupplierRecord.fromJson(Map<String,dynamic>.from(e))).toList(); purchases=(advanced['purchases'] as List? ?? []).map((e)=>PurchaseRecord.fromJson(Map<String,dynamic>.from(e))).toList(); customers=(advanced['customers'] as List? ?? []).map((e)=>CustomerRecord.fromJson(Map<String,dynamic>.from(e))).toList(); reservations=(advanced['reservations'] as List? ?? []).map((e)=>ReservationRecord.fromJson(Map<String,dynamic>.from(e))).toList(); productBarcodes=Map<String,String>.from(advanced['barcodes'] as Map? ?? {}); currentUser='Admin'; recoveryRequired=false; if(needsTimestampMigration){await _repository.write(_snapshot());} } catch (_) { await _repository.backupCorrupt(raw); recoveryRequired=true; } }
+  Future<void> load() async { final raw=await _repository.read(); if(raw==null)return; try { final j=jsonDecode(raw) as Map<String,dynamic>; final needsTimestampMigration=(j['timestampFormatVersion'] as num?)?.toInt()!=2; if(needsTimestampMigration)_migrateLegacyTimestamps(j); pinSecurity=(j['pinSecurity'] as Map? ?? {}).map((key,value)=>MapEntry(key.toString(),Map<String,dynamic>.from(value as Map))); products=(j['products'] as List? ?? []).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList(); tables=List.generate(kTableCount,(i)=>PosTable(i+1)); for(final x in (j['tables'] as List? ?? [])){final m=Map<String,dynamic>.from(x); final id=m['id'] as int; if(id<1||id>kTableCount)continue; final t=tables[id-1]; t.items=(m['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(); t.kitchen=KitchenState.values[(m['kitchen']??0).clamp(0,3).toInt()]; final rawItems=(m['items'] as List? ?? []); for(var lineIndex=0;lineIndex<t.items.length;lineIndex++){final rawLine=Map<String,dynamic>.from(rawItems[lineIndex]);if(!rawLine.containsKey('kitchen'))t.items[lineIndex].kitchen=t.kitchen;} t.discount=m['discount']??0;t.discountPercent=m['discountPercent']??false;t.discountReason=m['discountReason']??'';} sales=(j['sales'] as List? ?? []).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList(); expenses=(j['expenses'] as List? ?? []).map((e)=>Expense.fromJson(Map<String,dynamic>.from(e))).toList(); stockMovements=(j['stockMovements'] as List? ?? []).map((e)=>StockMovement.fromJson(Map<String,dynamic>.from(e))).toList(); ingredients=(j['ingredients'] as List? ?? []).map((e)=>Ingredient.fromJson(Map<String,dynamic>.from(e))).toList(); recipes=(j['recipes'] as Map? ?? {}).map((key,value)=>MapEntry(key.toString(),(value as List).map((e)=>RecipeLine.fromJson(Map<String,dynamic>.from(e))).toList())); registerSessions=(j['registerSessions'] as List? ?? []).map((e)=>RegisterSession.fromJson(Map<String,dynamic>.from(e))).toList(); cashMovements=(j['cashMovements'] as List? ?? []).map((e)=>CashMovement.fromJson(Map<String,dynamic>.from(e))).toList(); final legacyStaff=(j['staff'] as List? ?? []).map((e)=>Staff.fromJson(Map<String,dynamic>.from(e))).toList(); final admins=legacyStaff.where((member)=>member.name=='Admin').toList(); final admin=admins.isNotEmpty ? admins.first : Staff('Admin','Yönetici'); admin.active=true; final names=<String>{'admin'}; staff=[admin,...legacyStaff.where((member)=>member.name!='Admin'&&member.name.trim().isNotEmpty&&names.add(member.name.trim().toLowerCase()))]; audit=(j['audit'] as List? ?? []).map((e)=>Audit.fromJson(Map<String,dynamic>.from(e))).toList(); kitchenNotices=(j['kitchenNotices'] as List? ?? []).map((e)=>KitchenNotice.fromJson(Map<String,dynamic>.from(e))).toList(); final advanced=Map<String,dynamic>.from(j['advanced'] as Map? ?? {}); suppliers=(advanced['suppliers'] as List? ?? []).map((e)=>SupplierRecord.fromJson(Map<String,dynamic>.from(e))).toList(); purchases=(advanced['purchases'] as List? ?? []).map((e)=>PurchaseRecord.fromJson(Map<String,dynamic>.from(e))).toList(); customers=(advanced['customers'] as List? ?? []).map((e)=>CustomerRecord.fromJson(Map<String,dynamic>.from(e))).toList(); reservations=(advanced['reservations'] as List? ?? []).map((e)=>ReservationRecord.fromJson(Map<String,dynamic>.from(e))).toList(); productBarcodes=Map<String,String>.from(advanced['barcodes'] as Map? ?? {}); inactivityTimeoutMinutes=((j['inactivityTimeoutMinutes'] as num?)?.toInt() ?? 15).clamp(1,120); currentUser='Admin'; recoveryRequired=false; if(needsTimestampMigration){await _repository.write(_snapshot());} } catch (_) { await _repository.backupCorrupt(raw); recoveryRequired=true; } }
 
   String _snapshot() => jsonEncode({
     'timestampFormatVersion': 2,
+    'inactivityTimeoutMinutes': inactivityTimeoutMinutes,
     'products': products.map((e) => e.toJson()).toList(),
     'tables': tables.map((e) => e.toJson()).toList(),
     'sales': sales.map((e) => e.toJson()).toList(),
@@ -554,6 +556,12 @@ class Pos extends ChangeNotifier {
   bool get isCashier => _activeStaff?.role == 'Kasiyer';
   bool get isKitchenStaff => _activeStaff?.role == 'Mutfak';
   bool get isAdmin => currentUser == 'Admin' && staff.any((member) => member.name == 'Admin' && member.active);
+  void setInactivityTimeoutMinutes(int minutes) {
+    if (!isAdmin || ![5, 10, 15, 30, 60].contains(minutes)) return;
+    inactivityTimeoutMinutes = minutes;
+    log('Güvenlik', 'Oturum hareketsizlik süresi $minutes dakika olarak ayarlandı');
+    save();
+  }
   void lockSession({String reason = 'Oturum kilitlendi'}) {
     if (currentUser.isEmpty) return;
     final previousUser = currentUser;
@@ -1064,6 +1072,14 @@ class PosApp extends StatelessWidget {const PosApp({super.key});@override Widget
 class Home extends StatefulWidget {const Home({super.key});@override State<Home> createState()=>_HomeState();}
 class _HomeState extends State<Home> with WidgetsBindingObserver {
   int tab=0; bool authenticated=false;
+  Timer? _inactivityTimer;
+  void _resetInactivityTimer() {
+    _inactivityTimer?.cancel();
+    if (!mounted || !authenticated || pos.currentUser.isEmpty) return;
+    _inactivityTimer = Timer(Duration(minutes: pos.inactivityTimeoutMinutes), () {
+      if (mounted && authenticated && pos.currentUser.isNotEmpty) _logout();
+    });
+  }
   @override
   void initState() {
     super.initState();
@@ -1082,18 +1098,20 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   }
   @override
   void dispose() {
+    _inactivityTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
   void _logout(){
-    pos.lockSession(reason: 'Oturum kilitlendi');
+    _inactivityTimer?.cancel();
+    pos.lockSession(reason: 'Hareketsizlik veya manuel çıkış nedeniyle oturum kilitlendi');
     tab=0;
     setState(()=>authenticated=false);
   }
-  @override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(context,_){
+  @override Widget build(BuildContext context)=>Listener(onPointerDown: (_) => _resetInactivityTimer(), child: AnimatedBuilder(animation:pos,builder:(context,_){
     if(!authenticated)return PinGate(
-      onAuthenticated:()=>setState(()=>authenticated=true),
-      onStaffSelected:(_)=>setState(()=>authenticated=true),
+      onAuthenticated:()=>setState(()=>{authenticated=true,_resetInactivityTimer()}),
+      onStaffSelected:(_)=>setState(()=>{authenticated=true,_resetInactivityTimer()}),
     );
     if(pos.isWaiter)return Scaffold(body:SafeArea(child:TablesPage(onLogout:_logout)));
     if(pos.isKitchenStaff)return KitchenPage(onLogout:_logout);
@@ -1115,7 +1133,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     final pages=[TablesPage(onLogout:_logout),const KitchenPage(),const InventoryPage(),const ReportsPage(),const AdminPage()];
     final index=tab.clamp(0,pages.length-1).toInt();
     return Scaffold(body:SafeArea(child:pages[index]),bottomNavigationBar:NavigationBar(selectedIndex:index,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:const [NavigationDestination(icon:Icon(Icons.table_restaurant),label:'Masalar'),NavigationDestination(icon:Icon(Icons.soup_kitchen),label:'Mutfak'),NavigationDestination(icon:Icon(Icons.inventory_2),label:'Stok'),NavigationDestination(icon:Icon(Icons.bar_chart),label:'Rapor'),NavigationDestination(icon:Icon(Icons.settings),label:'Yönetim')]));
-  });
+  }));
 }
 
 class TablesPage extends StatelessWidget {
@@ -1878,6 +1896,7 @@ class AdminPage extends StatelessWidget {
       appBar: AppBar(title: const Text('Yönetim ve güvenlik')),
       body: ListView(padding: const EdgeInsets.all(12), children: [
         const Card(child: ListTile(leading: Icon(Icons.admin_panel_settings),title:Text('Yönetici kontrolü'),subtitle:Text('Personel listesini yönetin ve satışları personele atayın.'))),
+        ListTile(leading: const Icon(Icons.timer), title: const Text('Otomatik oturum kilidi'), subtitle: const Text('İşlem yapılmadığında oturumu kilitle'), trailing: DropdownButton<int>(value: pos.inactivityTimeoutMinutes, items: const [5, 10, 15, 30, 60].map((minutes) => DropdownMenuItem(value: minutes, child: Text('$minutes dk'))).toList(), onChanged: pos.isAdmin ? (value) { if (value != null) pos.setInactivityTimeoutMinutes(value); } : null)),
         OutlinedButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const StaffManagerPage())),icon:const Icon(Icons.groups),label:const Text('Personel listesi ve yönetimi')),
         OutlinedButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const SuppliersPage())),icon:const Icon(Icons.local_shipping),label:const Text('Tedarikçiler ve mal alımları')),
         OutlinedButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const CustomersReservationsPage())),icon:const Icon(Icons.event_seat),label:const Text('Müşteriler ve masa rezervasyonları')),
