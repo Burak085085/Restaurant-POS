@@ -605,6 +605,8 @@ void main() {
         {'date': '2026-11-19', 'time': '12:30', 'staff': 'Admin',
           'table': 1, 'total': 650, 'discount': 50, 'discountReason': 'Sadakat',
           'discountPercent': true, 'registerSessionId': 123,
+          'isRefund': false, 'refundOfSaleIndex': null, 'reason': '',
+          'stockReturned': false, 'ingredientUsage': null,
           'items': [
             {'productId': 'p1', 'name': 'Tavuk döner', 'price': 350,
               'qty': 2, 'unitCost': 0, 'sent': true, 'kitchen': 3},
