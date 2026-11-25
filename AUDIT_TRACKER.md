@@ -104,12 +104,19 @@ Repo: Burak085085/Restaurant-POS, target branch main. Flutter Android + Windows,
 Read this tracker first, inspect current main SHA and latest Actions run, compare each item to code/tests, and continue only with open findings. Do not ask Burak to paste the audit again. Preserve all constraints above.
 
 
-## Batch 04 (branch fix/critical-recovery-audit) — in progress
+## Batch 04 (branch fix/critical-recovery-audit) — merged to main
 - [x] Cleanup: closed stale PR #5 as superseded by merged PR #6; no code was removed from main.
 - [x] Added regression test for restore preserving supplier, purchase, customer, reservation, barcode and hashed administrator PIN data.
-- [ ] Run Android + Windows analyze/test/release builds; merge only after both jobs pass.
-- [ ] Extend recovery validation with malformed/partial legacy payload fixtures, failed-write injection and backup restore rollback verification.
-- [ ] Reconcile README security wording and audit tracker against current implementation.
+- [x] Android + Windows analyze/test/release builds passed before merge; PR #7 merged as `59c633c4c0310aab50dec3a8f3d3e1280ebf6412`.
+- [x] Reconciled README security wording and audit tracker against current implementation.
+
+## Batch 05 (branch fix/restore-rollback-safety) — in progress
+- [x] Make backup replacement roll back to the previous valid snapshot after a partial write, reload failure, post-restore integrity failure, or final persistence failure.
+- [x] Add simulated partial-write failure regression test proving previous POS data remains available.
+- [x] Add Baku midnight, month-end and year-boundary conversion coverage.
+- [ ] Android + Windows analyze/test/release builds must pass before merge.
+- [ ] Extend malformed/partial legacy backup fixtures and verify rollback against SQLite write faults.
+- [x] Cleanup: closed stale PR #5 as superseded by merged PR #6; no code was removed from main.
 
 ## Owner inputs required before release signing (K1)
 - [ ] Burak must confirm the final Android application ID/package name.
