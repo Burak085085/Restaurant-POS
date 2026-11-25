@@ -350,6 +350,9 @@ void main() {
     );
     final store = Pos(repository: repository);
     await store.load();
+    // Loading this legacy fixture may perform its one-time migration write.
+    // Arm the simulated partial-write failure only after the initial load.
+    repository.failNextWrite = true;
     const backup = '{"products":[{"id":"new","category":"Test","name":"Restored","price":250,"stock":8,"lowAt":2,"active":true}],"tables":[],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"2468","active":true}],"audit":[]}';
 
     expect(await store.restoreBackup(backup), isFalse);
