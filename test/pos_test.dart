@@ -429,27 +429,34 @@ void main() {
       await repository.close();
       final triggerDatabase = await openDatabase(databasePath);
       try {
-        // Store writes always delete the current staff rows inside the
-        // replacement transaction. A DELETE trigger avoids INSERT OR REPLACE
-        // conflict handling and makes the injected failure deterministic.
+        // Every normalized SQLite write begins by inserting app_meta rows.
+        // Fail that first write, rather than depending on a DELETE that can
+        // legitimately affect zero rows and therefore never invoke a trigger.
         await triggerDatabase.execute("""
-          CREATE TRIGGER reject_restore_staff_delete
-          BEFORE DELETE ON staff
+          CREATE TRIGGER reject_restore_meta_insert
+          BEFORE INSERT ON app_meta
           BEGIN
             SELECT RAISE(ABORT, 'Simulated SQLite restore write failure');
           END;
         """);
         final triggerRows = await triggerDatabase.rawQuery(
-          "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'reject_restore_staff_delete'");
+          "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'reject_restore_meta_insert'");
         expect(triggerRows, hasLength(1));
 
-        // Prove the trigger actually fires before relying on it in restore.
+        // Prove the exact operation used by StoreRepository.write is rejected.
         await expectLater(
-          triggerDatabase.delete('staff'),
+          triggerDatabase.insert('app_meta', {
+            'key': 'restore_failure_probe',
+            'value': 'must-not-be-written',
+          }),
           throwsA(isA<DatabaseException>()),
         );
-        final staffRows = await triggerDatabase.rawQuery('SELECT COUNT(*) AS count FROM staff');
-        expect(staffRows.single['count'], greaterThan(0));
+        final probeRows = await triggerDatabase.query(
+          'app_meta',
+          where: 'key = ?',
+          whereArgs: ['restore_failure_probe'],
+        );
+        expect(probeRows, isEmpty);
       } finally {
         await triggerDatabase.close();
       }
