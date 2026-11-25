@@ -11,6 +11,17 @@ import 'package:restaurant_pos/advanced_features.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+class ToggleFailRepository extends MemoryStoreRepository {
+  ToggleFailRepository({super.value});
+  bool failWrites = false;
+
+  @override
+  Future<void> write(String payload) async {
+    if (failWrites) throw StateError('Simulated SQLite write failure.');
+    await super.write(payload);
+  }
+}
+
 class FailOnWriteRepository extends MemoryStoreRepository {
   FailOnWriteRepository({super.value});
 
@@ -1020,4 +1031,30 @@ void main() {
     expect(target.staff.single.verifyPin('8642'), isTrue);
     expect(await target.integrityCheck(), isEmpty);
   });
+  test('failed persistence rolls in-memory state back and blocks further POS actions', () async {
+    final repository = ToggleFailRepository();
+    final store = Pos(repository: repository);
+    store.save();
+    await store.flush();
+
+    final product = store.products.first;
+    final originalStock = product.stock;
+    repository.failWrites = true;
+
+    expect(store.stockChange(product, 1, note: 'Test düzeltmesi'), isTrue);
+    await store.flush();
+
+    expect(store.persistenceFailed, isTrue);
+    expect(store.currentUser, isEmpty);
+    expect(product.stock, originalStock);
+    expect(store.can('inventory'), isFalse);
+    expect(store.stockChange(product, 1, note: 'İkinci deneme'), isFalse);
+
+    repository.failWrites = false;
+    final restored = Pos(repository: repository);
+    await restored.load();
+    expect(restored.recoveryRequired, isFalse);
+    expect(restored.products.first.stock, originalStock);
+  });
+
 }
