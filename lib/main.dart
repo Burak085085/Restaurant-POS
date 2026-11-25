@@ -1110,8 +1110,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   }
   @override Widget build(BuildContext context)=>Listener(onPointerDown: (_) => _resetInactivityTimer(), child: AnimatedBuilder(animation:pos,builder:(context,_){
     if(!authenticated)return PinGate(
-      onAuthenticated:()=>setState(()=>{authenticated=true,_resetInactivityTimer()}),
-      onStaffSelected:(_)=>setState(()=>{authenticated=true,_resetInactivityTimer()}),
+      onAuthenticated:() { setState(() { authenticated=true; }); _resetInactivityTimer(); },
+      onStaffSelected:(_) { setState(() { authenticated=true; }); _resetInactivityTimer(); },
     );
     if(pos.isWaiter)return Scaffold(body:SafeArea(child:TablesPage(onLogout:_logout)));
     if(pos.isKitchenStaff)return KitchenPage(onLogout:_logout);
