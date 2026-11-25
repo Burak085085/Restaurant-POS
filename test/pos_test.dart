@@ -75,6 +75,19 @@ void main() {
   });
 
 
+  test('Baku wall-time conversion handles midnight and year boundaries', () {
+    final newYearWallTime = DateTime.utc(2027, 1, 1, 0, 15);
+    final storedInstant = bakuWallTimeToUtc(newYearWallTime);
+
+    expect(storedInstant, DateTime.utc(2026, 12, 31, 20, 15));
+    expect(azWallTime(storedInstant), newYearWallTime);
+    expect(dayKey(azWallTime(storedInstant)), '2027-01-01');
+    expect(bakuTimestamp(storedInstant.toIso8601String()), '01.01.2027 00:15');
+
+    final monthEndWallTime = DateTime.utc(2026, 3, 1, 0, 5);
+    expect(bakuWallTimeToUtc(monthEndWallTime), DateTime.utc(2026, 2, 28, 20, 5));
+  });
+
   test('Baku timestamps store UTC instants and display fixed UTC+4 wall time', () {
     final wallTime = DateTime.utc(2026, 11, 21, 19, 30);
     final instant = bakuWallTimeToUtc(wallTime);
