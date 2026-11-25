@@ -692,6 +692,8 @@ void main() {
         expect(columns.any((column) => column['name'] == 'reason'), isTrue);
         expect(columns.any((column) => column['name'] == 'stock_returned'), isTrue);
         expect(columns.any((column) => column['name'] == 'ingredient_usage'), isTrue);
+        final orderLineColumns = await migrated.rawQuery('PRAGMA table_info(order_lines)');
+        expect(orderLineColumns.any((column) => column['name'] == 'ingredient_usage'), isTrue);
       } finally {
         await migrated.close();
       }
@@ -1076,8 +1078,10 @@ void main() {
       final product = store.products.first;
       product.stock = 5;
       product.costPrice = 100;
-      final ingredient = Ingredient(id: 'flour', name: 'Un', unit: 'gram',
-        stock: 1000, lowAt: 50, costPerUnit: 1);
+      final ingredient = Ingredient(
+        id: 'flour', name: 'Un', unit: 'gram',
+        stock: 1000, lowAt: 50, costPerUnit: 1,
+      );
       expect(store.addIngredient(ingredient), isTrue);
       expect(store.setRecipe(product, const [RecipeLine(ingredientId: 'flour', quantity: 100)]), isTrue);
       final table = store.tables.first;
@@ -1101,6 +1105,53 @@ void main() {
       expect(restored.sales.last.reason, 'Hatalı ürün');
       expect(restored.ingredients.single.stock, 1000);
       expect(await restored.integrityCheck(), isEmpty);
+    } finally {
+      await repository.close();
+      await directory.delete(recursive: true);
+    }
+  });
+
+  test('SQLite preserves ingredient movements and recipe snapshots on open orders', () async {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+    final directory = await Directory.systemTemp.createTemp('restaurant-pos-ingredient-v7-');
+    final repository = SqliteStoreRepository(
+      databasePath: '${directory.path}/pos.sqlite3',
+      backupDirectoryPath: directory.path,
+    );
+    try {
+      final store = Pos(repository: repository);
+      final product = store.products.first;
+      product.stock = 5;
+      final ingredient = Ingredient(id: 'flour', name: 'Un', unit: 'gram',
+        stock: 1000, lowAt: 100, costPerUnit: 2);
+      expect(store.addIngredient(ingredient), isTrue);
+      expect(store.setRecipe(product, const [RecipeLine(ingredientId: 'flour', quantity: 100)]), isTrue);
+      final table = store.tables.first;
+      expect(store.add(table, product), isTrue);
+      expect(store.setRecipe(product, const [RecipeLine(ingredientId: 'flour', quantity: 200)]), isTrue);
+      await store.flush();
+
+      final restored = Pos(repository: repository);
+      await restored.load();
+      expect(restored.tables.first.items.single.ingredientUsage, {'flour': 100});
+      expect(restored.reservedIngredientStock('flour'), 100);
+      expect(restored.ingredientMovements, hasLength(1));
+
+      final restoredTable = restored.tables.first;
+      expect(restored.sendKitchen(restoredTable), isTrue);
+      expect(restored.openRegister(1000), isTrue);
+      expect(restored.checkout(restoredTable,
+        [PaymentPart('Kart', product.price)]), isTrue);
+      await restored.flush();
+
+      final finalState = Pos(repository: repository);
+      await finalState.load();
+      expect(finalState.ingredients.single.stock, 900);
+      expect(finalState.ingredientMovements, hasLength(2));
+      expect(finalState.ingredientMovements.last.type, 'Satış');
+      expect(finalState.sales.single.ingredientUsage, {'flour': 100});
+      expect(await finalState.integrityCheck(), isEmpty);
     } finally {
       await repository.close();
       await directory.delete(recursive: true);
