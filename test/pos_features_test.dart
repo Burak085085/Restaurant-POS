@@ -390,5 +390,71 @@ void main() {
       expect(await restored.integrityCheck(), isEmpty);
     });
 
+    test('partial refunds reconcile in sequence and return stock only once', () async {
+      final repository = MemoryStoreRepository();
+      final pos = Pos(repository: repository);
+      pos.staff.firstWhere((member) => member.name == 'Admin').setPin('8642');
+      final product = pos.products.first;
+      product.stock = 5;
+      final table = pos.tables.first;
+
+      expect(pos.add(table, product), isTrue);
+      expect(pos.sendKitchen(table), isTrue);
+      expect(pos.openRegister(1000), isTrue);
+      expect(pos.checkout(table, [PaymentPart('Kart', product.price)]), isTrue);
+      final saleIndex = pos.sales.length - 1;
+      expect(product.stock, 4);
+
+      expect(pos.refundSale(saleIndex, 100, 'Kısmi iade', '8642'), isTrue);
+      expect(pos.remainingRefundable(saleIndex), product.price - 100);
+      expect(product.stock, 4);
+      expect(pos.refundedAmountForSale(saleIndex), 100);
+
+      expect(pos.refundSale(saleIndex, product.price - 100,
+        'Kalan tutar ve stok iadesi', '8642', returnStock: true), isTrue);
+      expect(pos.remainingRefundable(saleIndex), 0);
+      expect(pos.refundedAmountForSale(saleIndex), product.price);
+      expect(product.stock, 5);
+      expect(pos.sales.where((sale) => sale.isRefund && sale.refundOfSaleIndex == saleIndex), hasLength(2));
+      expect(pos.cashMovements.where((movement) => movement.type == 'Çıxış')
+        .fold<int>(0, (sum, movement) => sum + movement.amount), product.price);
+      expect(pos.expectedRegisterCash(pos.activeRegister!), 1000 - product.price);
+      expect(pos.refundSale(saleIndex, 1, 'Mükerrer iade', '8642'), isFalse);
+      expect(pos.integrityCheck(), completion(isEmpty));
+      await pos.flush();
+
+      final restored = Pos(repository: repository);
+      await restored.load();
+      expect(restored.remainingRefundable(saleIndex), 0);
+      expect(restored.refundedAmountForSale(saleIndex), product.price);
+      expect(restored.products.first.stock, 5);
+      expect(await restored.integrityCheck(), isEmpty);
+    });
+
+    test('refund is rejected when register cash is insufficient without side effects', () async {
+      final pos = Pos(repository: MemoryStoreRepository());
+      pos.staff.firstWhere((member) => member.name == 'Admin').setPin('8642');
+      final product = pos.products.first;
+      product.stock = 5;
+      final table = pos.tables.first;
+
+      expect(pos.add(table, product), isTrue);
+      expect(pos.sendKitchen(table), isTrue);
+      expect(pos.openRegister(50), isTrue);
+      expect(pos.checkout(table, [PaymentPart('Kart', product.price)]), isTrue);
+      final saleIndex = pos.sales.length - 1;
+      final saleCount = pos.sales.length;
+      final movementCount = pos.cashMovements.length;
+      final stockBefore = product.stock;
+
+      expect(pos.refundSale(saleIndex, product.price, 'Kasada yeterli nakit yok', '8642'), isFalse);
+      expect(pos.sales, hasLength(saleCount));
+      expect(pos.cashMovements, hasLength(movementCount));
+      expect(product.stock, stockBefore);
+      expect(pos.remainingRefundable(saleIndex), product.price);
+      expect(pos.expectedRegisterCash(pos.activeRegister!), 50);
+      await pos.flush();
+    });
+
   });
 }
