@@ -39,7 +39,7 @@ On Windows, enable desktop support and run `flutter build windows --release`. Gi
 
 ## Security notes
 
-The administrator PIN and PIN-protected cashier/kitchen staff credentials are stored as salted SHA-256 hashes, not plaintext. Waiters use PIN-free sign-in and can enter orders only; cashiers can enter orders and use the cash register; kitchen staff can update kitchen order states only. Staff can sign in only with a supported, active role. Administrator-only operations remain unavailable to staff. This is local application-level protection, not a replacement for operating-system account security or encrypted device storage.
+The administrator PIN and PIN-protected cashier/kitchen staff credentials are stored using salted PBKDF2-HMAC-SHA256 hashes (120,000 iterations), not plaintext. Legacy salted SHA-256 hashes are upgraded to PBKDF2 after successful verification. Waiters use PIN-free sign-in and can enter orders only; cashiers can enter orders and use the cash register; kitchen staff can update kitchen order states only. Staff can sign in only with a supported, active role. Administrator-only operations remain unavailable to staff. This is local application-level protection, not a replacement for operating-system account security or encrypted device storage.
 
 
 ## Maliyet, gider ve stok geçmişi (SQLite şema v4)
