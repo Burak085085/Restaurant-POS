@@ -1761,6 +1761,54 @@ class RecipePage extends StatelessWidget {
     name.dispose(); unit.dispose(); stock.dispose(); low.dispose(); cost.dispose();
   }
 
+  Future<void> _purchaseIngredient(BuildContext context, Ingredient ingredient) async {
+    final quantity = TextEditingController(text: '1');
+    final cost = TextEditingController(text: money(ingredient.costPerUnit));
+    final activeSuppliers = pos.suppliers.where((item) => item.active).toList();
+    String? supplierId;
+    final ok = await showDialog<bool>(context: context,
+      builder: (dialogContext) => StatefulBuilder(builder: (dialogContext, setDialogState) =>
+        AlertDialog(
+          title: Text('${ingredient.name} alımı'),
+          content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(controller: quantity, keyboardType: TextInputType.number,
+                decoration: InputDecoration(labelText: 'Miktar (${ingredient.unit})')),
+              TextField(controller: cost, keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'Alış birim maliyeti (₼)')),
+              if (activeSuppliers.isNotEmpty)
+                DropdownButtonFormField<String?>(
+                  initialValue: supplierId,
+                  decoration: const InputDecoration(labelText: 'Tedarikçi (isteğe bağlı)'),
+                  items: [
+                    const DropdownMenuItem<String?>(value: null, child: Text('Belirtilmedi')),
+                    ...activeSuppliers.map((item) => DropdownMenuItem<String?>(
+                      value: item.id, child: Text(item.name))),
+                  ],
+                  onChanged: (value) => setDialogState(() => supplierId = value),
+                ),
+            ])),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('İptal')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Alımı kaydet')),
+          ],
+        )));
+    if (ok == true) {
+      final saved = pos.recordIngredientPurchase(
+        ingredientId: ingredient.id,
+        quantity: int.tryParse(quantity.text) ?? 0,
+        unitCost: parseMoney(cost.text) ?? -1,
+        supplierId: supplierId,
+      );
+      if (!saved && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Malzeme alımı kaydedilemedi. Miktar ve maliyeti kontrol edin.')));
+      }
+    }
+    quantity.dispose();
+    cost.dispose();
+  }
+
   Future<void> _editRecipe(BuildContext context, Product product) async {
     final lines = List<RecipeLine>.from(pos.recipes[product.id] ?? const []);
     String? selectedId;
@@ -1829,8 +1877,21 @@ class RecipePage extends StatelessWidget {
             trailing: Row(mainAxisSize: MainAxisSize.min, children: [
               IconButton(onPressed: () => pos.adjustIngredient(ingredient, -1), icon: const Icon(Icons.remove)),
               IconButton(onPressed: () => pos.adjustIngredient(ingredient, 1), icon: const Icon(Icons.add)),
+              IconButton(onPressed: () => _purchaseIngredient(context, ingredient),
+                icon: const Icon(Icons.add_shopping_cart), tooltip: 'Malzeme alımı'),
             ]),
           )),
+        const Divider(),
+        const Text('Son malzeme hareketleri', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        if (pos.ingredientMovements.isEmpty)
+          const ListTile(title: Text('Henüz malzeme hareketi yok.')),
+        for (final movement in pos.ingredientMovements.reversed.take(20))
+          ListTile(
+            dense: true,
+            title: Text('${movement.ingredientName} · ${movement.type} × ${movement.quantity}'),
+            subtitle: Text('${movement.beforeStock} → ${movement.afterStock} · ${movement.note} · ${bakuTimestamp(movement.at)}'),
+            trailing: Text(money(movement.unitCost)),
+          ),
         const Divider(),
         const Text('Ürün reçeteleri', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
         for (final product in pos.products.where((item) => item.active))
