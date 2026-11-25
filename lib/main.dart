@@ -157,14 +157,20 @@ class OrderLine {
   int price, qty, unitCost;
   bool sent;
   KitchenState kitchen;
+  Map<String, int>? ingredientUsage;
   OrderLine(this.productId, this.name, this.price, this.qty,
-      {this.sent = false, this.kitchen = KitchenState.queued, this.unitCost = 0});
+      {this.sent = false, this.kitchen = KitchenState.queued, this.unitCost = 0,
+       this.ingredientUsage});
   Map<String, dynamic> toJson() => {'productId': productId, 'name': name,
-    'price': price, 'qty': qty, 'sent': sent, 'kitchen': kitchen.index, 'unitCost': unitCost};
+    'price': price, 'qty': qty, 'sent': sent, 'kitchen': kitchen.index,
+    'unitCost': unitCost, 'ingredientUsage': ingredientUsage};
   factory OrderLine.fromJson(Map<String, dynamic> j) => OrderLine(
     j['productId'] ?? '', j['name'] ?? '', j['price'] ?? 0, j['qty'] ?? 0,
     sent: j['sent'] ?? true,
-    kitchen: KitchenState.values[(j['kitchen'] ?? 0).clamp(0, 3).toInt()], unitCost: j['unitCost'] ?? 0,
+    kitchen: KitchenState.values[(j['kitchen'] ?? 0).clamp(0, 3).toInt()],
+    unitCost: j['unitCost'] ?? 0,
+    ingredientUsage: j['ingredientUsage'] is Map
+        ? Map<String, int>.from(j['ingredientUsage'] as Map) : null,
   );
 }
 class PosTable { int id; List<OrderLine> items=[]; KitchenState kitchen=KitchenState.queued; int discount=0; bool discountPercent=false; String discountReason=''; PosTable(this.id); int get subtotal=>items.fold(0,(s,e)=>s+e.price*e.qty); int get total=> (subtotal-(discountPercent?subtotal*discount~/100:discount)).clamp(0,1<<30).toInt(); Map<String,dynamic> toJson()=>{'id':id,'items':items.map((e)=>e.toJson()).toList(),'kitchen':kitchen.index,'discount':discount,'discountPercent':discountPercent,'discountReason':discountReason}; }
@@ -229,6 +235,24 @@ class CashMovement {
 class Sale { String date,time,staff; int table,total,discount; List<OrderLine> items; List<PaymentPart> payments; int? registerSessionId; bool isRefund,stockReturned,discountPercent; int? refundOfSaleIndex; String reason,discountReason; Map<String,int>? ingredientUsage; Sale(this.date,this.time,this.staff,this.table,this.total,this.discount,this.items,this.payments,{this.registerSessionId,this.isRefund=false,this.refundOfSaleIndex,this.reason='',this.stockReturned=false,this.ingredientUsage,this.discountReason='',this.discountPercent=false}); Map<String,dynamic> toJson()=>{'date':date,'time':time,'staff':staff,'table':table,'total':total,'discount':discount,'discountReason':discountReason,'discountPercent':discountPercent,'registerSessionId':registerSessionId,'items':items.map((e)=>e.toJson()).toList(),'payments':payments.map((e)=>e.toJson()).toList(),'isRefund':isRefund,'refundOfSaleIndex':refundOfSaleIndex,'reason':reason,'stockReturned':stockReturned,'ingredientUsage':ingredientUsage}; factory Sale.fromJson(Map<String,dynamic> j)=>Sale(j['date']??'',j['time']??'',j['staff']??'Admin',j['table']??0,j['total']??0,j['discount']??0,(j['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(),(j['payments'] as List? ?? []).map((e)=>PaymentPart(e['method']??'Nakit',e['amount']??0,tendered:e['tendered']??e['amount']??0)).toList(),registerSessionId:j['registerSessionId'],isRefund:j['isRefund']??false,refundOfSaleIndex:j['refundOfSaleIndex'],reason:j['reason']??'',stockReturned:j['stockReturned']??false,ingredientUsage:j['ingredientUsage'] is Map ? Map<String,int>.from(j['ingredientUsage'] as Map) : null,discountReason:j['discountReason']??'',discountPercent:j['discountPercent']??false); }
 class Expense { final int id,amount; final String date,category,note; Expense({required this.id,required this.amount,required this.date,required this.category,required this.note}); Map<String,dynamic> toJson()=>{'id':id,'amount':amount,'date':date,'category':category,'note':note}; factory Expense.fromJson(Map<String,dynamic> j)=>Expense(id:j['id']??0,amount:j['amount']??0,date:j['date']??'',category:j['category']??'Diğer',note:j['note']??''); }
 class StockMovement { final int id,quantity,beforeStock,afterStock,productCost; final String productId,productName,type,at,note; StockMovement({required this.id,required this.productId,required this.productName,required this.type,required this.quantity,required this.beforeStock,required this.afterStock,required this.productCost,required this.at,required this.note}); Map<String,dynamic> toJson()=>{'id':id,'productId':productId,'productName':productName,'type':type,'quantity':quantity,'beforeStock':beforeStock,'afterStock':afterStock,'productCost':productCost,'at':at,'note':note}; factory StockMovement.fromJson(Map<String,dynamic> j)=>StockMovement(id:j['id']??0,productId:j['productId']??'',productName:j['productName']??'',type:j['type']??'',quantity:j['quantity']??0,beforeStock:j['beforeStock']??0,afterStock:j['afterStock']??0,productCost:j['productCost']??0,at:j['at']??'',note:j['note']??''); }
+class IngredientMovement {
+  final int id, quantity, beforeStock, afterStock, unitCost;
+  final String ingredientId, ingredientName, type, at, note;
+  IngredientMovement({required this.id, required this.ingredientId,
+    required this.ingredientName, required this.type, required this.quantity,
+    required this.beforeStock, required this.afterStock, required this.unitCost,
+    required this.at, required this.note});
+  Map<String, dynamic> toJson() => {'id': id, 'ingredientId': ingredientId,
+    'ingredientName': ingredientName, 'type': type, 'quantity': quantity,
+    'beforeStock': beforeStock, 'afterStock': afterStock, 'unitCost': unitCost,
+    'at': at, 'note': note};
+  factory IngredientMovement.fromJson(Map<String, dynamic> j) => IngredientMovement(
+    id: j['id'] ?? 0, ingredientId: j['ingredientId'] ?? '',
+    ingredientName: j['ingredientName'] ?? '', type: j['type'] ?? '',
+    quantity: j['quantity'] ?? 0, beforeStock: j['beforeStock'] ?? 0,
+    afterStock: j['afterStock'] ?? 0, unitCost: j['unitCost'] ?? 0,
+    at: j['at'] ?? '', note: j['note'] ?? '');
+}
 class Staff {
   static const int _pinIterations = 120000;
   static const String _pinPrefix = 'pbkdf2-sha256\$$_pinIterations\$';
@@ -292,10 +316,10 @@ class Audit { String at,user,action,detail; Audit(this.at,this.user,this.action,
 
 class Pos extends ChangeNotifier {
   List<Product> products=[Product('p1','Dönerler','Tavuk döner',300),Product('p2','Dönerler','Dana döner',500),Product('p3','Dönerler','Dürüm döner',400),Product('p4','Dönerler','Porsiyon döner',700),Product('p5','İçecekler','Kola',200),Product('p6','İçecekler','Fanta',200),Product('p7','İçecekler','Ayran',100),Product('p8','İçecekler','Su',50),Product('p9','Ekstra','Patates',200),Product('p10','Ekstra','Ketçap',50),Product('p11','Ekstra','Mayonez',50)];
-  List<PosTable> tables=List.generate(kTableCount,(i)=>PosTable(i+1)); List<Sale> sales=[]; List<RegisterSession> registerSessions=[]; List<CashMovement> cashMovements=[]; List<Expense> expenses=[]; List<StockMovement> stockMovements=[]; List<Ingredient> ingredients=[]; Map<String,List<RecipeLine>> recipes={}; List<Staff> staff=[Staff('Admin','Yönetici')]; List<Audit> audit=[]; List<KitchenNotice> kitchenNotices=[]; String currentUser='Admin';
+  List<PosTable> tables=List.generate(kTableCount,(i)=>PosTable(i+1)); List<Sale> sales=[]; List<RegisterSession> registerSessions=[]; List<CashMovement> cashMovements=[]; List<Expense> expenses=[]; List<StockMovement> stockMovements=[]; List<IngredientMovement> ingredientMovements=[]; List<Ingredient> ingredients=[]; Map<String,List<RecipeLine>> recipes={}; List<Staff> staff=[Staff('Admin','Yönetici')]; List<Audit> audit=[]; List<KitchenNotice> kitchenNotices=[]; String currentUser='Admin';
   List<SupplierRecord> suppliers=[]; List<PurchaseRecord> purchases=[]; List<CustomerRecord> customers=[]; List<ReservationRecord> reservations=[]; Map<String,String> productBarcodes={}; Map<String,Map<String,dynamic>> pinSecurity={}; bool recoveryRequired=false; bool persistenceFailed=false; String? persistenceError; int inactivityTimeoutMinutes=15; final StoreRepository _repository; Future<void> _queue=Future.value();
   Pos({StoreRepository? repository}) : _repository = repository ?? SqliteStoreRepository();
-  Future<void> load() async { final raw=await _repository.read(); if(raw==null){persistenceFailed=false;persistenceError=null;return;} try { final j=jsonDecode(raw) as Map<String,dynamic>; final needsTimestampMigration=(j['timestampFormatVersion'] as num?)?.toInt()!=2; if(needsTimestampMigration)_migrateLegacyTimestamps(j); pinSecurity=(j['pinSecurity'] as Map? ?? {}).map((key,value)=>MapEntry(key.toString(),Map<String,dynamic>.from(value as Map))); products=(j['products'] as List? ?? []).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList(); tables=List.generate(kTableCount,(i)=>PosTable(i+1)); for(final x in (j['tables'] as List? ?? [])){final m=Map<String,dynamic>.from(x); final id=m['id'] as int; if(id<1||id>kTableCount)continue; final t=tables[id-1]; t.items=(m['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(); t.kitchen=KitchenState.values[(m['kitchen']??0).clamp(0,3).toInt()]; final rawItems=(m['items'] as List? ?? []); for(var lineIndex=0;lineIndex<t.items.length;lineIndex++){final rawLine=Map<String,dynamic>.from(rawItems[lineIndex]);if(!rawLine.containsKey('kitchen'))t.items[lineIndex].kitchen=t.kitchen;} t.discount=m['discount']??0;t.discountPercent=m['discountPercent']??false;t.discountReason=m['discountReason']??'';} sales=(j['sales'] as List? ?? []).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList(); expenses=(j['expenses'] as List? ?? []).map((e)=>Expense.fromJson(Map<String,dynamic>.from(e))).toList(); stockMovements=(j['stockMovements'] as List? ?? []).map((e)=>StockMovement.fromJson(Map<String,dynamic>.from(e))).toList(); ingredients=(j['ingredients'] as List? ?? []).map((e)=>Ingredient.fromJson(Map<String,dynamic>.from(e))).toList(); recipes=(j['recipes'] as Map? ?? {}).map((key,value)=>MapEntry(key.toString(),(value as List).map((e)=>RecipeLine.fromJson(Map<String,dynamic>.from(e))).toList())); registerSessions=(j['registerSessions'] as List? ?? []).map((e)=>RegisterSession.fromJson(Map<String,dynamic>.from(e))).toList(); cashMovements=(j['cashMovements'] as List? ?? []).map((e)=>CashMovement.fromJson(Map<String,dynamic>.from(e))).toList(); final legacyStaff=(j['staff'] as List? ?? []).map((e)=>Staff.fromJson(Map<String,dynamic>.from(e))).toList(); final admins=legacyStaff.where((member)=>member.name=='Admin').toList(); final admin=admins.isNotEmpty ? admins.first : Staff('Admin','Yönetici'); admin.active=true; final names=<String>{'admin'}; staff=[admin,...legacyStaff.where((member)=>member.name!='Admin'&&member.name.trim().isNotEmpty&&names.add(member.name.trim().toLowerCase()))]; audit=(j['audit'] as List? ?? []).map((e)=>Audit.fromJson(Map<String,dynamic>.from(e))).toList(); kitchenNotices=(j['kitchenNotices'] as List? ?? []).map((e)=>KitchenNotice.fromJson(Map<String,dynamic>.from(e))).toList(); final advanced=Map<String,dynamic>.from(j['advanced'] as Map? ?? {}); suppliers=(advanced['suppliers'] as List? ?? []).map((e)=>SupplierRecord.fromJson(Map<String,dynamic>.from(e))).toList(); purchases=(advanced['purchases'] as List? ?? []).map((e)=>PurchaseRecord.fromJson(Map<String,dynamic>.from(e))).toList(); customers=(advanced['customers'] as List? ?? []).map((e)=>CustomerRecord.fromJson(Map<String,dynamic>.from(e))).toList(); reservations=(advanced['reservations'] as List? ?? []).map((e)=>ReservationRecord.fromJson(Map<String,dynamic>.from(e))).toList(); productBarcodes=Map<String,String>.from(advanced['barcodes'] as Map? ?? {}); inactivityTimeoutMinutes=((j['inactivityTimeoutMinutes'] as num?)?.toInt() ?? 15).clamp(1,120); currentUser='Admin'; recoveryRequired=false; persistenceFailed=false; persistenceError=null; if(needsTimestampMigration){await _repository.write(_snapshot());} } catch (_) { await _repository.backupCorrupt(raw); recoveryRequired=true; } }
+  Future<void> load() async { final raw=await _repository.read(); if(raw==null){persistenceFailed=false;persistenceError=null;return;} try { final j=jsonDecode(raw) as Map<String,dynamic>; final needsTimestampMigration=(j['timestampFormatVersion'] as num?)?.toInt()!=2; if(needsTimestampMigration)_migrateLegacyTimestamps(j); pinSecurity=(j['pinSecurity'] as Map? ?? {}).map((key,value)=>MapEntry(key.toString(),Map<String,dynamic>.from(value as Map))); products=(j['products'] as List? ?? []).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList(); tables=List.generate(kTableCount,(i)=>PosTable(i+1)); for(final x in (j['tables'] as List? ?? [])){final m=Map<String,dynamic>.from(x); final id=m['id'] as int; if(id<1||id>kTableCount)continue; final t=tables[id-1]; t.items=(m['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(); t.kitchen=KitchenState.values[(m['kitchen']??0).clamp(0,3).toInt()]; final rawItems=(m['items'] as List? ?? []); for(var lineIndex=0;lineIndex<t.items.length;lineIndex++){final rawLine=Map<String,dynamic>.from(rawItems[lineIndex]);if(!rawLine.containsKey('kitchen'))t.items[lineIndex].kitchen=t.kitchen;} t.discount=m['discount']??0;t.discountPercent=m['discountPercent']??false;t.discountReason=m['discountReason']??'';} sales=(j['sales'] as List? ?? []).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList(); expenses=(j['expenses'] as List? ?? []).map((e)=>Expense.fromJson(Map<String,dynamic>.from(e))).toList(); stockMovements=(j['stockMovements'] as List? ?? []).map((e)=>StockMovement.fromJson(Map<String,dynamic>.from(e))).toList(); ingredientMovements=(j['ingredientMovements'] as List? ?? []).map((e)=>IngredientMovement.fromJson(Map<String,dynamic>.from(e))).toList(); ingredients=(j['ingredients'] as List? ?? []).map((e)=>Ingredient.fromJson(Map<String,dynamic>.from(e))).toList(); recipes=(j['recipes'] as Map? ?? {}).map((key,value)=>MapEntry(key.toString(),(value as List).map((e)=>RecipeLine.fromJson(Map<String,dynamic>.from(e))).toList())); registerSessions=(j['registerSessions'] as List? ?? []).map((e)=>RegisterSession.fromJson(Map<String,dynamic>.from(e))).toList(); cashMovements=(j['cashMovements'] as List? ?? []).map((e)=>CashMovement.fromJson(Map<String,dynamic>.from(e))).toList(); final legacyStaff=(j['staff'] as List? ?? []).map((e)=>Staff.fromJson(Map<String,dynamic>.from(e))).toList(); final admins=legacyStaff.where((member)=>member.name=='Admin').toList(); final admin=admins.isNotEmpty ? admins.first : Staff('Admin','Yönetici'); admin.active=true; final names=<String>{'admin'}; staff=[admin,...legacyStaff.where((member)=>member.name!='Admin'&&member.name.trim().isNotEmpty&&names.add(member.name.trim().toLowerCase()))]; audit=(j['audit'] as List? ?? []).map((e)=>Audit.fromJson(Map<String,dynamic>.from(e))).toList(); kitchenNotices=(j['kitchenNotices'] as List? ?? []).map((e)=>KitchenNotice.fromJson(Map<String,dynamic>.from(e))).toList(); final advanced=Map<String,dynamic>.from(j['advanced'] as Map? ?? {}); suppliers=(advanced['suppliers'] as List? ?? []).map((e)=>SupplierRecord.fromJson(Map<String,dynamic>.from(e))).toList(); purchases=(advanced['purchases'] as List? ?? []).map((e)=>PurchaseRecord.fromJson(Map<String,dynamic>.from(e))).toList(); customers=(advanced['customers'] as List? ?? []).map((e)=>CustomerRecord.fromJson(Map<String,dynamic>.from(e))).toList(); reservations=(advanced['reservations'] as List? ?? []).map((e)=>ReservationRecord.fromJson(Map<String,dynamic>.from(e))).toList(); productBarcodes=Map<String,String>.from(advanced['barcodes'] as Map? ?? {}); inactivityTimeoutMinutes=((j['inactivityTimeoutMinutes'] as num?)?.toInt() ?? 15).clamp(1,120); currentUser='Admin'; recoveryRequired=false; persistenceFailed=false; persistenceError=null; if(needsTimestampMigration){await _repository.write(_snapshot());} } catch (_) { await _repository.backupCorrupt(raw); recoveryRequired=true; } }
 
   String _snapshot() => jsonEncode({
     'timestampFormatVersion': 2,
@@ -305,6 +329,7 @@ class Pos extends ChangeNotifier {
     'sales': sales.map((e) => e.toJson()).toList(),
     'expenses': expenses.map((e) => e.toJson()).toList(),
     'stockMovements': stockMovements.map((e) => e.toJson()).toList(),
+    'ingredientMovements': ingredientMovements.map((e) => e.toJson()).toList(),
     'ingredients': ingredients.map((e) => e.toJson()).toList(),
     'recipes': recipes.map((key, value) => MapEntry(key, value.map((e) => e.toJson()).toList())),
     'registerSessions': registerSessions.map((e) => e.toJson()).toList(),
@@ -448,6 +473,38 @@ class Pos extends ChangeNotifier {
     for (final ingredient in ingredients) {
       if (ingredient.stock < 0 || ingredient.costPerUnit < 0) issues.add('${ingredient.name}: stok veya maliyet negatif.');
       if (reservedIngredientStock(ingredient.id) > ingredient.stock) issues.add('${ingredient.name}: açık siparişlerde ayrılan miktar stoktan fazla.');
+    }
+    final ingredientMovementsById = <String, List<IngredientMovement>>{};
+    for (final movement in ingredientMovements) {
+      if (!ingredientIds.contains(movement.ingredientId)) {
+        issues.add('Malzeme hareketi bağlı olduğu kaydı bulamıyor: ${movement.ingredientName}.');
+      }
+      if (movement.quantity <= 0 || movement.beforeStock < 0 ||
+          movement.afterStock < 0 || movement.unitCost < 0) {
+        issues.add('${movement.ingredientName}: malzeme hareketinde geçersiz miktar veya maliyet var.');
+      }
+      final expectedDelta = switch (movement.type) {
+        'Giriş' || 'Alım' || 'İade' => movement.quantity,
+        'Satış' || 'Çıkış' || 'Fire' => -movement.quantity,
+        _ => null,
+      };
+      if (expectedDelta == null ||
+          movement.afterStock - movement.beforeStock != expectedDelta) {
+        issues.add('${movement.ingredientName}: malzeme hareketi miktarı tutarsız.');
+      }
+      ingredientMovementsById.putIfAbsent(movement.ingredientId, () => []).add(movement);
+    }
+    for (final entry in ingredientMovementsById.entries) {
+      final movements = entry.value;
+      for (var index = 1; index < movements.length; index++) {
+        if (movements[index].beforeStock != movements[index - 1].afterStock) {
+          issues.add('${movements[index].ingredientName}: malzeme hareketleri arasında bakiye kopukluğu var.');
+        }
+      }
+      final matches = ingredients.where((item) => item.id == entry.key);
+      if (matches.isNotEmpty && movements.last.afterStock != matches.first.stock) {
+        issues.add('${matches.first.name}: malzeme hareketleri güncel stokla eşleşmiyor.');
+      }
     }
     for (final entry in recipes.entries) {
       if (!productIds.contains(entry.key)) issues.add('Reçete bağlı olduğu ürünü bulamıyor: ${entry.key}.');
@@ -632,14 +689,23 @@ class Pos extends ChangeNotifier {
   int get todayTotal=>sales.where((s)=>s.date==dayKey(azWallTime(azNow()))).fold(0,(a,s)=>a+s.total); int get todayCount=>sales.where((s)=>s.date==dayKey(azWallTime(azNow()))).length;
   int reservedStock(String productId) => tables.fold(0, (sum, table) =>
       sum + table.items.where((line) => line.productId == productId).fold(0, (n, line) => n + line.qty));
+  Map<String, int> _recipeUsageForProduct(String productId) {
+    final usage = <String, int>{};
+    for (final line in recipes[productId] ?? const <RecipeLine>[]) {
+      usage[line.ingredientId] = (usage[line.ingredientId] ?? 0) + line.quantity;
+    }
+    return usage;
+  }
+  bool _sameIngredientUsage(Map<String, int>? first, Map<String, int> second) {
+    if (first == null || first.length != second.length) return false;
+    return second.entries.every((entry) => first[entry.key] == entry.value);
+  }
   int reservedIngredientStock(String ingredientId) {
     var reserved = 0;
     for (final table in tables) {
       for (final line in table.items) {
-        final recipe = recipes[line.productId] ?? const <RecipeLine>[];
-        for (final item in recipe.where((entry) => entry.ingredientId == ingredientId)) {
-          reserved += item.quantity * line.qty;
-        }
+        final usage = line.ingredientUsage ?? _recipeUsageForProduct(line.productId);
+        reserved += (usage[ingredientId] ?? 0) * line.qty;
       }
     }
     return reserved;
@@ -663,6 +729,14 @@ class Pos extends ChangeNotifier {
         ingredient.stock < 0 || ingredient.costPerUnit < 0 ||
         ingredients.any((item) => item.id == ingredient.id)) return false;
     ingredients.add(ingredient);
+    if (ingredient.stock > 0) {
+      final now = azNow();
+      ingredientMovements.add(IngredientMovement(
+        id: now.microsecondsSinceEpoch, ingredientId: ingredient.id,
+        ingredientName: ingredient.name, type: 'Giriş', quantity: ingredient.stock,
+        beforeStock: 0, afterStock: ingredient.stock, unitCost: ingredient.costPerUnit,
+        at: now.toIso8601String(), note: 'İlk stok kaydı'));
+    }
     log('Malzeme', '${ingredient.name} oluşturuldu');
     save();
     return true;
@@ -670,11 +744,49 @@ class Pos extends ChangeNotifier {
   bool adjustIngredient(Ingredient ingredient, int delta) {
     if (!can('inventory') || !ingredients.contains(ingredient) || delta == 0 ||
         ingredient.stock + delta < reservedIngredientStock(ingredient.id)) return false;
+    final before = ingredient.stock;
     ingredient.stock += delta;
+    final now = azNow();
+    ingredientMovements.add(IngredientMovement(
+      id: now.microsecondsSinceEpoch, ingredientId: ingredient.id,
+      ingredientName: ingredient.name, type: delta > 0 ? 'Giriş' : 'Çıkış',
+      quantity: delta.abs(), beforeStock: before, afterStock: ingredient.stock,
+      unitCost: ingredient.costPerUnit, at: now.toIso8601String(),
+      note: 'Manuel stok düzeltmesi'));
     log('Malzeme stoku', '${ingredient.name}: ${ingredient.stock} ${ingredient.unit}');
     save();
     return true;
   }
+  bool recordIngredientPurchase({required String ingredientId,
+      required int quantity, required int unitCost, String? supplierId}) {
+    if (!can('inventory') || quantity <= 0 || unitCost < 0) return false;
+    final matches = ingredients.where((item) => item.id == ingredientId);
+    if (matches.isEmpty) return false;
+    SupplierRecord? supplier;
+    if (supplierId != null) {
+      final suppliersFound = suppliers.where((item) => item.id == supplierId && item.active);
+      if (suppliersFound.isEmpty) return false;
+      supplier = suppliersFound.first;
+    }
+    final ingredient = matches.first;
+    if (ingredient.stock + quantity > 100000000) return false;
+    final before = ingredient.stock;
+    final next = before + quantity;
+    final previousValue = before * ingredient.costPerUnit;
+    ingredient.costPerUnit = ((previousValue + quantity * unitCost + next ~/ 2) ~/ next);
+    ingredient.stock = next;
+    final now = azNow();
+    ingredientMovements.add(IngredientMovement(
+      id: now.microsecondsSinceEpoch, ingredientId: ingredient.id,
+      ingredientName: ingredient.name, type: 'Alım', quantity: quantity,
+      beforeStock: before, afterStock: next, unitCost: unitCost,
+      at: now.toIso8601String(),
+      note: supplier == null ? 'Malzeme alımı' : 'Malzeme alımı · ${supplier.name}'));
+    log('Malzeme alımı', '${ingredient.name} × $quantity · Birim maliyet: ${money(unitCost)}');
+    save();
+    return true;
+  }
+
   bool setRecipe(Product product, List<RecipeLine> lines) {
     if (!can('inventory') || !products.contains(product) ||
         lines.any((line) => line.quantity <= 0 ||
@@ -757,19 +869,36 @@ class Pos extends ChangeNotifier {
 
   bool add(PosTable t, Product p) {
     if (!can('orders') || !p.active || reservedStock(p.id) >= p.stock || !recipeAvailable(p)) return false;
-    final existing = t.items.where((line) => line.productId == p.id && !line.sent);
-    if (existing.isNotEmpty) { existing.first.qty++; } else { t.items.add(OrderLine(p.id, p.name, p.price, 1)); }
+    final usage = _recipeUsageForProduct(p.id);
+    final existing = t.items.where((line) =>
+        line.productId == p.id && !line.sent &&
+        _sameIngredientUsage(line.ingredientUsage, usage));
+    if (existing.isNotEmpty) {
+      existing.first.qty++;
+    } else {
+      t.items.add(OrderLine(p.id, p.name, p.price, 1,
+          ingredientUsage: Map<String, int>.from(usage)));
+    }
     log('Sipariş', 'Masa ${t.id}: ${p.name} eklendi'); save(); return true;
   }
   bool qty(PosTable t, int i, int delta) {
     if (!can('orders') || i < 0 || i >= t.items.length) return false;
     final line = t.items[i]; if (line.sent && delta < 0) return false; final product = products.where((p) => p.id == line.productId);
     if (delta > 0 && (product.isEmpty || reservedStock(line.productId) >= product.first.stock || !recipeAvailable(product.first))) return false;
-    if (delta > 0 && line.sent) {
-      final pending = t.items.where((item) => item.productId == line.productId && !item.sent);
-      if (pending.isNotEmpty) { pending.last.qty++; }
-      else { t.items.add(OrderLine(line.productId, line.name, line.price, 1)); }
-    } else { line.qty += delta; if (line.qty <= 0) t.items.removeAt(i); }
+    if (delta > 0) {
+      final usage = _recipeUsageForProduct(line.productId);
+      final pending = t.items.where((item) => item.productId == line.productId &&
+          !item.sent && _sameIngredientUsage(item.ingredientUsage, usage));
+      if (pending.isNotEmpty) {
+        pending.last.qty += delta;
+      } else {
+        t.items.add(OrderLine(line.productId, line.name, line.price, delta,
+            ingredientUsage: Map<String, int>.from(usage)));
+      }
+    } else {
+      line.qty += delta;
+      if (line.qty <= 0) t.items.removeAt(i);
+    }
     if (t.items.isEmpty) { t.discount=0; t.discountPercent=false; t.discountReason=''; t.kitchen=KitchenState.queued; }
     else if (t.discountPercent ? t.discount > 99 : t.discount >= t.subtotal) { t.discount=0; t.discountPercent=false; t.discountReason=''; log('İndirim sıfırlandı','Masa ${t.id}: ara toplam değiştiği için indirim kaldırıldı'); }
     log('Sipariş', 'Masa ${t.id}: miktar değişti'); save(); return true;
@@ -858,7 +987,8 @@ class Pos extends ChangeNotifier {
     final line = source.items[lineIndex];
     if (quantity <= 0 || quantity > line.qty) return false;
     destination.items.add(OrderLine(line.productId, line.name, line.price, quantity,
-        sent: line.sent, kitchen: line.kitchen, unitCost: line.unitCost));
+        sent: line.sent, kitchen: line.kitchen, unitCost: line.unitCost,
+        ingredientUsage: line.ingredientUsage == null ? null : Map<String, int>.from(line.ingredientUsage!)));
     line.qty -= quantity;
     if (line.qty == 0) source.items.removeAt(lineIndex);
     destination.kitchen = tableKitchenState(destination);
@@ -922,7 +1052,7 @@ class Pos extends ChangeNotifier {
     if(original.isRefund||amount>remaining||(returnStock&&(amount!=remaining||original.stockReturned)))return false;
     final productNeeds=<String,int>{}; final ingredientNeeds=<String,int>{};
     if(returnStock){for(final line in original.items){productNeeds[line.productId]=(productNeeds[line.productId]??0)+line.qty;}
-      if(original.ingredientUsage!=null){ingredientNeeds.addAll(original.ingredientUsage!);}else{for(final line in original.items){for(final recipeLine in recipes[line.productId]??const <RecipeLine>[]){ingredientNeeds[recipeLine.ingredientId]=(ingredientNeeds[recipeLine.ingredientId]??0)+recipeLine.quantity*line.qty;}}}
+      if(original.ingredientUsage!=null){ingredientNeeds.addAll(original.ingredientUsage!);}else{for(final line in original.items){final usage=line.ingredientUsage??_recipeUsageForProduct(line.productId);for(final entry in usage.entries){ingredientNeeds[entry.key]=(ingredientNeeds[entry.key]??0)+entry.value*line.qty;}}}
       for(final entry in productNeeds.entries){final p=products.where((item)=>item.id==entry.key);if(p.isEmpty||p.first.stock+entry.value>100000000)return false;}
       for(final entry in ingredientNeeds.entries){final item=ingredients.where((x)=>x.id==entry.key);if(item.isEmpty||item.first.stock+entry.value>100000000)return false;}
     }
@@ -930,7 +1060,18 @@ class Pos extends ChangeNotifier {
     if(expectedRegisterCash(session)<amount)return false;
     cashMovements.add(CashMovement(id:DateTime.now().microsecondsSinceEpoch,sessionId:session.id,at:now.toIso8601String(),type:'Çıxış',amount:amount,note:'Satış iadesi · Masa ${original.table} · ${reason.trim()}'));
     if(returnStock){for(final entry in productNeeds.entries){final product=products.firstWhere((item)=>item.id==entry.key);final before=product.stock;product.stock+=entry.value;stockMovements.add(StockMovement(id:DateTime.now().microsecondsSinceEpoch,productId:product.id,productName:product.name,type:'İade',quantity:entry.value,beforeStock:before,afterStock:product.stock,productCost:product.costPrice,at:now.toIso8601String(),note:'Satış iadesi · Masa ${original.table}'));}
-      for(final entry in ingredientNeeds.entries){ingredients.firstWhere((item)=>item.id==entry.key).stock+=entry.value;} original.stockReturned=true;}
+      for(final entry in ingredientNeeds.entries){
+        final ingredient = ingredients.firstWhere((item)=>item.id==entry.key);
+        final before = ingredient.stock;
+        ingredient.stock += entry.value;
+        ingredientMovements.add(IngredientMovement(
+          id: now.microsecondsSinceEpoch + ingredientMovements.length,
+          ingredientId: ingredient.id, ingredientName: ingredient.name,
+          type: 'İade', quantity: entry.value, beforeStock: before,
+          afterStock: ingredient.stock, unitCost: ingredient.costPerUnit,
+          at: now.toIso8601String(), note: 'Satış iadesi · Masa ${original.table}'));
+      }
+      original.stockReturned=true;}
     sales.add(Sale(dayKey(azWallTime(now)),stamp(azWallTime(now)),currentUser,original.table,-amount,0,returnStock?original.items.map((item)=>OrderLine(item.productId,item.name,item.price,item.qty,unitCost:item.unitCost)).toList():<OrderLine>[],[PaymentPart('İade',-amount,tendered:-amount)],registerSessionId:session.id,isRefund:true,refundOfSaleIndex:saleIndex,reason:reason.trim()));
     log('Satış iadesi','Satış #${saleIndex+1}: ${money(amount)} · ${reason.trim()}${returnStock?' · Stok geri alındı':''}'); save(); return true;
   }int get totalExpenses=>expenses.fold(0,(s,e)=>s+e.amount);int get totalCostOfSales=>sales.fold(0,(s,e)=>s+costOfSale(e));int get netProfit=>sales.fold(0,(s,e)=>s+e.total-costOfSale(e))-totalExpenses;
@@ -950,9 +1091,9 @@ class Pos extends ChangeNotifier {
     for (final line in t.items) {
       productNeeds[line.productId] =
           (productNeeds[line.productId] ?? 0) + line.qty;
-      for (final recipeLine in recipes[line.productId] ?? const <RecipeLine>[]) {
-        ingredientNeeds[recipeLine.ingredientId] =
-            (ingredientNeeds[recipeLine.ingredientId] ?? 0) + recipeLine.quantity * line.qty;
+      final usage = line.ingredientUsage ?? _recipeUsageForProduct(line.productId);
+      for (final entry in usage.entries) {
+        ingredientNeeds[entry.key] = (ingredientNeeds[entry.key] ?? 0) + entry.value * line.qty;
       }
     }
     for (final entry in productNeeds.entries) {
@@ -977,7 +1118,14 @@ class Pos extends ChangeNotifier {
     }
     for (final entry in ingredientNeeds.entries) {
       final ingredient = ingredients.firstWhere((item) => item.id == entry.key);
+      final before = ingredient.stock;
       ingredient.stock -= entry.value;
+      ingredientMovements.add(IngredientMovement(
+        id: now.microsecondsSinceEpoch + ingredientMovements.length,
+        ingredientId: ingredient.id, ingredientName: ingredient.name,
+        type: 'Satış', quantity: entry.value, beforeStock: before,
+        afterStock: ingredient.stock, unitCost: ingredient.costPerUnit,
+        at: now.toIso8601String(), note: 'Masa ${t.id} satışı'));
     }
     sales.add(Sale(dayKey(azWallTime(now)), stamp(azWallTime(now)), seller, t.id, total, t.subtotal-total,
       t.items.map((e) { final product=products.firstWhere((p)=>p.id==e.productId); return OrderLine(e.productId,e.name,e.price,e.qty,unitCost:product.costPrice + recipeCost(product)); }).toList(), payments,
