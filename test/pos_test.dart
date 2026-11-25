@@ -429,11 +429,13 @@ void main() {
         await triggerDatabase.execute("""
           CREATE TRIGGER reject_restored_product
           BEFORE INSERT ON products
-          WHEN NEW.name = 'Restored'
           BEGIN
             SELECT RAISE(ABORT, 'Simulated SQLite restore write failure');
           END;
         """);
+        final triggerRows = await triggerDatabase.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'reject_restored_product'");
+        expect(triggerRows, hasLength(1));
       } finally {
         await triggerDatabase.close();
       }
