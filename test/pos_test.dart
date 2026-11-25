@@ -421,6 +421,10 @@ void main() {
       final store = Pos(repository: repository);
       await store.load();
       store.products.first.name = 'Original';
+      // A fresh store starts with the built-in demo menu (several products),
+      // so compare against the real saved count instead of assuming one row.
+      final originalProductCount = store.products.length;
+      expect(originalProductCount, greaterThan(1));
       store.save();
       await store.flush();
       await repository.close();
@@ -453,9 +457,10 @@ void main() {
 
       final inspectionDatabase = await openDatabase(databasePath);
       try {
-        final products = await inspectionDatabase.query('products');
-        expect(products, hasLength(1));
-        expect(products.single['name'], 'Original');
+        final products = await inspectionDatabase.query('products', orderBy: 'rowid');
+        expect(products, hasLength(originalProductCount));
+        expect(products.first['name'], 'Original');
+        expect(products.any((row) => row['id'] == 'restored'), isFalse);
         final integrity = await inspectionDatabase.rawQuery('PRAGMA integrity_check');
         expect(integrity.single.values.single, 'ok');
         await inspectionDatabase.execute('DROP TRIGGER reject_restore_product_delete');
@@ -466,7 +471,9 @@ void main() {
       final reloaded = Pos(repository: repository);
       await reloaded.load();
       expect(reloaded.recoveryRequired, isFalse);
-      expect(reloaded.products.single.name, 'Original');
+      expect(reloaded.products, hasLength(originalProductCount));
+      expect(reloaded.products.first.name, 'Original');
+      expect(reloaded.products.any((product) => product.id == 'restored'), isFalse);
       expect(await reloaded.integrityCheck(), isEmpty);
     } finally {
       await repository.close();
