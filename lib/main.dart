@@ -1128,7 +1128,17 @@ class Pos extends ChangeNotifier {
         at: now.toIso8601String(), note: 'Masa ${t.id} satışı'));
     }
     sales.add(Sale(dayKey(azWallTime(now)), stamp(azWallTime(now)), seller, t.id, total, t.subtotal-total,
-      t.items.map((e) { final product=products.firstWhere((p)=>p.id==e.productId); return OrderLine(e.productId,e.name,e.price,e.qty,unitCost:product.costPrice + recipeCost(product)); }).toList(), payments,
+      t.items.map((e) {
+        final product = products.firstWhere((p) => p.id == e.productId);
+        final usage = e.ingredientUsage ?? _recipeUsageForProduct(e.productId);
+        final ingredientCost = usage.entries.fold<int>(0, (sum, entry) {
+          final ingredient = ingredients.where((item) => item.id == entry.key);
+          return sum + (ingredient.isEmpty ? 0 : ingredient.first.costPerUnit * entry.value);
+        });
+        return OrderLine(e.productId, e.name, e.price, e.qty,
+          unitCost: product.costPrice + ingredientCost,
+          ingredientUsage: Map<String, int>.from(usage));
+      }).toList(), payments,
       registerSessionId: register?.id, ingredientUsage: Map<String,int>.from(ingredientNeeds), discountReason: t.discountReason, discountPercent: t.discountPercent));
     log('Ödeme', 'Masa ${t.id}: ${money(total)}');
     t.items = []; t.discount = 0; t.discountPercent = false; t.discountReason = ''; t.kitchen = KitchenState.queued;
@@ -1797,7 +1807,7 @@ class RecipePage extends StatelessWidget {
       final saved = pos.recordIngredientPurchase(
         ingredientId: ingredient.id,
         quantity: int.tryParse(quantity.text) ?? 0,
-        unitCost: parseMoney(cost.text) ?? -1,
+        unitCost: parseMoney(cost.text, allowZero: true) ?? -1,
         supplierId: supplierId,
       );
       if (!saved && context.mounted) {
