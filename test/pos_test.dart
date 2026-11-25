@@ -423,40 +423,51 @@ void main() {
       store.products.first.name = 'Original';
       store.save();
       await store.flush();
-
-      // Install the failure on the database file, then let the repository
-      // reopen it. The normalized writer always deletes products first.
       await repository.close();
+
+      // Install a persistent SQLite trigger, then close that connection before
+      // the repository reopens the file. This avoids testing against two
+      // simultaneously cached sqflite handles for the same database path.
       final triggerDatabase = await openDatabase(databasePath);
+      await triggerDatabase.execute("""
+        CREATE TRIGGER reject_restore_product_delete
+        BEFORE DELETE ON products
+        BEGIN
+          SELECT RAISE(ABORT, 'Simulated SQLite restore write failure');
+        END;
+      """);
+      final triggerRows = await triggerDatabase.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'reject_restore_product_delete'");
+      expect(triggerRows, hasLength(1));
+      await triggerDatabase.close();
+
+      const backup = '{"products":[{"id":"restored","category":"Test","name":"Restored","price":250,"costPrice":0,"stock":8,"lowAt":2,"active":true}],"tables":[],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"2468","active":true}],"audit":[]}';
+
+      // The injected DELETE failure must abort the actual repository
+      // transaction without committing any of its preceding DELETE/INSERTs.
+      await expectLater(
+        repository.write(backup),
+        throwsA(isA<DatabaseException>()),
+      );
+      await repository.close();
+
+      final inspectionDatabase = await openDatabase(databasePath);
       try {
-        await triggerDatabase.execute("""
-          CREATE TRIGGER reject_restore_product_delete
-          BEFORE DELETE ON products
-          BEGIN
-            SELECT RAISE(ABORT, 'Simulated SQLite restore write failure');
-          END;
-        """);
-        final triggerRows = await triggerDatabase.rawQuery(
-          "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'reject_restore_product_delete'");
-        expect(triggerRows, hasLength(1));
-
-        const backup = '{"products":[{"id":"restored","category":"Test","name":"Restored","price":250,"costPrice":0,"stock":8,"lowAt":2,"active":true}],"tables":[],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"2468","active":true}],"audit":[]}';
-
-        // Exercise the real SQLite transaction used for replacing a backup.
-        // The injected DELETE failure must abort the transaction atomically.
-        await expectLater(
-          repository.write(backup),
-          throwsA(isA<DatabaseException>()),
-        );
-
-        final reloaded = Pos(repository: repository);
-        await reloaded.load();
-        expect(reloaded.recoveryRequired, isFalse);
-        expect(reloaded.products.first.name, 'Original');
-        expect(await reloaded.integrityCheck(), isEmpty);
+        final products = await inspectionDatabase.query('products');
+        expect(products, hasLength(1));
+        expect(products.single['name'], 'Original');
+        final integrity = await inspectionDatabase.rawQuery('PRAGMA integrity_check');
+        expect(integrity.single.values.single, 'ok');
+        await inspectionDatabase.execute('DROP TRIGGER reject_restore_product_delete');
       } finally {
-        await triggerDatabase.close();
+        await inspectionDatabase.close();
       }
+
+      final reloaded = Pos(repository: repository);
+      await reloaded.load();
+      expect(reloaded.recoveryRequired, isFalse);
+      expect(reloaded.products.single.name, 'Original');
+      expect(await reloaded.integrityCheck(), isEmpty);
     } finally {
       await repository.close();
       await directory.delete(recursive: true);
