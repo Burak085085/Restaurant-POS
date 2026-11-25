@@ -392,6 +392,68 @@ void main() {
     expect(repository.backupFiles, hasLength(1));
   });
 
+  test('malformed nested legacy backup cannot replace current data', () async {
+    final repository = MemoryStoreRepository(
+      value: '{"products":[{"id":"old","category":"Test","name":"Old","price":100,"stock":5,"lowAt":1,"active":true}],"tables":[],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"8642","active":true}],"audit":[]}',
+    );
+    final store = Pos(repository: repository);
+    await store.load();
+    const malformedLegacyBackup = '{"products":[{"id":"new","category":"Test","name":"Broken","price":100,"stock":5,"lowAt":1,"active":true}],"tables":[{"id":1,"items":[null]}],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"2468","active":true}],"audit":[]}';
+
+    expect(await store.restoreBackup(malformedLegacyBackup), isFalse);
+    expect(store.products.single.name, 'Old');
+    expect(repository.value, contains('"Old"'));
+    expect(repository.value, isNot(contains('"Broken"')));
+    expect(repository.backupFiles, isEmpty);
+  });
+
+  test('SQLite transaction failure during backup replacement preserves the previous database', () async {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+    SharedPreferences.setMockInitialValues({});
+    final directory = await Directory.systemTemp.createTemp('pos-sqlite-restore-failure-');
+    final databasePath = '${directory.path}/restaurant-pos.sqlite3';
+    final repository = SqliteStoreRepository(
+      databasePath: databasePath,
+      backupDirectoryPath: directory.path,
+    );
+    try {
+      final store = Pos(repository: repository);
+      await store.load();
+      store.products.first.name = 'Original';
+      store.save();
+      await store.flush();
+
+      final triggerDatabase = await openDatabase(databasePath);
+      try {
+        await triggerDatabase.execute("""
+          CREATE TRIGGER reject_restored_product
+          BEFORE INSERT ON products
+          WHEN NEW.name = 'Restored'
+          BEGIN
+            SELECT RAISE(ABORT, 'Simulated SQLite restore write failure');
+          END;
+        """);
+      } finally {
+        await triggerDatabase.close();
+      }
+
+      const backup = '{"products":[{"id":"restored","category":"Test","name":"Restored","price":250,"costPrice":0,"stock":8,"lowAt":2,"active":true}],"tables":[],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"2468","active":true}],"audit":[]}';
+      expect(await store.restoreBackup(backup), isFalse);
+      expect(store.recoveryRequired, isFalse);
+      expect(store.products.first.name, 'Original');
+
+      final reloaded = Pos(repository: repository);
+      await reloaded.load();
+      expect(reloaded.recoveryRequired, isFalse);
+      expect(reloaded.products.first.name, 'Original');
+      expect(await reloaded.integrityCheck(), isEmpty);
+    } finally {
+      await repository.close();
+      await directory.delete(recursive: true);
+    }
+  });
+
   test('invalid backup cannot replace current data', () async {
     final repository = MemoryStoreRepository(value: '{"products":[{"id":"old","category":"Test","name":"Old","price":100,"stock":5,"lowAt":1,"active":true}],"tables":[],"sales":[],"staff":[],"audit":[]}');
     final store = Pos(repository: repository);
