@@ -517,6 +517,7 @@ class Pos extends ChangeNotifier {
     if (recoveryRequired) return;
     final snapshot = jsonEncode({
       'timestampFormatVersion': 2,
+      'inactivityTimeoutMinutes': inactivityTimeoutMinutes,
       'products': products.map((e) => e.toJson()).toList(),
       'tables': tables.map((e) => e.toJson()).toList(),
       'sales': sales.map((e) => e.toJson()).toList(),
