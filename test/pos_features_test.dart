@@ -331,5 +331,64 @@ void main() {
       final pos = Pos(repository: MemoryStoreRepository());
       expect(await pos.integrityCheck(), isEmpty);
     });
+    test('open order keeps its original recipe after the recipe is edited', () async {
+      final pos = Pos(repository: MemoryStoreRepository());
+      final product = pos.products.first;
+      final ingredient = Ingredient(id: 'flour', name: 'Un', unit: 'gram',
+        stock: 1000, lowAt: 100, costPerUnit: 2);
+      expect(pos.addIngredient(ingredient), isTrue);
+      expect(pos.setRecipe(product, const [RecipeLine(ingredientId: 'flour', quantity: 100)]), isTrue);
+      final table = pos.tables.first;
+      expect(pos.add(table, product), isTrue);
+      expect(pos.setRecipe(product, const [RecipeLine(ingredientId: 'flour', quantity: 200)]), isTrue);
+      expect(pos.reservedIngredientStock('flour'), 100);
+      expect(pos.add(table, product), isTrue);
+      expect(pos.reservedIngredientStock('flour'), 300);
+      expect(pos.sendKitchen(table), isTrue);
+      expect(pos.openRegister(1000), isTrue);
+      expect(pos.checkout(table, [PaymentPart('Kart', product.price * 2)]), isTrue);
+      expect(ingredient.stock, 700);
+      expect(pos.sales.single.ingredientUsage, {'flour': 300});
+      expect(pos.sales.single.items.map((item) => item.unitCost), [200, 400]);
+      await pos.flush();
+      expect(await pos.integrityCheck(), isEmpty);
+    });
+
+    test('ingredient purchase, consumption and return reconcile the stock ledger', () async {
+      final repository = MemoryStoreRepository();
+      final pos = Pos(repository: repository);
+      final product = pos.products.first;
+      product.stock = 5;
+      final ingredient = Ingredient(id: 'oil', name: 'Yag', unit: 'ml',
+        stock: 100, lowAt: 10, costPerUnit: 200);
+      expect(pos.addIngredient(ingredient), isTrue);
+      expect(pos.recordIngredientPurchase(
+        ingredientId: ingredient.id, quantity: 100, unitCost: 400), isTrue);
+      expect(ingredient.stock, 200);
+      expect(ingredient.costPerUnit, 300);
+      expect(pos.ingredientMovements.map((item) => item.type), ['Giriş', 'Alım']);
+
+      expect(pos.setRecipe(product, const [RecipeLine(ingredientId: 'oil', quantity: 10)]), isTrue);
+      final table = pos.tables.first;
+      expect(pos.add(table, product), isTrue);
+      expect(pos.sendKitchen(table), isTrue);
+      expect(pos.openRegister(5000), isTrue);
+      expect(pos.checkout(table, [PaymentPart('Kart', product.price)]), isTrue);
+      expect(ingredient.stock, 190);
+      final saleIndex = pos.sales.length - 1;
+      expect(pos.refundSale(saleIndex, product.price, 'Test return', '1234', returnStock: true), isTrue);
+      expect(ingredient.stock, 200);
+      expect(pos.ingredientMovements.map((item) => item.type), ['Giriş', 'Alım', 'Satış', 'İade']);
+      expect(pos.ingredientMovements.last.beforeStock, 190);
+      expect(pos.ingredientMovements.last.afterStock, 200);
+      await pos.flush();
+
+      final restored = Pos(repository: repository);
+      await restored.load();
+      expect(restored.ingredientMovements, hasLength(4));
+      expect(restored.ingredients.single.costPerUnit, 300);
+      expect(await restored.integrityCheck(), isEmpty);
+    });
+
   });
 }
