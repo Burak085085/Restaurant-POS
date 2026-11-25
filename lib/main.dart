@@ -320,6 +320,8 @@ class Pos extends ChangeNotifier {
   Future<String?> readBackup(String name) => _repository.readBackup(name);
 
   Future<bool> restoreBackup(String payload) async {
+    final previousSnapshot = _snapshot();
+    var replacementStarted = false;
     try {
       final decoded = jsonDecode(payload);
       if (decoded is! Map<String, dynamic>) return false;
@@ -346,14 +348,34 @@ class Pos extends ChangeNotifier {
       final candidateIssues = await candidate.integrityCheck();
       if (candidateIssues.isNotEmpty) return false;
 
-      await _repository.backupBeforeRestore(_snapshot());
+      await _repository.backupBeforeRestore(previousSnapshot);
+      replacementStarted = true;
       await _repository.write(candidate._snapshot());
       await load();
+      if (recoveryRequired) {
+        throw StateError('Restored backup could not be loaded safely.');
+      }
+      final restoredIssues = await integrityCheck();
+      if (restoredIssues.isNotEmpty) {
+        throw StateError('Restored backup failed post-write integrity validation.');
+      }
       log('Yedek geri yüklendi', 'Yerel yedek dosyasından veriler geri yüklendi');
       save();
       await flush();
       return true;
     } catch (_) {
+      if (replacementStarted) {
+        try {
+          await _repository.write(previousSnapshot);
+          await load();
+          if (recoveryRequired) {
+            throw StateError('Previous POS state could not be restored.');
+          }
+          await flush();
+        } catch (_) {
+          recoveryRequired = true;
+        }
+      }
       return false;
     }
   }
