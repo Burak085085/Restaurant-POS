@@ -396,6 +396,39 @@ class Pos extends ChangeNotifier {
         issues.add('${product.name}: stok veya fiyat değeri negatif.');
       }
     }
+    final movementsByProduct = <String, List<StockMovement>>{};
+    for (final movement in stockMovements) {
+      if (!productIds.contains(movement.productId)) {
+        issues.add('Stok hareketi bağlı olduğu ürünü bulamıyor: ${movement.productName}.');
+      }
+      if (movement.quantity <= 0 || movement.beforeStock < 0 ||
+          movement.afterStock < 0 || movement.productCost < 0) {
+        issues.add('${movement.productName}: stok hareketinde geçersiz miktar veya maliyet var.');
+      }
+      final expectedDelta = switch (movement.type) {
+        'Giriş' || 'Alım' || 'İade' => movement.quantity,
+        'Satış' || 'Çıkış' => -movement.quantity,
+        _ => null,
+      };
+      if (expectedDelta == null ||
+          movement.afterStock - movement.beforeStock != expectedDelta) {
+        issues.add('${movement.productName}: stok hareketinin giriş/çıkış miktarı tutarsız.');
+      }
+      movementsByProduct.putIfAbsent(movement.productId, () => []).add(movement);
+    }
+    for (final entry in movementsByProduct.entries) {
+      final movements = entry.value;
+      for (var index = 1; index < movements.length; index++) {
+        if (movements[index].beforeStock != movements[index - 1].afterStock) {
+          issues.add('${movements[index].productName}: stok hareketleri arasında bakiye kopukluğu var.');
+        }
+      }
+      final productMatches = products.where((item) => item.id == entry.key);
+      if (productMatches.isNotEmpty &&
+          movements.last.afterStock != productMatches.first.stock) {
+        issues.add('${productMatches.first.name}: stok hareketleri güncel stokla eşleşmiyor.');
+      }
+    }
     if (tables.length != kTableCount || tables.map((table) => table.id).toSet().length != kTableCount) {
       issues.add('Masa kayıtları eksik veya yinelenmiş.');
     }
