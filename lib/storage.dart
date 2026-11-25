@@ -7,7 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 const String legacyStoreKey = 'restaurant_pos_v2';
-const int storeDatabaseVersion = 5;
+const int storeDatabaseVersion = 6;
 
 bool isDailyBackupFileName(String name) {
   final match = RegExp(r'^restaurant-pos-[0-9]{4}-[0-9]{2}-[0-9]{2}[.]json').firstMatch(name);
@@ -77,6 +77,7 @@ class SqliteStoreRepository implements StoreRepository {
         }
         if(oldVersion<4){final pc=await db.rawQuery('PRAGMA table_info(products)');if(!pc.any((c)=>c['name']=='cost_price'))await db.execute('ALTER TABLE products ADD COLUMN cost_price INTEGER NOT NULL DEFAULT 0');final sc=await db.rawQuery('PRAGMA table_info(sale_items)');if(!sc.any((c)=>c['name']=='unit_cost'))await db.execute('ALTER TABLE sale_items ADD COLUMN unit_cost INTEGER NOT NULL DEFAULT 0');await db.execute('CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY, date TEXT NOT NULL, category TEXT NOT NULL, amount INTEGER NOT NULL, note TEXT NOT NULL)');await db.execute('CREATE TABLE IF NOT EXISTS stock_movements (id INTEGER PRIMARY KEY, product_id TEXT NOT NULL, product_name TEXT NOT NULL, type TEXT NOT NULL, quantity INTEGER NOT NULL, before_stock INTEGER NOT NULL, after_stock INTEGER NOT NULL, product_cost INTEGER NOT NULL, at TEXT NOT NULL, note TEXT NOT NULL)');}
         if (oldVersion < 5) { final columns = await db.rawQuery('PRAGMA table_info(sales)'); if (!columns.any((column) => column['name'] == 'discount_reason')) await db.execute("ALTER TABLE sales ADD COLUMN discount_reason TEXT NOT NULL DEFAULT ''"); if (!columns.any((column) => column['name'] == 'discount_percent')) await db.execute('ALTER TABLE sales ADD COLUMN discount_percent INTEGER NOT NULL DEFAULT 0'); }
+        if (oldVersion < 6) { final columns = await db.rawQuery('PRAGMA table_info(sales)'); if (!columns.any((column) => column['name'] == 'is_refund')) await db.execute('ALTER TABLE sales ADD COLUMN is_refund INTEGER NOT NULL DEFAULT 0'); if (!columns.any((column) => column['name'] == 'refund_of_sale_index')) await db.execute('ALTER TABLE sales ADD COLUMN refund_of_sale_index INTEGER'); if (!columns.any((column) => column['name'] == 'reason')) await db.execute("ALTER TABLE sales ADD COLUMN reason TEXT NOT NULL DEFAULT ''"); if (!columns.any((column) => column['name'] == 'stock_returned')) await db.execute('ALTER TABLE sales ADD COLUMN stock_returned INTEGER NOT NULL DEFAULT 0'); if (!columns.any((column) => column['name'] == 'ingredient_usage')) await db.execute('ALTER TABLE sales ADD COLUMN ingredient_usage TEXT'); }
       },
     );
     return _database!;
@@ -89,7 +90,7 @@ class SqliteStoreRepository implements StoreRepository {
     await db.execute('CREATE TABLE IF NOT EXISTS order_lines (id INTEGER PRIMARY KEY AUTOINCREMENT, table_id INTEGER NOT NULL REFERENCES pos_tables(id) ON DELETE CASCADE, position INTEGER NOT NULL, product_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, qty INTEGER NOT NULL, sent INTEGER NOT NULL, kitchen INTEGER NOT NULL, UNIQUE(table_id, position))');
     await db.execute('CREATE TABLE IF NOT EXISTS register_sessions (id INTEGER PRIMARY KEY, opened_at TEXT NOT NULL, closed_at TEXT, opening_cash INTEGER NOT NULL, closing_cash INTEGER, expected_cash INTEGER, note TEXT NOT NULL)');
     await db.execute('CREATE TABLE IF NOT EXISTS cash_movements (id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL REFERENCES register_sessions(id) ON DELETE CASCADE, at TEXT NOT NULL, type TEXT NOT NULL, amount INTEGER NOT NULL, note TEXT NOT NULL)');
-    await db.execute('CREATE TABLE IF NOT EXISTS sales (position INTEGER PRIMARY KEY, date TEXT NOT NULL, time TEXT NOT NULL, staff TEXT NOT NULL, table_id INTEGER NOT NULL, total INTEGER NOT NULL, discount INTEGER NOT NULL, discount_reason TEXT NOT NULL DEFAULT \'\', discount_percent INTEGER NOT NULL DEFAULT 0, register_session_id INTEGER REFERENCES register_sessions(id))');
+    await db.execute('CREATE TABLE IF NOT EXISTS sales (position INTEGER PRIMARY KEY, date TEXT NOT NULL, time TEXT NOT NULL, staff TEXT NOT NULL, table_id INTEGER NOT NULL, total INTEGER NOT NULL, discount INTEGER NOT NULL, discount_reason TEXT NOT NULL DEFAULT \'\', discount_percent INTEGER NOT NULL DEFAULT 0, register_session_id INTEGER REFERENCES register_sessions(id), is_refund INTEGER NOT NULL DEFAULT 0, refund_of_sale_index INTEGER, reason TEXT NOT NULL DEFAULT \'\', stock_returned INTEGER NOT NULL DEFAULT 0, ingredient_usage TEXT)');
     await db.execute('CREATE TABLE IF NOT EXISTS sale_items (id INTEGER PRIMARY KEY AUTOINCREMENT, sale_position INTEGER NOT NULL REFERENCES sales(position) ON DELETE CASCADE, position INTEGER NOT NULL, product_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, qty INTEGER NOT NULL, sent INTEGER NOT NULL, kitchen INTEGER NOT NULL, unit_cost INTEGER NOT NULL DEFAULT 0, UNIQUE(sale_position, position))');
     await db.execute('CREATE TABLE IF NOT EXISTS payments (id INTEGER PRIMARY KEY AUTOINCREMENT, sale_position INTEGER NOT NULL REFERENCES sales(position) ON DELETE CASCADE, position INTEGER NOT NULL, method TEXT NOT NULL, amount INTEGER NOT NULL, tendered INTEGER NOT NULL, UNIQUE(sale_position, position))');
     await db.execute('CREATE TABLE IF NOT EXISTS staff (name TEXT PRIMARY KEY, role TEXT NOT NULL, salt TEXT NOT NULL, pin_hash TEXT NOT NULL, active INTEGER NOT NULL)');
@@ -164,6 +165,11 @@ class SqliteStoreRepository implements StoreRepository {
         'discountReason': _string(sale['discount_reason']),
         'discountPercent': _int(sale['discount_percent']) == 1,
         'registerSessionId': sale['register_session_id'],
+        'isRefund': _int(sale['is_refund']) == 1,
+        'refundOfSaleIndex': sale['refund_of_sale_index'],
+        'reason': _string(sale['reason']),
+        'stockReturned': _int(sale['stock_returned']) == 1,
+        'ingredientUsage': sale['ingredient_usage'] == null ? null : jsonDecode(_string(sale['ingredient_usage'])),
         'items': items.map((line) => {
           'productId': _string(line['product_id']),
           'name': _string(line['name']),
@@ -392,6 +398,11 @@ class SqliteStoreRepository implements StoreRepository {
             'discount_reason': _string(sale['discountReason']),
             'discount_percent': _bool(sale['discountPercent']) ? 1 : 0,
             'register_session_id': sale['registerSessionId'],
+            'is_refund': _bool(sale['isRefund']) ? 1 : 0,
+            'refund_of_sale_index': sale['refundOfSaleIndex'],
+            'reason': _string(sale['reason']),
+            'stock_returned': _bool(sale['stockReturned']) ? 1 : 0,
+            'ingredient_usage': sale['ingredientUsage'] == null ? null : jsonEncode(sale['ingredientUsage']),
           });
           final items = sale['items'];
           if (items is List) {
