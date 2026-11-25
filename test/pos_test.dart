@@ -1046,7 +1046,7 @@ void main() {
 
     expect(store.persistenceFailed, isTrue);
     expect(store.currentUser, isEmpty);
-    expect(product.stock, originalStock);
+    expect(store.products.first.stock, originalStock);
     expect(store.can('inventory'), isFalse);
     expect(store.stockChange(product, 1, note: 'İkinci deneme'), isFalse);
 
