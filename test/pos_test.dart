@@ -605,6 +605,8 @@ void main() {
         {'date': '2026-11-19', 'time': '12:30', 'staff': 'Admin',
           'table': 1, 'total': 650, 'discount': 50, 'discountReason': 'Sadakat',
           'discountPercent': true, 'registerSessionId': 123,
+          'isRefund': false, 'refundOfSaleIndex': null, 'reason': '',
+          'stockReturned': false, 'ingredientUsage': null,
           'items': [
             {'productId': 'p1', 'name': 'Tavuk döner', 'price': 350,
               'qty': 2, 'unitCost': 0, 'sent': true, 'kitchen': 3},
@@ -665,7 +667,7 @@ void main() {
     expect(restored.discount, 100);
   });
 
-  test('SQLite v4 sales table migrates discount audit fields to schema v5', () async {
+  test('SQLite v4 sales table migrates discount and refund audit fields to schema v6', () async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
     final directory = await Directory.systemTemp.createTemp('restaurant-pos-v4-');
@@ -685,6 +687,11 @@ void main() {
         final columns = await migrated.rawQuery('PRAGMA table_info(sales)');
         expect(columns.any((column) => column['name'] == 'discount_reason'), isTrue);
         expect(columns.any((column) => column['name'] == 'discount_percent'), isTrue);
+        expect(columns.any((column) => column['name'] == 'is_refund'), isTrue);
+        expect(columns.any((column) => column['name'] == 'refund_of_sale_index'), isTrue);
+        expect(columns.any((column) => column['name'] == 'reason'), isTrue);
+        expect(columns.any((column) => column['name'] == 'stock_returned'), isTrue);
+        expect(columns.any((column) => column['name'] == 'ingredient_usage'), isTrue);
       } finally {
         await migrated.close();
       }
@@ -1054,6 +1061,50 @@ void main() {
     await restored.load();
     expect(restored.recoveryRequired, isFalse);
     expect(restored.products.first.stock, originalStock);
+  });
+
+  test('SQLite preserves refund linkage, stock return and sale ingredient usage across reload', () async {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+    final directory = await Directory.systemTemp.createTemp('restaurant-pos-refund-v6-');
+    final repository = SqliteStoreRepository(
+      databasePath: '${directory.path}/pos.sqlite3',
+      backupDirectoryPath: directory.path,
+    );
+    try {
+      final store = Pos(repository: repository);
+      final product = store.products.first;
+      product.stock = 5;
+      product.costPrice = 100;
+      final ingredient = Ingredient(id: 'flour', name: 'Un', unit: 'gram',
+        stock: 1000, lowAt: 50, costPerUnit: 1);
+      expect(store.addIngredient(ingredient), isTrue);
+      expect(store.setRecipe(product, const [RecipeLine(ingredientId: 'flour', quantity: 100)]), isTrue);
+      final table = store.tables.first;
+      expect(store.add(table, product), isTrue);
+      expect(store.sendKitchen(table), isTrue);
+      expect(store.openRegister(5000), isTrue);
+      expect(store.checkout(table, [PaymentPart('Kart', product.price)]), isTrue);
+      final originalIndex = store.sales.length - 1;
+      expect(store.sales[originalIndex].ingredientUsage, {'flour': 100});
+      expect(store.refundSale(originalIndex, product.price, 'Hatalı ürün', '1234', returnStock: true), isTrue);
+      await store.flush();
+
+      final restored = Pos(repository: repository);
+      await restored.load();
+      expect(restored.recoveryRequired, isFalse);
+      expect(restored.sales, hasLength(2));
+      expect(restored.sales.first.stockReturned, isTrue);
+      expect(restored.sales.first.ingredientUsage, {'flour': 100});
+      expect(restored.sales.last.isRefund, isTrue);
+      expect(restored.sales.last.refundOfSaleIndex, originalIndex);
+      expect(restored.sales.last.reason, 'Hatalı ürün');
+      expect(restored.ingredients.single.stock, 1000);
+      expect(await restored.integrityCheck(), isEmpty);
+    } finally {
+      await repository.close();
+      await directory.delete(recursive: true);
+    }
   });
 
 }
