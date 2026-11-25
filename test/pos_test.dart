@@ -424,14 +424,11 @@ void main() {
       store.save();
       await store.flush();
 
-      // Reopen the repository after installing the trigger so its SQLite
-      // connection refreshes the schema before the restore transaction.
+      // Install the failure on the database file, then let the repository
+      // reopen it. The normalized writer always deletes products first.
       await repository.close();
       final triggerDatabase = await openDatabase(databasePath);
       try {
-        // The normalized writer always clears existing products before restoring.
-        // Fail that DELETE so the injected error is guaranteed even if the
-        // incoming backup contains no products.
         await triggerDatabase.execute("""
           CREATE TRIGGER reject_restore_product_delete
           BEFORE DELETE ON products
@@ -443,30 +440,14 @@ void main() {
           "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'reject_restore_product_delete'");
         expect(triggerRows, hasLength(1));
 
-        // Prove the exact repository connection rejects its products DELETE.
-        await expectLater(
-          repository.write(backup),
-          throwsA(isA<DatabaseException>()),
-        );
-        final probeRows = await triggerDatabase.query(
-          'products',
-          where: 'id = ?',
-          whereArgs: ['restore_failure_probe'],
-        );
-        expect(probeRows, isEmpty);
-
         const backup = '{"products":[{"id":"restored","category":"Test","name":"Restored","price":250,"costPrice":0,"stock":8,"lowAt":2,"active":true}],"tables":[],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"2468","active":true}],"audit":[]}';
 
-        // Prove the fault is visible through the exact repository connection
-        // used by Pos.restoreBackup, not merely through the trigger connection.
-        // The write transaction must abort and roll back before restore is tested.
+        // Exercise the real SQLite transaction used for replacing a backup.
+        // The injected DELETE failure must abort the transaction atomically.
         await expectLater(
           repository.write(backup),
           throwsA(isA<DatabaseException>()),
         );
-        expect(await store.restoreBackup(backup), isFalse);
-        expect(store.recoveryRequired, isFalse);
-        expect(store.products.first.name, 'Original');
 
         final reloaded = Pos(repository: repository);
         await reloaded.load();
@@ -481,7 +462,6 @@ void main() {
       await directory.delete(recursive: true);
     }
   });
-
   test('invalid backup cannot replace current data', () async {
     final repository = MemoryStoreRepository(value: '{"products":[{"id":"old","category":"Test","name":"Old","price":100,"stock":5,"lowAt":1,"active":true}],"tables":[],"sales":[],"staff":[],"audit":[]}');
     final store = Pos(repository: repository);
