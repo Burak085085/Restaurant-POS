@@ -203,6 +203,32 @@ void main() {
       await restored.flush();
     });
 
+    test('stock movement ledger checks quantities, continuity and current balance', () async {
+      final pos = Pos(repository: MemoryStoreRepository());
+      final product = pos.products.first;
+      product.stock = 10;
+
+      expect(pos.stockChange(product, 2, note: 'İlk düzeltme'), isTrue);
+      expect(pos.stockChange(product, -1, note: 'İkinci düzeltme'), isTrue);
+      expect(await pos.integrityCheck(), isEmpty);
+
+      final previous = pos.stockMovements.first;
+      pos.stockMovements[0] = StockMovement(
+        id: previous.id,
+        productId: previous.productId,
+        productName: previous.productName,
+        type: previous.type,
+        quantity: previous.quantity + 1,
+        beforeStock: previous.beforeStock,
+        afterStock: previous.afterStock,
+        productCost: previous.productCost,
+        at: previous.at,
+        note: previous.note,
+      );
+      final issues = await pos.integrityCheck();
+      expect(issues, anyElement(contains('stok hareketinin giriş/çıkış miktarı tutarsız')));
+    });
+
     test('supplier purchase increases stock and recalculates weighted average cost', () async {
       final pos = Pos(repository: MemoryStoreRepository());
       final product = pos.products.first;

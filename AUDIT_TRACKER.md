@@ -110,13 +110,18 @@ Read this tracker first, inspect current main SHA and latest Actions run, compar
 - [x] Android + Windows analyze/test/release builds passed before merge; PR #7 merged as `59c633c4c0310aab50dec3a8f3d3e1280ebf6412`.
 - [x] Reconciled README security wording and audit tracker against current implementation.
 
-## Batch 05 (branch fix/restore-rollback-safety) — in progress
+## Batch 05 (branch fix/restore-rollback-safety) — merged to main
 - [x] Make backup replacement roll back to the previous valid snapshot after a partial write, reload failure, post-restore integrity failure, or final persistence failure.
-- [x] Add simulated partial-write failure regression test proving previous POS data remains available.
+- [x] Add simulated partial-write and final-persistence failure regression tests proving previous POS data remains available.
 - [x] Add Baku midnight, month-end and year-boundary conversion coverage.
-- [ ] Android + Windows analyze/test/release builds must pass before merge.
+- [x] Android + Windows analyze/test/release builds passed; PR #8 merged as `9069988db4ab231749e0ee4617f1af410895668c`.
 - [ ] Extend malformed/partial legacy backup fixtures and verify rollback against SQLite write faults.
-- [x] Cleanup: closed stale PR #5 as superseded by merged PR #6; no code was removed from main.
+
+## Batch 06 (branch fix/stock-ledger-integrity) — in progress
+- [x] Validate stock movement direction, quantity, before/after balances, product references and cost values.
+- [x] Validate continuity between consecutive product stock movements and reconcile the latest movement against current stock.
+- [x] Add regression coverage for malformed movement quantities.
+- [ ] Android + Windows analyze/test/release builds must pass before merge.
 
 ## Owner inputs required before release signing (K1)
 - [ ] Burak must confirm the final Android application ID/package name.
