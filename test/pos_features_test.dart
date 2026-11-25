@@ -349,6 +349,7 @@ void main() {
       expect(pos.checkout(table, [PaymentPart('Kart', product.price * 2)]), isTrue);
       expect(ingredient.stock, 700);
       expect(pos.sales.single.ingredientUsage, {'flour': 300});
+      expect(pos.sales.single.items.map((item) => item.unitCost), [200, 400]);
       await pos.flush();
       expect(await pos.integrityCheck(), isEmpty);
     });
