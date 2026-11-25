@@ -7,7 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 const String legacyStoreKey = 'restaurant_pos_v2';
-const int storeDatabaseVersion = 6;
+const int storeDatabaseVersion = 7;
 
 bool isDailyBackupFileName(String name) {
   final match = RegExp(r'^restaurant-pos-[0-9]{4}-[0-9]{2}-[0-9]{2}[.]json').firstMatch(name);
@@ -78,6 +78,13 @@ class SqliteStoreRepository implements StoreRepository {
         if(oldVersion<4){final pc=await db.rawQuery('PRAGMA table_info(products)');if(!pc.any((c)=>c['name']=='cost_price'))await db.execute('ALTER TABLE products ADD COLUMN cost_price INTEGER NOT NULL DEFAULT 0');final sc=await db.rawQuery('PRAGMA table_info(sale_items)');if(!sc.any((c)=>c['name']=='unit_cost'))await db.execute('ALTER TABLE sale_items ADD COLUMN unit_cost INTEGER NOT NULL DEFAULT 0');await db.execute('CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY, date TEXT NOT NULL, category TEXT NOT NULL, amount INTEGER NOT NULL, note TEXT NOT NULL)');await db.execute('CREATE TABLE IF NOT EXISTS stock_movements (id INTEGER PRIMARY KEY, product_id TEXT NOT NULL, product_name TEXT NOT NULL, type TEXT NOT NULL, quantity INTEGER NOT NULL, before_stock INTEGER NOT NULL, after_stock INTEGER NOT NULL, product_cost INTEGER NOT NULL, at TEXT NOT NULL, note TEXT NOT NULL)');}
         if (oldVersion < 5) { final columns = await db.rawQuery('PRAGMA table_info(sales)'); if (!columns.any((column) => column['name'] == 'discount_reason')) await db.execute("ALTER TABLE sales ADD COLUMN discount_reason TEXT NOT NULL DEFAULT ''"); if (!columns.any((column) => column['name'] == 'discount_percent')) await db.execute('ALTER TABLE sales ADD COLUMN discount_percent INTEGER NOT NULL DEFAULT 0'); }
         if (oldVersion < 6) { final columns = await db.rawQuery('PRAGMA table_info(sales)'); if (!columns.any((column) => column['name'] == 'is_refund')) await db.execute('ALTER TABLE sales ADD COLUMN is_refund INTEGER NOT NULL DEFAULT 0'); if (!columns.any((column) => column['name'] == 'refund_of_sale_index')) await db.execute('ALTER TABLE sales ADD COLUMN refund_of_sale_index INTEGER'); if (!columns.any((column) => column['name'] == 'reason')) await db.execute("ALTER TABLE sales ADD COLUMN reason TEXT NOT NULL DEFAULT ''"); if (!columns.any((column) => column['name'] == 'stock_returned')) await db.execute('ALTER TABLE sales ADD COLUMN stock_returned INTEGER NOT NULL DEFAULT 0'); if (!columns.any((column) => column['name'] == 'ingredient_usage')) await db.execute('ALTER TABLE sales ADD COLUMN ingredient_usage TEXT'); }
+        if (oldVersion < 7) {
+          await db.execute('CREATE TABLE IF NOT EXISTS order_lines (id INTEGER PRIMARY KEY AUTOINCREMENT, table_id INTEGER NOT NULL REFERENCES pos_tables(id) ON DELETE CASCADE, position INTEGER NOT NULL, product_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, qty INTEGER NOT NULL, sent INTEGER NOT NULL, kitchen INTEGER NOT NULL, UNIQUE(table_id, position))');
+          final columns = await db.rawQuery('PRAGMA table_info(order_lines)');
+          if (!columns.any((column) => column['name'] == 'ingredient_usage')) {
+            await db.execute('ALTER TABLE order_lines ADD COLUMN ingredient_usage TEXT');
+          }
+        }
       },
     );
     return _database!;
@@ -87,7 +94,7 @@ class SqliteStoreRepository implements StoreRepository {
     await db.execute('CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
     await db.execute('CREATE TABLE IF NOT EXISTS products (id TEXT PRIMARY KEY, category TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, cost_price INTEGER NOT NULL DEFAULT 0, stock INTEGER NOT NULL, low_at INTEGER NOT NULL, active INTEGER NOT NULL)');
     await db.execute('CREATE TABLE IF NOT EXISTS pos_tables (id INTEGER PRIMARY KEY, kitchen INTEGER NOT NULL, discount INTEGER NOT NULL, discount_percent INTEGER NOT NULL, discount_reason TEXT NOT NULL)');
-    await db.execute('CREATE TABLE IF NOT EXISTS order_lines (id INTEGER PRIMARY KEY AUTOINCREMENT, table_id INTEGER NOT NULL REFERENCES pos_tables(id) ON DELETE CASCADE, position INTEGER NOT NULL, product_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, qty INTEGER NOT NULL, sent INTEGER NOT NULL, kitchen INTEGER NOT NULL, UNIQUE(table_id, position))');
+    await db.execute('CREATE TABLE IF NOT EXISTS order_lines (id INTEGER PRIMARY KEY AUTOINCREMENT, table_id INTEGER NOT NULL REFERENCES pos_tables(id) ON DELETE CASCADE, position INTEGER NOT NULL, product_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, qty INTEGER NOT NULL, sent INTEGER NOT NULL, kitchen INTEGER NOT NULL, ingredient_usage TEXT, UNIQUE(table_id, position))');
     await db.execute('CREATE TABLE IF NOT EXISTS register_sessions (id INTEGER PRIMARY KEY, opened_at TEXT NOT NULL, closed_at TEXT, opening_cash INTEGER NOT NULL, closing_cash INTEGER, expected_cash INTEGER, note TEXT NOT NULL)');
     await db.execute('CREATE TABLE IF NOT EXISTS cash_movements (id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL REFERENCES register_sessions(id) ON DELETE CASCADE, at TEXT NOT NULL, type TEXT NOT NULL, amount INTEGER NOT NULL, note TEXT NOT NULL)');
     await db.execute('CREATE TABLE IF NOT EXISTS sales (position INTEGER PRIMARY KEY, date TEXT NOT NULL, time TEXT NOT NULL, staff TEXT NOT NULL, table_id INTEGER NOT NULL, total INTEGER NOT NULL, discount INTEGER NOT NULL, discount_reason TEXT NOT NULL DEFAULT \'\', discount_percent INTEGER NOT NULL DEFAULT 0, register_session_id INTEGER REFERENCES register_sessions(id), is_refund INTEGER NOT NULL DEFAULT 0, refund_of_sale_index INTEGER, reason TEXT NOT NULL DEFAULT \'\', stock_returned INTEGER NOT NULL DEFAULT 0, ingredient_usage TEXT)');
@@ -141,6 +148,7 @@ class SqliteStoreRepository implements StoreRepository {
           'qty': _int(line['qty']),
           'sent': _int(line['sent']) == 1,
           'kitchen': _int(line['kitchen']),
+          if (line['ingredient_usage'] != null) 'ingredientUsage': jsonDecode(_string(line['ingredient_usage'])),
         }).toList(),
       });
     }
@@ -193,6 +201,8 @@ class SqliteStoreRepository implements StoreRepository {
         where: 'key = ?', whereArgs: ['currentUser'], limit: 1);
     final ingredientRows = await db.query('app_meta', columns: ['value'],
         where: 'key = ?', whereArgs: ['ingredients_json'], limit: 1);
+    final ingredientMovementRows = await db.query('app_meta', columns: ['value'],
+        where: 'key = ?', whereArgs: ['ingredient_movements_json'], limit: 1);
     final recipeRows = await db.query('app_meta', columns: ['value'],
         where: 'key = ?', whereArgs: ['recipes_json'], limit: 1);
     final advancedRows = await db.query('app_meta', columns: ['value'],
@@ -203,6 +213,8 @@ class SqliteStoreRepository implements StoreRepository {
         where: 'key = ?', whereArgs: ['kitchen_notices_json'], limit: 1);
     final ingredientData = ingredientRows.isEmpty ? <dynamic>[] :
         (jsonDecode(_string(ingredientRows.first['value'])) as List? ?? <dynamic>[]);
+    final ingredientMovementData = ingredientMovementRows.isEmpty ? <dynamic>[] :
+        (jsonDecode(_string(ingredientMovementRows.first['value'])) as List? ?? <dynamic>[]);
     final recipeData = recipeRows.isEmpty ? <String, dynamic>{} :
         (jsonDecode(_string(recipeRows.first['value'])) as Map? ?? <String, dynamic>{});
     final advancedData = advancedRows.isEmpty ? <String, dynamic>{} :
@@ -260,6 +272,7 @@ class SqliteStoreRepository implements StoreRepository {
       'pinSecurity': pinSecurityData,
       'kitchenNotices': kitchenNoticeData,
       'ingredients': ingredientData,
+      'ingredientMovements': ingredientMovementData,
       'recipes': recipeData,
       'advanced': advancedData,
 
@@ -277,6 +290,10 @@ class SqliteStoreRepository implements StoreRepository {
       await transaction.insert('app_meta', {
         'key': 'ingredients_json',
         'value': jsonEncode(decoded['ingredients'] ?? <dynamic>[]),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await transaction.insert('app_meta', {
+        'key': 'ingredient_movements_json',
+        'value': jsonEncode(decoded['ingredientMovements'] ?? <dynamic>[]),
       }, conflictAlgorithm: ConflictAlgorithm.replace);
       await transaction.insert('app_meta', {
         'key': 'recipes_json',
@@ -347,6 +364,7 @@ class SqliteStoreRepository implements StoreRepository {
                 'qty': _int(line['qty']),
                 'sent': _bool(line['sent'], true) ? 1 : 0,
                 'kitchen': _int(line['kitchen'], _int(table['kitchen'])),
+                'ingredient_usage': line['ingredientUsage'] == null ? null : jsonEncode(line['ingredientUsage']),
               });
             }
           }
