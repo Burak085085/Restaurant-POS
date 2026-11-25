@@ -457,20 +457,23 @@ void main() {
           whereArgs: ['restore_failure_probe'],
         );
         expect(probeRows, isEmpty);
+
+        // Keep the schema-owning connection open while the repository opens
+        // its own connection for restore. This avoids closing/reopening the
+        // only connection that installed the fault injector before it is used.
+        const backup = '{"products":[{"id":"restored","category":"Test","name":"Restored","price":250,"costPrice":0,"stock":8,"lowAt":2,"active":true}],"tables":[],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"2468","active":true}],"audit":[]}';
+        expect(await store.restoreBackup(backup), isFalse);
+        expect(store.recoveryRequired, isFalse);
+        expect(store.products.first.name, 'Original');
+
+        final reloaded = Pos(repository: repository);
+        await reloaded.load();
+        expect(reloaded.recoveryRequired, isFalse);
+        expect(reloaded.products.first.name, 'Original');
+        expect(await reloaded.integrityCheck(), isEmpty);
       } finally {
         await triggerDatabase.close();
       }
-
-      const backup = '{"products":[{"id":"restored","category":"Test","name":"Restored","price":250,"costPrice":0,"stock":8,"lowAt":2,"active":true}],"tables":[],"sales":[],"staff":[{"name":"Admin","role":"Yönetici","pin":"2468","active":true}],"audit":[]}';
-      expect(await store.restoreBackup(backup), isFalse);
-      expect(store.recoveryRequired, isFalse);
-      expect(store.products.first.name, 'Original');
-
-      final reloaded = Pos(repository: repository);
-      await reloaded.load();
-      expect(reloaded.recoveryRequired, isFalse);
-      expect(reloaded.products.first.name, 'Original');
-      expect(await reloaded.integrityCheck(), isEmpty);
     } finally {
       await repository.close();
       await directory.delete(recursive: true);
