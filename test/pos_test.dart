@@ -1287,4 +1287,79 @@ void main() {
     }
   });
 
+  test('supplier purchases preserve invoice reference and update weighted average cost', () async {
+    final repository = MemoryStoreRepository();
+    final store = Pos(repository: repository);
+    final supplier = SupplierRecord(id: 'supplier-1', name: 'Tedarikçi A');
+    final product = Product('purchase-1', 'Ürün', 'Test', 3000, stock: 10, costPrice: 1000);
+    store.products = [product];
+    expect(store.addSupplier(supplier), isTrue);
+    expect(store.recordPurchase(
+      supplierId: supplier.id, productId: product.id, quantity: 10,
+      unitCost: 2000, invoiceNumber: 'INV-2026-001',
+    ), isTrue);
+    expect(product.stock, 20);
+    expect(product.costPrice, 1500);
+    expect(store.purchases.single.total, 20000);
+    expect(store.purchases.single.invoiceNumber, 'INV-2026-001');
+    await store.flush();
+    final restored = Pos(repository: MemoryStoreRepository(value: repository.value));
+    await restored.load();
+    expect(restored.purchases.single.invoiceNumber, 'INV-2026-001');
+    expect(restored.products.single.stock, 20);
+    expect(restored.products.single.costPrice, 1500);
+  });
+
+  test('completed linked reservations count one customer visit and retain history', () async {
+    final repository = MemoryStoreRepository();
+    final store = Pos(repository: repository);
+    final customer = CustomerRecord(id: 'customer-1', name: 'Müşteri A', phone: '0500000000');
+    expect(store.addCustomer(customer), isTrue);
+    final when = azWallTime(azNow()).add(const Duration(days: 2));
+    final reservation = ReservationRecord(
+      id: 'reservation-1', customerName: customer.name, phone: customer.phone,
+      dateTime: bakuWallTimeToUtc(when).toIso8601String(), tableId: 4,
+      guests: 3, customerId: customer.id,
+    );
+    expect(store.addReservation(reservation), isTrue);
+    expect(store.setReservationStatus(reservation, 'Geldi'), isTrue);
+    expect(customer.visits, 0);
+    expect(store.setReservationStatus(reservation, 'Tamamlandı'), isTrue);
+    expect(customer.visits, 1);
+    expect(store.setReservationStatus(reservation, 'Bekliyor'), isTrue);
+    expect(store.setReservationStatus(reservation, 'Tamamlandı'), isTrue);
+    expect(customer.visits, 1);
+    await store.flush();
+    final restored = Pos(repository: MemoryStoreRepository(value: repository.value));
+    await restored.load();
+    expect(restored.reservations.single.customerId, customer.id);
+    expect(restored.reservations.single.visitCounted, isTrue);
+    expect(restored.customers.single.visits, 1);
+  });
+
+  test('30-day analytics allocates discounts by product and groups revenue by hour', () {
+    final sale = Sale(
+      '2026-11-27', '13:25', 'Admin', 1, 2500, 500,
+      [
+        OrderLine('p1', 'Ana ürün', 1000, 2, unitCost: 400),
+        OrderLine('p2', 'İçecek', 500, 1, unitCost: 200),
+      ],
+      [PaymentPart('Kart', 2500)],
+    );
+    final refund = Sale(
+      '2026-11-27', '13:55', 'Admin', 1, -300, 0, [],
+      [PaymentPart('İade', -300)], isRefund: true,
+    );
+    final profits = buildProductProfitSummary([sale]);
+    expect(profits.map((item) => item.productId).toList(), ['p1', 'p2']);
+    expect(profits[0].revenue, 1600);
+    expect(profits[0].cost, 800);
+    expect(profits[0].profit, 800);
+    expect(profits[1].revenue, 400);
+    expect(profits[1].cost, 200);
+    expect(profits[1].profit, 200);
+    expect(buildHourlyRevenueSummary([sale, refund])[13], 2200);
+    expect(buildHourlyRevenueSummary([sale])[24], isNull);
+  });
+
 }
