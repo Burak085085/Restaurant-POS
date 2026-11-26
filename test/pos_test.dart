@@ -1358,6 +1358,16 @@ void main() {
     expect(profits[1].revenue, 400);
     expect(profits[1].cost, 200);
     expect(profits[1].profit, 200);
+    final fullRefund = Sale(
+      '2026-11-27', '14:00', 'Admin', 1, -2000, 0,
+      [
+        OrderLine('p1', 'Ana ürün', 1000, 2, unitCost: 400),
+        OrderLine('p2', 'İçecek', 500, 1, unitCost: 200),
+      ],
+      [PaymentPart('İade', -2000)], isRefund: true,
+    );
+    final afterRefund = buildProductProfitSummary([sale, fullRefund]);
+    expect(afterRefund.every((item) => item.revenue == 0 && item.cost == 0 && item.units == 0), isTrue);
     expect(buildHourlyRevenueSummary([sale, refund])[13], 1700);
     expect(buildHourlyRevenueSummary([sale])[23], 0);
   });
