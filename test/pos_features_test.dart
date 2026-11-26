@@ -278,6 +278,31 @@ void main() {
       expect(pos.productByBarcode('1234567890123'), isNull);
     });
 
+    test('barcode assignment survives save and reload and trims scanner input', () async {
+      final repository = MemoryStoreRepository();
+      final pos = Pos(repository: repository);
+      final product = pos.products.first;
+      expect(pos.setProductBarcode(product, '  8690000000001  '), isTrue);
+      await pos.flush();
+
+      final restored = Pos(repository: repository);
+      await restored.load();
+      expect(restored.productByBarcode(' 8690000000001 ' )?.id, product.id);
+      expect(await restored.integrityCheck(), isEmpty);
+    });
+
+    test('receipt PDF embeds the bundled font for Turkish and Azerbaijani glyphs', () async {
+      final sale = Sale(
+        '27.11.2026', '14:30', 'Aysel', 4, 2500, 0,
+        [OrderLine('p1', 'Şəki çörəyi · İğdır döner', 2500, 1)],
+        [PaymentPart('Kart', 2500)],
+      );
+      final bytes = await ReceiptPrinter.buildSalePdf(sale);
+      expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+      expect(String.fromCharCodes(bytes), contains('/FontFile2'));
+      expect(bytes.length, greaterThan(10000));
+    });
+
     test('customers and advanced records survive a local save and reload', () async {
       final repository = MemoryStoreRepository();
       final pos = Pos(repository: repository);
