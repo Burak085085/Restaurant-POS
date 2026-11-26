@@ -201,13 +201,13 @@ Do not mark stages 5 or 6 complete from CI alone: they require the owner's physi
 - [x] Bundle Noto Sans under the SIL Open Font License so receipt PDFs can render Turkish and Azerbaijani glyphs without downloading fonts at first print; include the license file.
 - [x] Refactor receipt generation into a testable PDF builder; use the bundled font for all receipt text and return the actual print-dialog result instead of reporting success when printing is cancelled.
 - [x] Add regression coverage for a PDF containing Turkish/Azerbaijani product text and for barcode assignment persistence after save/reload.
-- [ ] Android and Windows analyze/test/build must pass on this branch before merge.
+- [ ] Android and Windows analyze/test/build must pass on this branch before merge. Initial run `45905044604` stopped at Android analyze because `dart:typed_data` was a redundant import; removed it in commit `3ba4abca663e29d670ab67327b85a1e11fc4fa6c`. Replacement workflow `45905159235` is queued/running.
 - [ ] Verify post-merge main CI after merge.
 - [ ] Physical acceptance still required: print from the target Android/Windows device to the actual 80 mm printer, verify paper width/cut/feed and the glyphs (ə, ı, İ, ş, ğ, ç, ö, ü, Ə); test the real USB/Bluetooth scanner with the actual barcode labels.
 
 ## Current verified continuation state (2026-11-27)
 - PR #21 post-merge main workflow `45901388025`: Android and Windows both passed.
 - PR #22 branch workflow `45901992718`: Android and Windows both passed; PR #22 merged to main.
-- Main post-merge workflow for PR #22: `45904803519`, still running at last check; Android analyze/test/build and Windows analyze/build were in progress.
+- Main post-merge workflow for PR #22: `45904803519`, still running at last check; Android APK build and Windows desktop build were in progress.
 - Current main SHA: `6fb6d193a71fcbbed4d4be302dbb2e3d0e97dead`.
 - Continue from this branch only after checking the current main post-merge workflow and preserving its result; do not claim physical printer/scanner acceptance without the owner's device tests.
