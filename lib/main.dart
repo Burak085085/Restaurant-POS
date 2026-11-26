@@ -2820,7 +2820,7 @@ List<ProductProfitSummary> buildProductProfitSummary(Iterable<Sale> sales) {
     final gross = sale.items.fold<int>(0, (sum, item) => sum + item.qty * item.price);
     if (gross <= 0) continue;
     final rawDiscount = sale.discountPercent ? gross * sale.discount ~/ 100 : sale.discount;
-    final discount = rawDiscount.clamp(0, gross);
+    final discount = rawDiscount.clamp(0, gross).toInt();
     var allocatedDiscount = 0;
     for (var index = 0; index < sale.items.length; index++) {
       final item = sale.items[index];
