@@ -173,6 +173,7 @@ void main() {
 
     test('checkout records the selected staff member for performance reports', () async {
       final pos = Pos(repository: MemoryStoreRepository());
+      expect(pos.addStaff('Ayşe Yılmaz', 'Garson', null), isTrue);
       final table = pos.tables.first;
       final product = pos.products.first;
       expect(pos.add(table, product), isTrue);
