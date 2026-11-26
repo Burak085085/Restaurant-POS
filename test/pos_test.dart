@@ -1359,7 +1359,7 @@ void main() {
     expect(profits[1].cost, 200);
     expect(profits[1].profit, 200);
     expect(buildHourlyRevenueSummary([sale, refund])[13], 2200);
-    expect(buildHourlyRevenueSummary([sale])[24], isNull);
+    expect(buildHourlyRevenueSummary([sale])[23], 0);
   });
 
 }
