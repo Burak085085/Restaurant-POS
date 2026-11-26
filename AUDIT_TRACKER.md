@@ -184,10 +184,10 @@ Read this tracker first, inspect current main SHA and latest Actions run, compar
 - [x] Regression test covers unknown/inactive/kitchen sellers, missing/wrong alternate-cashier PIN, and successful authorized cashier checkout.
 - [x] Android and Windows analyze/test/release CI passed on PR #22 head `42f975edbd3b91f0cda921f7623e5425a8acf29d` (workflow `45901992718`).
 - [x] PR #22 squash-merged to main as `6fb6d193a71fcbbed4d4be302dbb2e3d0e97dead`.
-- [ ] Verify post-merge main CI run `45904803519` for both Android APK and Windows desktop build.
+- [x] Verify post-merge main CI run `45904803519`: Android APK and Windows desktop builds both passed.
 
 ## Six-stage opening-readiness plan (single source of truth)
-- [ ] 1. Payment and staff authorization: Batch 11 checkout seller validation is merged as `6fb6d193a71fcbbed4d4be302dbb2e3d0e97dead`; PR CI is green. Verify post-merge main CI and complete the full role/PIN/payment regression matrix before closing this stage.
+- [ ] 1. Payment and staff authorization: Batch 11 checkout seller validation is merged as `6fb6d193a71fcbbed4d4be302dbb2e3d0e97dead`; PR and post-merge main CI are green (`45904803519`). Complete the remaining full role/PIN/payment regression matrix before closing this stage.
 - [x] 2. Supplier purchasing: purchase records, supplier association, invoice/dispatch reference, stock movement and weighted-average costing are implemented; retain regression coverage.
 - [x] 3. Customers and reservations: customer records, customer-linked reservations, reservation history and once-only visit counting are implemented. Remaining optional enhancement: attach direct sales to customer profiles and add spend-based loyalty.
 - [x] 4. Analytics: daily/30-day summaries, hourly revenue and product-level revenue/cost/profit are implemented with refund reversal coverage.
@@ -197,17 +197,21 @@ Read this tracker first, inspect current main SHA and latest Actions run, compar
 Do not mark stages 5 or 6 complete from CI alone: they require the owner's physical printer/scanner/device acceptance tests. Language expansion is explicitly deferred until opening-readiness stages and acceptance testing are complete.
 
 
-## Batch 12 (branch feat/printer-barcode-acceptance) — implementation in progress
+## Batch 12 (PR #23, branch feat/printer-barcode-acceptance) — merged to main
 - [x] Bundle Noto Sans under the SIL Open Font License so receipt PDFs can render Turkish and Azerbaijani glyphs without downloading fonts at first print; include the license file.
 - [x] Refactor receipt generation into a testable PDF builder; use the bundled font for all receipt text and return the actual print-dialog result instead of reporting success when printing is cancelled.
 - [x] Add regression coverage for a PDF containing Turkish/Azerbaijani product text and for barcode assignment persistence after save/reload.
-- [ ] Android and Windows analyze/test/build must pass on this branch before merge. Initial run `45905044604` stopped at Android analyze because `dart:typed_data` was a redundant import; removed it in commit `3ba4abca663e29d670ab67327b85a1e11fc4fa6c`. Replacement workflow `45905159235` is queued/running.
-- [ ] Verify post-merge main CI after merge.
+- [x] Android and Windows analyze/test/build passed on final PR head `95a3ddd3b300c9281a663dea8a6cbe894a200535` (workflow `45906281698`). Earlier failures were fixed: redundant import removed; Flutter test binding initialized; arbitrary PDF size threshold replaced with PDF signature/font-embedding assertions.
+- [x] PR #23 squash-merged to main as `288cb0b7e1f231a398d25974e0c1f4c742563d56`.
+- [x] Verify post-merge main CI run `45907013884`: Android APK and Windows desktop builds both passed.
 - [ ] Physical acceptance still required: print from the target Android/Windows device to the actual 80 mm printer, verify paper width/cut/feed and the glyphs (ə, ı, İ, ş, ğ, ç, ö, ü, Ə); test the real USB/Bluetooth scanner with the actual barcode labels.
 
 ## Current verified continuation state (2026-11-27)
 - PR #21 post-merge main workflow `45901388025`: Android and Windows both passed.
-- PR #22 branch workflow `45901992718`: Android and Windows both passed; PR #22 merged to main.
-- Main post-merge workflow for PR #22: `45904803519`, still running at last check; Android APK build and Windows desktop build were in progress.
-- Current main SHA: `6fb6d193a71fcbbed4d4be302dbb2e3d0e97dead`.
-- Continue from this branch only after checking the current main post-merge workflow and preserving its result; do not claim physical printer/scanner acceptance without the owner's device tests.
+- PR #22 post-merge main workflow `45904803519`: Android APK and Windows desktop builds both passed.
+- PR #23 final PR workflow `45906281698`: Android and Windows analyze/test/build both passed.
+- PR #23 merged to main as `288cb0b7e1f231a398d25974e0c1f4c742563d56`.
+- PR #23 post-merge main workflow `45907013884`: Android APK and Windows desktop builds both passed.
+- Current main SHA: `288cb0b7e1f231a398d25974e0c1f4c742563d56`.
+- Batch 12 software implementation and CI are complete. Physical printer/scanner acceptance remains open and must not be inferred from CI.
+- Next work: continue opening-readiness audit from the remaining High items, starting with Y3 discount/audit retention and Y5 timezone consistency. Keep K1 signing blocked until owner confirms package ID and manages their own keystore; do not change DB location for Y12 without explicit approval.
