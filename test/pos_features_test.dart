@@ -4,6 +4,7 @@ import 'package:restaurant_pos/main.dart';
 import 'package:restaurant_pos/storage.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   group('Restaurant POS operational features', () {
     test('kitchen status can be changed for one order line only', () async {
       final pos = Pos(repository: MemoryStoreRepository());
