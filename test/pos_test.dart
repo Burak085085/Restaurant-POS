@@ -1339,12 +1339,12 @@ void main() {
 
   test('30-day analytics allocates discounts by product and groups revenue by hour', () {
     final sale = Sale(
-      '2026-11-27', '13:25', 'Admin', 1, 2500, 500,
+      '2026-11-27', '13:25', 'Admin', 1, 2000, 500,
       [
         OrderLine('p1', 'Ana ürün', 1000, 2, unitCost: 400),
         OrderLine('p2', 'İçecek', 500, 1, unitCost: 200),
       ],
-      [PaymentPart('Kart', 2500)],
+      [PaymentPart('Kart', 2000)],
     );
     final refund = Sale(
       '2026-11-27', '13:55', 'Admin', 1, -300, 0, [],
@@ -1358,7 +1358,7 @@ void main() {
     expect(profits[1].revenue, 400);
     expect(profits[1].cost, 200);
     expect(profits[1].profit, 200);
-    expect(buildHourlyRevenueSummary([sale, refund])[13], 2200);
+    expect(buildHourlyRevenueSummary([sale, refund])[13], 1700);
     expect(buildHourlyRevenueSummary([sale])[23], 0);
   });
 
