@@ -4,6 +4,7 @@ import 'package:restaurant_pos/main.dart';
 import 'package:restaurant_pos/storage.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   group('Restaurant POS operational features', () {
     test('kitchen status can be changed for one order line only', () async {
       final pos = Pos(repository: MemoryStoreRepository());
@@ -276,6 +277,32 @@ void main() {
       expect(pos.setProductBarcode(second, '1234567890123'), isFalse);
       first.active = false;
       expect(pos.productByBarcode('1234567890123'), isNull);
+    });
+
+    test('barcode assignment survives save and reload and trims scanner input', () async {
+      final repository = MemoryStoreRepository();
+      final pos = Pos(repository: repository);
+      final product = pos.products.first;
+      expect(pos.setProductBarcode(product, '  8690000000001  '), isTrue);
+      await pos.flush();
+
+      final restored = Pos(repository: repository);
+      await restored.load();
+      expect(restored.productByBarcode(' 8690000000001 ' )?.id, product.id);
+      expect(await restored.integrityCheck(), isEmpty);
+    });
+
+    test('receipt PDF embeds the bundled font for Turkish and Azerbaijani glyphs', () async {
+      final sale = Sale(
+        '27.11.2026', '14:30', 'Aysel', 4, 2500, 0,
+        [OrderLine('p1', 'Şəki çörəyi · İğdır döner', 2500, 1)],
+        [PaymentPart('Kart', 2500)],
+      );
+      final bytes = await ReceiptPrinter.buildSalePdf(sale);
+      expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+      final pdfText = String.fromCharCodes(bytes);
+      expect(pdfText, contains('/FontFile2'));
+      expect(pdfText, contains('/FontDescriptor'));
     });
 
     test('customers and advanced records survive a local save and reload', () async {

@@ -1,4 +1,4 @@
-import 'dart:typed_data';
+import 'package:flutter/services.dart';
 
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -71,40 +71,83 @@ class ReservationRecord {
 }
 
 class ReceiptPrinter {
-  static Future<bool> printSale(dynamic sale) async {
-    try {
-      final document = pw.Document();
-      document.addPage(pw.Page(
-        pageFormat: PdfPageFormat.roll80,
-        margin: const pw.EdgeInsets.all(12),
-        build: (context) => pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-          pw.Center(child: pw.Text('RESTORAM', style: const pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold))),
-          pw.Center(child: pw.Text('Satis fişi', style: const pw.TextStyle(fontSize: 10))),
+  static String _money(int cents) {
+    final absolute = cents.abs();
+    final amount = '${absolute ~/ 100},${(absolute % 100).toString().padLeft(2, '0')} ₼';
+    return cents < 0 ? '-$amount' : amount;
+  }
+
+  /// Builds a self-contained receipt PDF with the bundled font so Turkish and
+  /// Azerbaijani characters render even when the POS device is offline.
+  static Future<Uint8List> buildSalePdf(dynamic sale) async {
+    final fontData = await rootBundle.load('assets/fonts/NotoSans-Regular.ttf');
+    final font = pw.Font.ttf(fontData);
+    final document = pw.Document(
+      theme: pw.ThemeData.withFont(base: font, bold: font),
+    );
+    document.addPage(pw.Page(
+      pageFormat: PdfPageFormat.roll80,
+      margin: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      build: (context) => pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Center(child: pw.Text('RESTORAM',
+            style: const pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold))),
+          pw.Center(child: pw.Text(sale.isRefund ? 'İade fişi' : 'Satış fişi',
+            style: const pw.TextStyle(fontSize: 10))),
           pw.SizedBox(height: 8),
-          pw.Text('Tarix: ${sale.date}  ${sale.time}'),
-          pw.Text('Masa: ${sale.table}'),
-          pw.Text('Personel: ${sale.staff}'),
+          pw.Text('Tarih: ${sale.date}  ${sale.time}', style: const pw.TextStyle(fontSize: 9)),
+          pw.Text('Masa: ${sale.table}', style: const pw.TextStyle(fontSize: 9)),
+          pw.Text('Personel: ${sale.staff}', style: const pw.TextStyle(fontSize: 9)),
           pw.Divider(),
+          if (sale.items.isEmpty && sale.isRefund)
+            pw.Text('İade işlemi: ${sale.reason}', style: const pw.TextStyle(fontSize: 9)),
           for (final item in sale.items)
+            pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Expanded(child: pw.Text('${item.qty} × ${item.name}',
+                  style: const pw.TextStyle(fontSize: 9))),
+                pw.SizedBox(width: 6),
+                pw.Text(_money(item.qty * item.price),
+                  style: const pw.TextStyle(fontSize: 9)),
+              ],
+            ),
+          if (sale.discount > 0) ...[
+            pw.Divider(),
             pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
-              pw.Expanded(child: pw.Text('${item.qty} x ${item.name}', style: const pw.TextStyle(fontSize: 9))),
-              pw.Text('${(item.qty * item.price / 100).toStringAsFixed(2)}', style: const pw.TextStyle(fontSize: 9)),
+              pw.Text('İndirim', style: const pw.TextStyle(fontSize: 9)),
+              pw.Text(_money(sale.discount), style: const pw.TextStyle(fontSize: 9)),
             ]),
+          ],
           pw.Divider(),
           pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
-            pw.Text('YEKUN', style: const pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-            pw.Text('${(sale.total / 100).toStringAsFixed(2)} AZN', style: const pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+            pw.Text(sale.isRefund ? 'İADE TOPLAMI' : 'TOPLAM',
+              style: const pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+            pw.Text(_money(sale.total),
+              style: const pw.TextStyle(fontWeight: pw.FontWeight.bold)),
           ]),
           pw.SizedBox(height: 6),
           for (final payment in sale.payments)
-            pw.Text('${payment.method}: ${(payment.amount / 100).toStringAsFixed(2)} AZN', style: const pw.TextStyle(fontSize: 9)),
-          pw.SizedBox(height: 14),
-          pw.Center(child: pw.Text('Teşekkür edirik!', style: const pw.TextStyle(fontSize: 9))),
-        ]),
-      ));
-      final Uint8List bytes = await document.save();
-      await Printing.layoutPdf(onLayout: (_) async => bytes, name: 'restoram-fis-${sale.date}-${sale.time}');
-      return true;
+            pw.Text('${payment.method}: ${_money(payment.amount)}',
+              style: const pw.TextStyle(fontSize: 9)),
+          pw.SizedBox(height: 12),
+          pw.Center(child: pw.Text('Teşekkür ederiz!',
+            style: const pw.TextStyle(fontSize: 9))),
+        ],
+      ),
+    ));
+    return document.save();
+  }
+
+  static Future<bool> printSale(dynamic sale) async {
+    try {
+      final bytes = await buildSalePdf(sale);
+      return await Printing.layoutPdf(
+        onLayout: (_) async => bytes,
+        name: 'restoram-fis-${sale.date}-${sale.time}',
+      );
     } catch (_) {
       return false;
     }

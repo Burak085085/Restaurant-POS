@@ -168,7 +168,7 @@ Read this tracker first, inspect current main SHA and latest Actions run, compar
 - [x] Add regression tests for purchase invoice persistence and weighted-average cost, once-only reservation visit accounting, and hourly/product-profit calculations.
 - [x] Android and Windows analyze/test/release builds passed on PR #21 head `4be8c5947e22f768f63828ee44a988b6fd13df46` (workflow `45900305709`).
 - [x] PR #21 merged to main as `e1029acdc0ce1051027a8bca73da698a59ee1c80`.
-- [ ] Verify post-merge main CI run `45901388025` before marking this batch fully complete.
+- [x] Verify post-merge main CI run `45901388025`: Android APK and Windows desktop build both passed.
 
 ## Five major feature workstreams — current implementation audit
 - [x] Receipt/PDF printing entry point and 80 mm roll layout exist; verify real printer and Azerbaijani/Turkish glyph rendering during device testing.
@@ -182,11 +182,12 @@ Read this tracker first, inspect current main SHA and latest Actions run, compar
 - [x] Model-level checkout now rejects unknown, inactive, and kitchen-role sellers; only active Yönetici/Garson/Kasiyer records may be attributed to a sale.
 - [x] Alternate PIN-required cashier sales are re-verified inside the checkout business method, not only in the payment dialog; payment dialog excludes kitchen-role sellers and passes the PIN for model-level verification.
 - [x] Regression test covers unknown/inactive/kitchen sellers, missing/wrong alternate-cashier PIN, and successful authorized cashier checkout.
-- [ ] Android and Windows analyze/test/release CI must pass on the latest branch commit before merge.
-- [ ] Verify post-merge main CI after merge.
+- [x] Android and Windows analyze/test/release CI passed on PR #22 head `42f975edbd3b91f0cda921f7623e5425a8acf29d` (workflow `45901992718`).
+- [x] PR #22 squash-merged to main as `6fb6d193a71fcbbed4d4be302dbb2e3d0e97dead`.
+- [ ] Verify post-merge main CI run `45904803519` for both Android APK and Windows desktop build.
 
 ## Six-stage opening-readiness plan (single source of truth)
-- [ ] 1. Payment and staff authorization: Batch 11 checkout seller validation is implemented on PR #22; do not close this stage until Android/Windows CI passes, PR merges, and post-merge main CI is green. Then complete the full role/PIN/payment regression matrix.
+- [ ] 1. Payment and staff authorization: Batch 11 checkout seller validation is merged as `6fb6d193a71fcbbed4d4be302dbb2e3d0e97dead`; PR CI is green. Verify post-merge main CI and complete the full role/PIN/payment regression matrix before closing this stage.
 - [x] 2. Supplier purchasing: purchase records, supplier association, invoice/dispatch reference, stock movement and weighted-average costing are implemented; retain regression coverage.
 - [x] 3. Customers and reservations: customer records, customer-linked reservations, reservation history and once-only visit counting are implemented. Remaining optional enhancement: attach direct sales to customer profiles and add spend-based loyalty.
 - [x] 4. Analytics: daily/30-day summaries, hourly revenue and product-level revenue/cost/profit are implemented with refund reversal coverage.
@@ -194,3 +195,19 @@ Read this tracker first, inspect current main SHA and latest Actions run, compar
 - [ ] 6. Barcode and data integrity: keyboard-wedge barcode flow, product matching, backup/restore and integrity validation exist; verify with the actual USB/Bluetooth scanner and run backup/restore acceptance tests on target devices.
 
 Do not mark stages 5 or 6 complete from CI alone: they require the owner's physical printer/scanner/device acceptance tests. Language expansion is explicitly deferred until opening-readiness stages and acceptance testing are complete.
+
+
+## Batch 12 (branch feat/printer-barcode-acceptance) — implementation in progress
+- [x] Bundle Noto Sans under the SIL Open Font License so receipt PDFs can render Turkish and Azerbaijani glyphs without downloading fonts at first print; include the license file.
+- [x] Refactor receipt generation into a testable PDF builder; use the bundled font for all receipt text and return the actual print-dialog result instead of reporting success when printing is cancelled.
+- [x] Add regression coverage for a PDF containing Turkish/Azerbaijani product text and for barcode assignment persistence after save/reload.
+- [ ] Android and Windows analyze/test/build must pass on this branch before merge. Initial run `45905044604` stopped at Android analyze because `dart:typed_data` was a redundant import; removed it in commit `3ba4abca663e29d670ab67327b85a1e11fc4fa6c`. Replacement workflow `45905159235` is queued/running.
+- [ ] Verify post-merge main CI after merge.
+- [ ] Physical acceptance still required: print from the target Android/Windows device to the actual 80 mm printer, verify paper width/cut/feed and the glyphs (ə, ı, İ, ş, ğ, ç, ö, ü, Ə); test the real USB/Bluetooth scanner with the actual barcode labels.
+
+## Current verified continuation state (2026-11-27)
+- PR #21 post-merge main workflow `45901388025`: Android and Windows both passed.
+- PR #22 branch workflow `45901992718`: Android and Windows both passed; PR #22 merged to main.
+- Main post-merge workflow for PR #22: `45904803519`, still running at last check; Android APK build and Windows desktop build were in progress.
+- Current main SHA: `6fb6d193a71fcbbed4d4be302dbb2e3d0e97dead`.
+- Continue from this branch only after checking the current main post-merge workflow and preserving its result; do not claim physical printer/scanner acceptance without the owner's device tests.

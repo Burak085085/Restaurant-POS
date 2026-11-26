@@ -33,6 +33,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/branding/restoram_logo.jpg
+    - assets/fonts/NotoSans-Regular.ttf
 
 flutter_launcher_icons:
   android: true
