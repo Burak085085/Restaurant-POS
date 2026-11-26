@@ -804,8 +804,8 @@ class Pos extends ChangeNotifier {
         suppliers.any((item) => item.name.toLowerCase() == supplier.name.trim().toLowerCase())) return false;
     suppliers.add(supplier); log('Tedarikçi', '${supplier.name} eklendi'); save(); return true;
   }
-  bool recordPurchase({required String supplierId, required String productId, required int quantity, required int unitCost}) {
-    if (!can('inventory') || quantity <= 0 || unitCost < 0) return false;
+  bool recordPurchase({required String supplierId, required String productId, required int quantity, required int unitCost, String invoiceNumber = ''}) {
+    if (!can('inventory') || quantity <= 0 || unitCost < 0 || invoiceNumber.trim().length > 80) return false;
     final supplier = suppliers.where((item) => item.id == supplierId && item.active);
     final product = products.where((item) => item.id == productId);
     if (supplier.isEmpty || product.isEmpty) return false;
@@ -821,7 +821,8 @@ class Pos extends ChangeNotifier {
     final movementId = now.microsecondsSinceEpoch;
     purchases.add(PurchaseRecord(id: movementId.toString(),
       supplierId: supplier.first.id, supplierName: supplier.first.name, productId: item.id,
-      productName: item.name, quantity: quantity, unitCost: unitCost, at: now.toIso8601String()));
+      productName: item.name, quantity: quantity, unitCost: unitCost, at: now.toIso8601String(),
+      invoiceNumber: invoiceNumber.trim()));
     stockMovements.add(StockMovement(id: movementId, productId: item.id,
       productName: item.name, type: 'Alım', quantity: quantity,
       beforeStock: beforeStock, afterStock: nextStock, productCost: unitCost,
@@ -849,7 +850,15 @@ class Pos extends ChangeNotifier {
   bool setReservationStatus(ReservationRecord reservation, String status) {
     if (!can('reports') || !reservations.contains(reservation) ||
         !['Bekliyor','Geldi','Tamamlandı','İptal'].contains(status)) return false;
-    reservation.status = status; log('Rezervasyon', '${reservation.customerName}: $status'); save(); return true;
+    reservation.status = status;
+    if (status == 'Tamamlandı' && !reservation.visitCounted && reservation.customerId != null) {
+      final linked = customers.where((customer) => customer.id == reservation.customerId);
+      if (linked.isNotEmpty) {
+        linked.first.visits++;
+        reservation.visitCounted = true;
+      }
+    }
+    log('Rezervasyon', '${reservation.customerName}: $status'); save(); return true;
   }
   bool setProductBarcode(Product product, String barcode) {
     if (!can('inventory') || !products.contains(product)) return false;
@@ -2705,18 +2714,19 @@ class _SuppliersPageState extends State<SuppliersPage> {
     }
     String supplierId=pos.suppliers.firstWhere((s)=>s.active).id;
     String productId=pos.products.firstWhere((p)=>p.active).id;
-    final quantity=TextEditingController(text:'1'), cost=TextEditingController();
+    final quantity=TextEditingController(text:'1'), cost=TextEditingController(), invoice=TextEditingController();
     final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,set)=>AlertDialog(title:const Text('Mal alımı kaydet'),content:Column(mainAxisSize:MainAxisSize.min,children:[
       DropdownButtonFormField<String>(initialValue:supplierId,decoration:const InputDecoration(labelText:'Tedarikçi'),items:pos.suppliers.where((x)=>x.active).map((x)=>DropdownMenuItem(value:x.id,child:Text(x.name))).toList(),onChanged:(v)=>set(()=>supplierId=v??supplierId)),
       DropdownButtonFormField<String>(initialValue:productId,decoration:const InputDecoration(labelText:'Ürün'),items:pos.products.where((x)=>x.active).map((x)=>DropdownMenuItem(value:x.id,child:Text(x.name))).toList(),onChanged:(v)=>set(()=>productId=v??productId)),
       TextField(controller:quantity,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Alınan adet')),
       TextField(controller:cost,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Birim alış maliyeti (₼)')),
+      TextField(controller:invoice,decoration:const InputDecoration(labelText:'Fatura / irsaliye numarası (isteğe bağlı)'),maxLength:80),
     ]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Stoka ekle'))])));
     if(ok==true) {
-      final success=pos.recordPurchase(supplierId:supplierId,productId:productId,quantity:int.tryParse(quantity.text)??0,unitCost:parseMoney(cost.text) ?? 0);
+      final success=pos.recordPurchase(supplierId:supplierId,productId:productId,quantity:int.tryParse(quantity.text)??0,unitCost:parseMoney(cost.text) ?? 0,invoiceNumber:invoice.text);
       if(!success&&mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Mal alımı kaydedilemedi. Miktar ve maliyeti kontrol edin.')));
     }
-    quantity.dispose();cost.dispose();
+    quantity.dispose();cost.dispose();invoice.dispose();
   }
   @override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(context,_)=>Scaffold(
     appBar:AppBar(title:const Text('Tedarikçi ve satın alma'),actions:[IconButton(onPressed:_addSupplier,icon:const Icon(Icons.person_add)),IconButton(onPressed:_purchase,icon:const Icon(Icons.add_shopping_cart))]),
@@ -2726,7 +2736,7 @@ class _SuppliersPageState extends State<SuppliersPage> {
       for(final supplier in pos.suppliers) Card(child:ListTile(leading:const Icon(Icons.local_shipping),title:Text(supplier.name),subtitle:Text('${supplier.phone} · ${supplier.notes}'),trailing:Text(pos.purchases.where((x)=>x.supplierId==supplier.id).length.toString()))),
       const Divider(),const Text('Son mal alımları',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),
       if(pos.purchases.isEmpty) const ListTile(title:Text('Henüz mal alımı kaydedilmedi.')),
-      for(final purchase in pos.purchases.reversed.take(100)) ListTile(title:Text('${purchase.productName} × ${purchase.quantity}'),subtitle:Text('${purchase.supplierName} · ${bakuTimestamp(purchase.at)} · Birim ${money(purchase.unitCost)}'),trailing:Text(money(purchase.total))),
+      for(final purchase in pos.purchases.reversed.take(100)) ListTile(title:Text('${purchase.productName} × ${purchase.quantity}'),subtitle:Text('${purchase.supplierName} · ${bakuTimestamp(purchase.at)} · Birim ${money(purchase.unitCost)}${purchase.invoiceNumber.isEmpty ? '' : ' · Fatura: ${purchase.invoiceNumber}'}'),trailing:Text(money(purchase.total))),
     ]),
   ));
 }
@@ -2749,10 +2759,18 @@ class _CustomersReservationsPageState extends State<CustomersReservationsPage> {
   }
   Future<void> _addReservation() async {
     final name=TextEditingController(),phone=TextEditingController(),guests=TextEditingController(text:'2'),note=TextEditingController();
-    int tableId=1; DateTime date=azWallTime(azNow()).add(const Duration(days:1)); TimeOfDay time=const TimeOfDay(hour:19,minute:0);
+    int tableId=1; String customerId=''; DateTime date=azWallTime(azNow()).add(const Duration(days:1)); TimeOfDay time=const TimeOfDay(hour:19,minute:0);
     final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,set)=>AlertDialog(title:const Text('Masa rezervasyonu'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
       TextField(controller:name,decoration:const InputDecoration(labelText:'Müşteri adı')),
       TextField(controller:phone,keyboardType:TextInputType.phone,decoration:const InputDecoration(labelText:'Telefon')),
+      DropdownButtonFormField<String>(initialValue:customerId,decoration:const InputDecoration(labelText:'Kayıtlı müşteri'),items:[
+        const DropdownMenuItem(value:'',child:Text('Yeni / kayıt dışı müşteri')),
+        ...pos.customers.map((customer)=>DropdownMenuItem(value:customer.id,child:Text('${customer.name} · ${customer.phone}'))),
+      ],onChanged:(value)=>set(() {
+        customerId=value??'';
+        final matches=pos.customers.where((customer)=>customer.id==customerId);
+        if(matches.isNotEmpty){name.text=matches.first.name;phone.text=matches.first.phone;}
+      })),
       DropdownButtonFormField<int>(initialValue:tableId,decoration:const InputDecoration(labelText:'Masa'),items:List.generate(kTableCount,(i)=>DropdownMenuItem(value:i+1,child:Text('Masa ${i+1}'))),onChanged:(v)=>set(()=>tableId=v??1)),
       TextField(controller:guests,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Kişi sayısı')),
       ListTile(contentPadding:EdgeInsets.zero,title:Text('Tarih: ${dayKey(date)}'),trailing:TextButton(onPressed:()async{final picked=await showDatePicker(context:c,initialDate:date.isBefore(azWallTime(azNow()))?azWallTime(azNow()):date,firstDate:azWallTime(azNow()),lastDate:azWallTime(azNow()).add(const Duration(days:365)));if(picked!=null)set(()=>date=picked);},child:const Text('Değiştir'))),
@@ -2761,7 +2779,7 @@ class _CustomersReservationsPageState extends State<CustomersReservationsPage> {
     ])),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Rezervasyon oluştur'))])));
     if(ok==true) {
       final when=DateTime(date.year,date.month,date.day,time.hour,time.minute);
-      final saved=pos.addReservation(ReservationRecord(id:DateTime.now().microsecondsSinceEpoch.toString(),customerName:name.text.trim(),phone:phone.text.trim(),dateTime:bakuWallTimeToUtc(when).toIso8601String(),tableId:tableId,guests:int.tryParse(guests.text)??0,note:note.text.trim()));
+      final saved=pos.addReservation(ReservationRecord(id:DateTime.now().microsecondsSinceEpoch.toString(),customerName:name.text.trim(),phone:phone.text.trim(),dateTime:bakuWallTimeToUtc(when).toIso8601String(),tableId:tableId,guests:int.tryParse(guests.text)??0,note:note.text.trim(),customerId:customerId.isEmpty?null:customerId));
       if(!saved&&mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Rezervasyon çakışıyor veya bilgiler geçersiz. Aynı masa için 2 saatlik aralık bırakın.')));
     }
     name.dispose();phone.dispose();guests.dispose();note.dispose();
@@ -2771,13 +2789,66 @@ class _CustomersReservationsPageState extends State<CustomersReservationsPage> {
     body:ListView(padding:const EdgeInsets.all(12),children:[
       Text('Müşteriler · ${pos.customers.length}',style:const TextStyle(fontWeight:FontWeight.bold,fontSize:18)),
       if(pos.customers.isEmpty) const ListTile(title:Text('Henüz müşteri kaydı yok.')),
-      for(final customer in pos.customers) ListTile(leading:const Icon(Icons.person),title:Text(customer.name),subtitle:Text('${customer.phone} · ${customer.notes}'),trailing:Text('${customer.visits} ziyaret')),
+      for(final customer in pos.customers) Card(child:ExpansionTile(
+        leading:const Icon(Icons.person),title:Text(customer.name),
+        subtitle:Text('${customer.phone} · ${customer.notes} · ${customer.visits} tamamlanan ziyaret'),
+        children:[
+          for(final reservation in pos.reservations.where((item)=>item.customerId==customer.id).toList()..sort((a,b)=>a.dateTime.compareTo(b.dateTime)))
+            ListTile(dense:true,title:Text('Masa ${reservation.tableId} · ${reservation.status}'),subtitle:Text('${bakuTimestamp(reservation.dateTime)} · ${reservation.guests} kişi')),
+          if(!pos.reservations.any((item)=>item.customerId==customer.id))
+            const ListTile(dense:true,title:Text('Bu müşteri için rezervasyon geçmişi yok.')),
+        ],
+      )),
       const Divider(),const Text('Masa rezervasyonları',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),
       if(pos.reservations.isEmpty) const ListTile(title:Text('Henüz rezervasyon yok.')),
       for(final item in pos.reservations.toList()..sort((a,b)=>a.dateTime.compareTo(b.dateTime)))
         Card(child:ListTile(title:Text('${item.customerName} · Masa ${item.tableId}'),subtitle:Text('${bakuTimestamp(item.dateTime)} · ${item.guests} kişi · ${item.phone}\n${item.note}'),isThreeLine:true,trailing:PopupMenuButton<String>(initialValue:item.status,onSelected:(v)=>pos.setReservationStatus(item,v),itemBuilder:(_)=>const [PopupMenuItem(value:'Bekliyor',child:Text('Bekliyor')),PopupMenuItem(value:'Geldi',child:Text('Geldi')),PopupMenuItem(value:'Tamamlandı',child:Text('Tamamlandı')),PopupMenuItem(value:'İptal',child:Text('İptal'))],child:Chip(label:Text(item.status))))),
     ]),
   ));
+}
+
+class ProductProfitSummary {
+  final String productId, name;
+  int units, revenue, cost;
+  ProductProfitSummary({required this.productId, required this.name, this.units=0, this.revenue=0, this.cost=0});
+  int get profit => revenue - cost;
+}
+
+List<ProductProfitSummary> buildProductProfitSummary(Iterable<Sale> sales) {
+  final summaries = <String, ProductProfitSummary>{};
+  for (final sale in sales) {
+    final gross = sale.items.fold<int>(0, (sum, item) => sum + item.qty * item.price);
+    if (gross <= 0) continue;
+    final rawDiscount = sale.discountPercent ? gross * sale.discount ~/ 100 : sale.discount;
+    final discount = rawDiscount.clamp(0, gross);
+    var allocatedDiscount = 0;
+    for (var index = 0; index < sale.items.length; index++) {
+      final item = sale.items[index];
+      final lineGross = item.qty * item.price;
+      final lineDiscount = index == sale.items.length - 1
+          ? discount - allocatedDiscount
+          : discount * lineGross ~/ gross;
+      allocatedDiscount += lineDiscount;
+      final sign = sale.isRefund ? -1 : 1;
+      final row = summaries.putIfAbsent(item.productId, () => ProductProfitSummary(
+        productId: item.productId, name: item.name));
+      row.units += sign * item.qty;
+      row.revenue += sign * (lineGross - lineDiscount);
+      row.cost += sign * item.qty * item.unitCost;
+    }
+  }
+  return summaries.values.toList()..sort((a,b)=>b.profit.compareTo(a.profit));
+}
+
+Map<int, int> buildHourlyRevenueSummary(Iterable<Sale> sales) {
+  final result = <int, int>{for (var hour=0; hour<24; hour++) hour: 0};
+  for (final sale in sales) {
+    final parts = sale.time.split(':');
+    final hour = parts.isEmpty ? null : int.tryParse(parts.first);
+    if (hour == null || hour < 0 || hour > 23) continue;
+    result[hour] = result[hour]! + sale.total;
+  }
+  return result;
 }
 
 class AnalyticsPage extends StatelessWidget {
@@ -2796,12 +2867,23 @@ class AnalyticsPage extends StatelessWidget {
     for(final sale in sales){daily[sale.date]=(daily[sale.date]??0)+sale.total;}
     final days=daily.entries.toList()..sort((a,b)=>a.key.compareTo(b.key));
     final maxDaily=days.fold<int>(0,(a,x)=>x.value>a?x.value:a);
+    final hourly=buildHourlyRevenueSummary(sales);
+    final activeHours=hourly.entries.where((entry)=>entry.value!=0).toList();
+    final maxHourly=activeHours.fold<int>(0,(a,x)=>x.value>a?x.value:a);
+    final productProfit=buildProductProfitSummary(sales);
     return Scaffold(appBar:AppBar(title:const Text('Gelişmiş analiz · 30 gün')),body:ListView(padding:const EdgeInsets.all(12),children:[
       Wrap(spacing:8,runSpacing:8,children:[
         _metric('Ciro',money(revenue)),_metric('Ürün maliyeti',money(cost)),
         _metric('Brüt kâr',money(revenue-cost)),_metric('Gider',money(expenseTotal)),
         _metric('Net kâr',money(revenue-cost-expenseTotal)),_metric('Satış', '${sales.length}'),
       ]),
+      const SizedBox(height:16),const Text('Saatlik ciro',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),
+      if(activeHours.isEmpty) const ListTile(title:Text('Saatlik satış verisi bulunmuyor.')),
+      for(final hour in activeHours) Padding(padding:const EdgeInsets.symmetric(vertical:4),child:Row(children:[
+        SizedBox(width:54,child:Text('${hour.key.toString().padLeft(2,'0')}:00')),
+        Expanded(child:ClipRRect(borderRadius:BorderRadius.circular(5),child:LinearProgressIndicator(value:maxHourly<=0?0:(hour.value>0?hour.value:0)/maxHourly,minHeight:10))),
+        const SizedBox(width:8),SizedBox(width:88,child:Text(money(hour.value),textAlign:TextAlign.end)),
+      ])),
       const SizedBox(height:16),const Text('Günlük ciro',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),
       if(days.isEmpty) const ListTile(title:Text('Bu dönemde satış bulunmuyor.')),
       for(final day in days) Padding(padding:const EdgeInsets.symmetric(vertical:5),child:Row(children:[
@@ -2812,6 +2894,13 @@ class AnalyticsPage extends StatelessWidget {
       const Divider(),const Text('En çok satılan ürünler',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),
       if(ranked.isEmpty) const ListTile(title:Text('Henüz ürün satılmadı.')),
       for(final item in ranked.take(10)) ListTile(title:Text(item.key),trailing:Text('${item.value} adet')),
+      const Divider(),const Text('Ürün bazında kârlılık',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),
+      if(productProfit.isEmpty) const ListTile(title:Text('Ürün maliyeti bulunan satış verisi yok.')),
+      for(final item in productProfit.take(10)) ListTile(
+        title:Text(item.name),
+        subtitle:Text('${item.units} adet · Ciro ${money(item.revenue)} · Maliyet ${money(item.cost)}'),
+        trailing:Text(money(item.profit),style:TextStyle(fontWeight:FontWeight.bold,color:item.profit<0?red:green)),
+      ),
       const Divider(),const Text('Ödeme dağılımı',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),
       for(final method in ['Nakit','Kart']) ListTile(title:Text(method),trailing:Text(money(sales.expand((x)=>x.payments).where((x)=>x.method==method).fold<int>(0,(a,x)=>a+x.amount)))),
     ]));
