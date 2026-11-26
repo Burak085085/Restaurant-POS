@@ -20,18 +20,20 @@ class SupplierRecord {
 class PurchaseRecord {
   final String id, supplierId, supplierName, productId, productName, at;
   final int quantity, unitCost;
+  final String invoiceNumber;
   const PurchaseRecord({required this.id, required this.supplierId, required this.supplierName,
     required this.productId, required this.productName, required this.quantity,
-    required this.unitCost, required this.at});
+    required this.unitCost, required this.at, this.invoiceNumber = ''});
   int get total => quantity * unitCost;
   Map<String, dynamic> toJson() => {'id': id, 'supplierId': supplierId, 'supplierName': supplierName,
     'productId': productId, 'productName': productName, 'quantity': quantity,
-    'unitCost': unitCost, 'at': at};
+    'unitCost': unitCost, 'at': at, 'invoiceNumber': invoiceNumber};
   factory PurchaseRecord.fromJson(Map<String, dynamic> j) => PurchaseRecord(
     id: j['id']?.toString() ?? '', supplierId: j['supplierId']?.toString() ?? '',
     supplierName: j['supplierName']?.toString() ?? '', productId: j['productId']?.toString() ?? '',
     productName: j['productName']?.toString() ?? '', quantity: (j['quantity'] as num?)?.toInt() ?? 0,
-    unitCost: (j['unitCost'] as num?)?.toInt() ?? 0, at: j['at']?.toString() ?? '');
+    unitCost: (j['unitCost'] as num?)?.toInt() ?? 0, at: j['at']?.toString() ?? '',
+    invoiceNumber: j['invoiceNumber']?.toString() ?? '');
 }
 
 class CustomerRecord {
@@ -51,17 +53,21 @@ class CustomerRecord {
 class ReservationRecord {
   final String id, customerName, phone, dateTime, note;
   final int tableId, guests;
+  final String? customerId;
   String status;
+  bool visitCounted;
   ReservationRecord({required this.id, required this.customerName, required this.phone,
     required this.dateTime, required this.tableId, required this.guests, this.note = '',
-    this.status = 'Bekliyor'});
+    this.status = 'Bekliyor', this.customerId, this.visitCounted = false});
   Map<String, dynamic> toJson() => {'id': id, 'customerName': customerName, 'phone': phone,
-    'dateTime': dateTime, 'tableId': tableId, 'guests': guests, 'note': note, 'status': status};
+    'dateTime': dateTime, 'tableId': tableId, 'guests': guests, 'note': note, 'status': status,
+    'customerId': customerId, 'visitCounted': visitCounted};
   factory ReservationRecord.fromJson(Map<String, dynamic> j) => ReservationRecord(
     id: j['id']?.toString() ?? '', customerName: j['customerName']?.toString() ?? '',
     phone: j['phone']?.toString() ?? '', dateTime: j['dateTime']?.toString() ?? '',
     tableId: (j['tableId'] as num?)?.toInt() ?? 1, guests: (j['guests'] as num?)?.toInt() ?? 1,
-    note: j['note']?.toString() ?? '', status: j['status']?.toString() ?? 'Bekliyor');
+    note: j['note']?.toString() ?? '', status: j['status']?.toString() ?? 'Bekliyor',
+    customerId: j['customerId']?.toString(), visitCounted: j['visitCounted'] == true);
 }
 
 class ReceiptPrinter {
