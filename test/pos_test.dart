@@ -975,6 +975,63 @@ void main() {
     expect(store.stockMovements, isEmpty);
   });
 
+  test('checkout rejects unknown inactive and kitchen sellers and verifies alternate cashier PIN', () {
+    Pos buildStore() {
+      final store = Pos(repository: MemoryStoreRepository());
+      final product = Product('seller-auth', 'Test', 'Test item', 300, stock: 5);
+      store.products = [product];
+      store.tables.first.items.add(
+        OrderLine(product.id, product.name, product.price, 1, sent: true),
+      );
+      return store;
+    }
+
+    final unknownStore = buildStore();
+    expect(unknownStore.checkout(
+      unknownStore.tables.first, [PaymentPart('Kart', 300)],
+      staffName: 'Olmayan Personel',
+    ), isFalse);
+    expect(unknownStore.sales, isEmpty);
+    expect(unknownStore.products.single.stock, 5);
+
+    final inactiveStore = buildStore();
+    expect(inactiveStore.addStaff('Pasif Kasiyer', 'Kasiyer', '2468'), isTrue);
+    final inactive = inactiveStore.staff.singleWhere((member) => member.name == 'Pasif Kasiyer');
+    expect(inactiveStore.setStaffActive(inactive, false), isTrue);
+    expect(inactiveStore.checkout(
+      inactiveStore.tables.first, [PaymentPart('Kart', 300)],
+      staffName: inactive.name, staffPin: '2468',
+    ), isFalse);
+    expect(inactiveStore.sales, isEmpty);
+
+    final kitchenStore = buildStore();
+    expect(kitchenStore.addStaff('Mutfak', 'Mutfak', '1357'), isTrue);
+    expect(kitchenStore.checkout(
+      kitchenStore.tables.first, [PaymentPart('Kart', 300)],
+      staffName: 'Mutfak', staffPin: '1357',
+    ), isFalse);
+    expect(kitchenStore.sales, isEmpty);
+
+    final cashierStore = buildStore();
+    expect(cashierStore.addStaff('Seda', 'Kasiyer', '4826'), isTrue);
+    expect(cashierStore.checkout(
+      cashierStore.tables.first, [PaymentPart('Kart', 300)],
+      staffName: 'Seda',
+    ), isFalse);
+    expect(cashierStore.checkout(
+      cashierStore.tables.first, [PaymentPart('Kart', 300)],
+      staffName: 'Seda', staffPin: '0000',
+    ), isFalse);
+    expect(cashierStore.products.single.stock, 5);
+    expect(cashierStore.sales, isEmpty);
+    expect(cashierStore.checkout(
+      cashierStore.tables.first, [PaymentPart('Kart', 300)],
+      staffName: 'Seda', staffPin: '4826',
+    ), isTrue);
+    expect(cashierStore.sales.single.staff, 'Seda');
+    expect(cashierStore.products.single.stock, 4);
+  });
+
   test('stock ledger records the actual clamped inventory change', () {
     final store = Pos(repository: MemoryStoreRepository());
     final product = store.products.first;

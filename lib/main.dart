@@ -1085,7 +1085,7 @@ class Pos extends ChangeNotifier {
     log('Satış iadesi','Satış #${saleIndex+1}: ${money(amount)} · ${reason.trim()}${returnStock?' · Stok geri alındı':''}'); save(); return true;
   }int get totalExpenses=>expenses.fold(0,(s,e)=>s+e.amount);int get totalCostOfSales=>sales.fold(0,(s,e)=>s+costOfSale(e));int get netProfit=>sales.fold(0,(s,e)=>s+e.total-costOfSale(e))-totalExpenses;
   String buildCsv(){String q(Object? v)=>'"${v.toString().replaceAll('"','""')}"';final b=StringBuffer('Tarih;Tür;Açıklama;Adet;Ciro/Gider;Maliyet\r\n');for(final sale in sales){b.writeln([q(sale.date),q('Satış'),q('Masa ${sale.table}'),q(sale.items.fold<int>(0,(int n,OrderLine x)=>n+x.qty)),q(sale.total/100),q(costOfSale(sale)/100)].join(';'));}for(final e in expenses){b.writeln([q(e.date),q('Gider'),q('${e.category}: ${e.note}'),q(1),q(e.amount/100),q(0)].join(';'));}return b.toString();}
-  bool checkout(PosTable t, List<PaymentPart> payments, {String? staffName}) {
+  bool checkout(PosTable t, List<PaymentPart> payments, {String? staffName, String? staffPin}) {
     if (!can('register') || t.items.isEmpty || t.items.any((line) => !line.sent)) return false;
     final total = t.total;
     if (payments.isEmpty || payments.any((part) => !part.isValid) || payments.fold(0, (sum, part) => sum + part.amount) != total) return false;
@@ -1094,6 +1094,12 @@ class Pos extends ChangeNotifier {
     if (hasCashPayment && register == null) return false;
     final seller = (staffName ?? currentUser).trim();
     if (seller.isEmpty) return false;
+    final sellerRecords = staff.where((member) => member.name == seller && member.active).toList();
+    if (sellerRecords.length != 1 ||
+        !['Yönetici', 'Garson', 'Kasiyer'].contains(sellerRecords.single.role)) return false;
+    final sellerRecord = sellerRecords.single;
+    if (seller != currentUser && sellerRecord.pinRequired &&
+        (staffPin == null || !verifyStaffPin(sellerRecord, staffPin))) return false;
 
     final productNeeds = <String, int>{};
     final ingredientNeeds = <String, int>{};
@@ -1460,7 +1466,7 @@ Future<void> _pay(BuildContext context) async {
     builder: (_) => PaymentDialog(total: t.total, initialStaff: pos.currentUser),
   );
   if (!context.mounted || payment == null) return;
-  if (pos.checkout(t, payment.payments, staffName: payment.staffName)) {
+  if (pos.checkout(t, payment.payments, staffName: payment.staffName, staffPin: payment.staffPin)) {
     Navigator.pop(context);
   } else {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -1488,7 +1494,8 @@ int? _addPart(List<PaymentPart> parts, String method, TextEditingController ctrl
 class PaymentResult {
   final List<PaymentPart> payments;
   final String staffName;
-  const PaymentResult(this.payments, this.staffName);
+  final String? staffPin;
+  const PaymentResult(this.payments, this.staffName, {this.staffPin});
 }
 
 class PaymentDialog extends StatefulWidget {
@@ -1534,7 +1541,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
     content: SingleChildScrollView(
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Text('Kalan: ${money(remaining)}'),
-        DropdownButtonFormField<String>(initialValue:staffName,decoration:const InputDecoration(labelText:'Satışı yapan personel'),items:pos.staff.where((member)=>member.active).map((member)=>DropdownMenuItem(value:member.name,child:Text('${member.name} · ${member.role}'))).toList(),onChanged:(value){setState((){staffName=value;staffPin.clear();});}),
+        DropdownButtonFormField<String>(initialValue:staffName,decoration:const InputDecoration(labelText:'Satışı yapan personel'),items:pos.staff.where((member)=>member.active&&['Yönetici','Garson','Kasiyer'].contains(member.role)).map((member)=>DropdownMenuItem(value:member.name,child:Text('${member.name} · ${member.role}'))).toList(),onChanged:(value){setState((){staffName=value;staffPin.clear();});}),
         if(selectedStaff?.pinRequired??false) TextField(controller:staffPin,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'Personel PIN doğrulaması'),onChanged:(_)=>setState((){})),
         TextField(
           controller: amount,
@@ -1556,7 +1563,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
       FilledButton(
         onPressed: remaining == 0 && selectedStaff != null &&
           (!selectedStaff!.pinRequired || staffPin.text.trim().length == 4)
-          ? () { if(selectedStaff!.pinRequired && !pos.verifyStaffPin(selectedStaff!,staffPin.text.trim())) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Personel PIN hatalı veya geçici olarak kilitli.'))); return; } Navigator.pop(context, PaymentResult(List<PaymentPart>.from(parts), staffName!)); } : null,
+          ? () { if(selectedStaff!.pinRequired && !pos.verifyStaffPin(selectedStaff!,staffPin.text.trim())) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Personel PIN hatalı veya geçici olarak kilitli.'))); return; } Navigator.pop(context, PaymentResult(List<PaymentPart>.from(parts), staffName!, staffPin:staffPin.text.trim())); } : null,
         child: const Text('Ödemeyi tamamla'),
       ),
     ],
