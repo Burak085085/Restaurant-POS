@@ -20,7 +20,7 @@ Offline-first Flutter point-of-sale application for **Android and Windows**.
 - Order lines, sale items and payments use foreign keys and explicit positions so item and transaction order survives reloads.
 - State writes replace the normalized records inside one database transaction. SQLite uses WAL journaling, `synchronous=FULL` and foreign-key enforcement.
 - Existing version-1 `app_state` JSON and `restaurant_pos_v2` SharedPreferences data remain readable. They are converted to normalized records on the first successful save; the old SharedPreferences key is removed only after the SQLite transaction commits.
-- The database uses schema version 5. Version 5 preserves discount reason and percentage on completed sales; older version-4 databases are migrated automatically. Version 3 adds cash-register sessions and cash movements; version 4 adds product cost, sale-item cost snapshots, expenses and stock movement history. Historical sales remain valid with no assigned shift.
+- The database uses schema version 7. Version 5 preserves discount reason and percentage on completed sales; version 6 adds refund audit and stock-return fields; version 7 adds ingredient-usage snapshots to order lines. Older databases are upgraded sequentially. Version 3 adds cash-register sessions and cash movements; version 4 adds product cost, sale-item cost snapshots, expenses and product stock movement history. Ingredient stock movements, recipe snapshots and weighted-average ingredient costing are also persisted. Historical sales remain valid with no assigned shift.
 - A daily JSON snapshot is written under the app documents directory in `backups/`. The seven most recent daily backups are retained.
 - Corrupt legacy JSON is preserved as a separate recovery file before the app starts with safe defaults.
 - Android and Windows devices keep separate local databases. This is not cloud synchronization.
@@ -42,7 +42,7 @@ On Windows, enable desktop support and run `flutter build windows --release`. Gi
 The administrator PIN and PIN-protected cashier/kitchen staff credentials are stored using salted PBKDF2-HMAC-SHA256 hashes (120,000 iterations), not plaintext. Legacy salted SHA-256 hashes are upgraded to PBKDF2 after successful verification. Waiters use PIN-free sign-in and can enter orders only; cashiers can enter orders and use the cash register; kitchen staff can update kitchen order states only. Staff can sign in only with a supported, active role. Administrator-only operations remain unavailable to staff. This is local application-level protection, not a replacement for operating-system account security or encrypted device storage.
 
 
-## Maliyet, gider ve stok geçmişi (SQLite şema v4)
+## Maliyet, gider ve stok geçmişi
 
 - Ürün alış maliyeti satıştan ayrı saklanır; satış tamamlandığında birim maliyet satış satırına kopyalanır. Eski satışların bilinmeyen maliyeti sıfır kalır, geriye dönük tahmin yapılmaz.
 - İşletme giderleri tarih, kategori, tutar ve açıklamayla kaydedilir. Raporlar kayıtlı satış maliyeti, brüt kâr, gider ve net kârı gösterir.
