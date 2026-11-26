@@ -166,8 +166,9 @@ Read this tracker first, inspect current main SHA and latest Actions run, compar
 - [x] Reservation records can link to an existing customer; completing a linked reservation increments that customer's visit count once, with the link and counted state persisted.
 - [x] Extend the 30-day analytics panel with hourly revenue and per-product revenue, cost and profit after proportional discount allocation.
 - [x] Add regression tests for purchase invoice persistence and weighted-average cost, once-only reservation visit accounting, and hourly/product-profit calculations.
-- [ ] Android and Windows analyze/test/release builds must pass before merge.
-- [ ] Verify post-merge main CI before marking this batch complete.
+- [x] Android and Windows analyze/test/release builds passed on PR #21 head `4be8c5947e22f768f63828ee44a988b6fd13df46` (workflow `45900305709`).
+- [x] PR #21 merged to main as `e1029acdc0ce1051027a8bca73da698a59ee1c80`.
+- [ ] Verify post-merge main CI run `45901388025` before marking this batch fully complete.
 
 ## Five major feature workstreams — current implementation audit
 - [x] Receipt/PDF printing entry point and 80 mm roll layout exist; verify real printer and Azerbaijani/Turkish glyph rendering during device testing.
@@ -176,3 +177,10 @@ Read this tracker first, inspect current main SHA and latest Actions run, compar
 - [x] Advanced analytics already had a 30-day daily summary; Batch 10 adds hourly revenue and per-product profitability.
 - [x] USB/Bluetooth keyboard-wedge barcode scanning, product matching, integrity checks and backup export/import exist. Camera scanning is not implemented and is not required for keyboard-wedge scanners.
 
+
+## Batch 11 (branch fix/checkout-seller-authorization) — in progress
+- [x] Model-level checkout now rejects unknown, inactive, and kitchen-role sellers; only active Yönetici/Garson/Kasiyer records may be attributed to a sale.
+- [x] Alternate PIN-required cashier sales are re-verified inside the checkout business method, not only in the payment dialog; payment dialog excludes kitchen-role sellers and passes the PIN for model-level verification.
+- [x] Regression test covers unknown/inactive/kitchen sellers, missing/wrong alternate-cashier PIN, and successful authorized cashier checkout.
+- [ ] Android and Windows analyze/test/release CI must pass on the latest branch commit before merge.
+- [ ] Verify post-merge main CI after merge.
