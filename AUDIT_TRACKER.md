@@ -184,3 +184,13 @@ Read this tracker first, inspect current main SHA and latest Actions run, compar
 - [x] Regression test covers unknown/inactive/kitchen sellers, missing/wrong alternate-cashier PIN, and successful authorized cashier checkout.
 - [ ] Android and Windows analyze/test/release CI must pass on the latest branch commit before merge.
 - [ ] Verify post-merge main CI after merge.
+
+## Six-stage opening-readiness plan (single source of truth)
+- [ ] 1. Payment and staff authorization: Batch 11 checkout seller validation is implemented on PR #22; do not close this stage until Android/Windows CI passes, PR merges, and post-merge main CI is green. Then complete the full role/PIN/payment regression matrix.
+- [x] 2. Supplier purchasing: purchase records, supplier association, invoice/dispatch reference, stock movement and weighted-average costing are implemented; retain regression coverage.
+- [x] 3. Customers and reservations: customer records, customer-linked reservations, reservation history and once-only visit counting are implemented. Remaining optional enhancement: attach direct sales to customer profiles and add spend-based loyalty.
+- [x] 4. Analytics: daily/30-day summaries, hourly revenue and product-level revenue/cost/profit are implemented with refund reversal coverage.
+- [ ] 5. Receipt/PDF printing: code and 80 mm layout exist; run actual printer tests and verify Azerbaijani/Turkish glyphs on the target device.
+- [ ] 6. Barcode and data integrity: keyboard-wedge barcode flow, product matching, backup/restore and integrity validation exist; verify with the actual USB/Bluetooth scanner and run backup/restore acceptance tests on target devices.
+
+Do not mark stages 5 or 6 complete from CI alone: they require the owner's physical printer/scanner/device acceptance tests. Language expansion is explicitly deferred until opening-readiness stages and acceptance testing are complete.
