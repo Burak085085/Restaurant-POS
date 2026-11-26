@@ -2821,19 +2821,22 @@ List<ProductProfitSummary> buildProductProfitSummary(Iterable<Sale> sales) {
     if (gross <= 0) continue;
     final rawDiscount = sale.discountPercent ? gross * sale.discount ~/ 100 : sale.discount;
     final discount = rawDiscount.clamp(0, gross).toInt();
-    var allocatedDiscount = 0;
+    final revenueToAllocate = sale.isRefund
+        ? sale.total.abs().clamp(0, gross).toInt()
+        : gross - discount;
+    var allocatedRevenue = 0;
     for (var index = 0; index < sale.items.length; index++) {
       final item = sale.items[index];
       final lineGross = item.qty * item.price;
-      final lineDiscount = index == sale.items.length - 1
-          ? discount - allocatedDiscount
-          : discount * lineGross ~/ gross;
-      allocatedDiscount += lineDiscount;
+      final lineRevenue = index == sale.items.length - 1
+          ? revenueToAllocate - allocatedRevenue
+          : revenueToAllocate * lineGross ~/ gross;
+      allocatedRevenue += lineRevenue;
       final sign = sale.isRefund ? -1 : 1;
       final row = summaries.putIfAbsent(item.productId, () => ProductProfitSummary(
         productId: item.productId, name: item.name));
       row.units += sign * item.qty;
-      row.revenue += sign * (lineGross - lineDiscount);
+      row.revenue += sign * lineRevenue;
       row.cost += sign * item.qty * item.unitCost;
     }
   }
