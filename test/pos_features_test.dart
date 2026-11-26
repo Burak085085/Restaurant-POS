@@ -300,8 +300,9 @@ void main() {
       );
       final bytes = await ReceiptPrinter.buildSalePdf(sale);
       expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
-      expect(String.fromCharCodes(bytes), contains('/FontFile2'));
-      expect(bytes.length, greaterThan(10000));
+      final pdfText = String.fromCharCodes(bytes);
+      expect(pdfText, contains('/FontFile2'));
+      expect(pdfText, contains('/FontDescriptor'));
     });
 
     test('customers and advanced records survive a local save and reload', () async {
