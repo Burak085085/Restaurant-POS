@@ -160,3 +160,19 @@ Read this tracker first, inspect current main SHA and latest Actions run, compar
 - [ ] Confirm final Android application ID/package name.
 - [ ] Owner creates and retains the Android signing keystore; enter signing credentials directly into GitHub Secrets. Never send or commit signing material.
 - [ ] Confirm whether the Windows deliverable should be a zipped portable build or installer; the CI artifact currently contains the built desktop output.
+
+## Batch 10 (branch feature/priority-enhancements-batch-10) — in progress
+- [x] Supplier purchase records now retain an optional invoice/dispatch-note reference, show it in purchase history, and preserve old records without the field.
+- [x] Reservation records can link to an existing customer; completing a linked reservation increments that customer's visit count once, with the link and counted state persisted.
+- [x] Extend the 30-day analytics panel with hourly revenue and per-product revenue, cost and profit after proportional discount allocation.
+- [x] Add regression tests for purchase invoice persistence and weighted-average cost, once-only reservation visit accounting, and hourly/product-profit calculations.
+- [ ] Android and Windows analyze/test/release builds must pass before merge.
+- [ ] Verify post-merge main CI before marking this batch complete.
+
+## Five major feature workstreams — current implementation audit
+- [x] Receipt/PDF printing entry point and 80 mm roll layout exist; verify real printer and Azerbaijani/Turkish glyph rendering during device testing.
+- [x] Supplier and purchase workflows exist; invoice reference added in Batch 10.
+- [x] Customer and reservation workflows exist; customer-linked reservation history and visit count added in Batch 10. Direct sales-to-customer order history and monetary loyalty balance remain open.
+- [x] Advanced analytics already had a 30-day daily summary; Batch 10 adds hourly revenue and per-product profitability.
+- [x] USB/Bluetooth keyboard-wedge barcode scanning, product matching, integrity checks and backup export/import exist. Camera scanning is not implemented and is not required for keyboard-wedge scanners.
+
