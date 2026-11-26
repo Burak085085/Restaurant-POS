@@ -1971,7 +1971,7 @@ class ReportsPage extends StatelessWidget {
     final ok = await ReceiptPrinter.printSale(sale);
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
-      ok ? 'Fiş yazdırma penceresi açıldı.' : 'Fiş hazırlanamadı. Yazıcı ve PDF desteğini kontrol edin.')));
+      ok ? 'Fiş yazdırma işlemi tamamlandı.' : 'Fiş yazdırılmadı veya işlem iptal edildi.')));
   }
   Future<void> _refund(BuildContext context,Sale sale) async {
     final saleIndex=pos.sales.indexOf(sale); final remaining=pos.remainingRefundable(saleIndex);
