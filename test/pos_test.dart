@@ -755,7 +755,7 @@ void main() {
     expect(restored.discount, 100);
   });
 
-  test('SQLite v4 sales table migrates discount and refund audit fields to schema v6', () async {
+  test('SQLite v4 database upgrades sequentially through schema v7', () async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
     final directory = await Directory.systemTemp.createTemp('restaurant-pos-v4-');
@@ -790,6 +790,47 @@ void main() {
       await directory.delete(recursive: true);
     }
   });
+
+  
+  test('SQLite v6 order lines gain ingredient usage during v7 migration', () async {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+    final directory = await Directory.systemTemp.createTemp('restaurant-pos-v6-');
+    final databasePath = '${directory.path}/pos.sqlite3';
+    final oldDatabase = await openDatabase(
+      databasePath,
+      version: 6,
+      onCreate: (db, version) async {
+        await db.execute(
+          'CREATE TABLE order_lines (id INTEGER PRIMARY KEY AUTOINCREMENT, table_id INTEGER NOT NULL, position INTEGER NOT NULL, product_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL, qty INTEGER NOT NULL, sent INTEGER NOT NULL, kitchen INTEGER NOT NULL, UNIQUE(table_id, position))',
+        );
+      },
+    );
+    await oldDatabase.close();
+    final repository = SqliteStoreRepository(
+      databasePath: databasePath,
+      backupDirectoryPath: directory.path,
+    );
+    try {
+      // The deliberately partial fixture is sufficient to exercise onUpgrade;
+      // read() may fail later when it reaches tables omitted from this fixture.
+      await expectLater(repository.read(), throwsA(anything));
+      await repository.close();
+      final migrated = await openDatabase(databasePath, readOnly: true);
+      try {
+        final columns = await migrated.rawQuery('PRAGMA table_info(order_lines)');
+        expect(columns.any((column) => column['name'] == 'ingredient_usage'), isTrue);
+        final version = await migrated.rawQuery('PRAGMA user_version');
+        expect(version.single['user_version'], 7);
+      } finally {
+        await migrated.close();
+      }
+    } finally {
+      await repository.close();
+      await directory.delete(recursive: true);
+    }
+  });
+
 
   test('legacy SharedPreferences payload is read without premature migration', () async {
     SharedPreferences.setMockInitialValues({

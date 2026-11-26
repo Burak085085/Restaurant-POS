@@ -141,7 +141,22 @@ Read this tracker first, inspect current main SHA and latest Actions run, compar
 - [x] Android + Windows analyze/test/build passed before merge; PR #18 merged as `7e6f57f9be8ad43d705b2958a33918e1378cc595`.
 - [x] Post-merge main workflow run `45715458770` is currently running; verify both platform jobs before marking main green.
 
-## Batch 08 (PR #19) — in progress
+## Batch 08 (PR #19) — merged to main
 - [x] Reject malformed nested legacy backup records without replacing live data.
 - [x] Exercise a real SQLite transaction failure during restore and verify the previous database remains loadable and passes integrity checks.
-- [ ] Android + Windows analyze/test/build must pass before merge.
+- [x] Correct rollback test to compare the restored product count with the actual `Pos()` defaults (11 products), rather than incorrectly assuming a single product.
+- [x] Android + Windows analyze/test/release builds passed before merge; PR #19 squash-merged as `f8087dd6bea1dfba050003975d7f41da8da07561`.
+- [x] Post-merge main workflow run `45724714225` passed Android and Windows analyze/test/release builds.
+
+
+## Batch 09 (branch fix/final-release-audit-batch-09) — in progress
+- [x] Confirm post-merge main workflow run `45724714225` completed successfully for Android APK and Windows desktop release builds.
+- [x] Reconcile README SQLite schema version with the actual schema version 7 and document refund/ingredient-ledger evolution.
+- [x] Rename the legacy migration test description so it accurately states that the v4 fixture is upgraded through schema v7.
+- [ ] Add a focused v6-to-v7 migration regression test for the `order_lines.ingredient_usage` column.
+- [ ] Android + Windows analyze/test/release builds must pass before merge.
+
+## Current release gate (remaining owner input)
+- [ ] Confirm final Android application ID/package name.
+- [ ] Owner creates and retains the Android signing keystore; enter signing credentials directly into GitHub Secrets. Never send or commit signing material.
+- [ ] Confirm whether the Windows deliverable should be a zipped portable build or installer; the CI artifact currently contains the built desktop output.
