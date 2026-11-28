@@ -1404,7 +1404,8 @@ void main() {
     expect(customer.visits, 0);
     expect(store.setReservationStatus(reservation, 'Tamamlandı'), isTrue);
     expect(customer.visits, 1);
-    expect(store.setReservationStatus(reservation, 'Bekliyor'), isTrue);
+    // A completed reservation is final and cannot be reopened.
+    expect(store.setReservationStatus(reservation, 'Bekliyor'), isFalse);
     expect(store.setReservationStatus(reservation, 'Tamamlandı'), isTrue);
     expect(customer.visits, 1);
     await store.flush();

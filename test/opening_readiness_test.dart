@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:restaurant_pos/advanced_features.dart';
 import 'package:restaurant_pos/main.dart';
 import 'package:restaurant_pos/storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -210,6 +211,53 @@ void main() {
           [PaymentPart('İade', -100)], isRefund: true, refundOfSaleIndex: 0));
       expect(pos.refundedByMethod(0, 'Nakit'), 100);
       expect(pos.refundSplit(0, 400), (cash: 200, card: 200));
+    });
+  });
+
+  group('Calendar report periods (Baku business dates)', () {
+    test('week starts on Monday and month/year boundaries are exclusive', () {
+      // Sunday 29 Nov 2026, 23:59 Baku.
+      final sunday = DateTime.utc(2026, 11, 29, 23, 59);
+      expect(reportPeriodRange('today', sunday), (start: '2026-11-29', end: '2026-11-30'));
+      expect(reportPeriodRange('week', sunday), (start: '2026-11-23', end: '2026-11-30'));
+      expect(reportPeriodRange('month', sunday), (start: '2026-11-01', end: '2026-12-01'));
+      expect(reportPeriodRange('year', sunday), (start: '2026-01-01', end: '2027-01-01'));
+      expect(reportPeriodRange('30', sunday), (start: '2026-10-31', end: '2026-11-30'));
+      final december = DateTime.utc(2026, 12, 31, 10);
+      expect(reportPeriodRange('month', december), (start: '2026-12-01', end: '2027-01-01'));
+      expect(reportPeriodRange('week', DateTime.utc(2026, 12, 1)), (start: '2026-11-30', end: '2026-12-07'));
+      final range = reportPeriodRange('month', sunday);
+      expect(inReportRange('2026-11-01', range), isTrue);
+      expect(inReportRange('2026-11-29', range), isTrue);
+      expect(inReportRange('2026-12-01', range), isFalse);
+      expect(inReportRange('2026-10-31', range), isFalse);
+    });
+
+    test('a sale just after Baku midnight falls on the new business day', () {
+      // 20:30 UTC on 30 Nov is 00:30 on 1 Dec in Baku.
+      final instant = DateTime.utc(2026, 11, 30, 20, 30);
+      final businessDay = dayKey(azWallTime(instant));
+      expect(businessDay, '2026-12-01');
+      expect(inReportRange(businessDay, reportPeriodRange('month', azWallTime(instant))), isTrue);
+      expect(inReportRange(businessDay, reportPeriodRange('month', DateTime.utc(2026, 11, 30, 12))), isFalse);
+    });
+  });
+
+  group('Reservation status changes', () {
+    test('a cancelled reservation cannot be reopened onto a booked slot', () {
+      final pos = Pos(repository: MemoryStoreRepository());
+      final when = bakuWallTimeToUtc(azWallTime(azNow()).add(const Duration(days: 3)));
+      ReservationRecord make(String id) => ReservationRecord(id: id, customerName: 'Müşteri $id',
+          phone: '', dateTime: when.toIso8601String(), tableId: 5, guests: 2);
+      final first = make('a');
+      expect(pos.addReservation(first), isTrue);
+      expect(pos.setReservationStatus(first, 'İptal'), isTrue);
+      final second = make('b');
+      expect(pos.addReservation(second), isTrue);
+      expect(pos.setReservationStatus(first, 'Bekliyor'), isFalse);
+      expect(first.status, 'İptal');
+      expect(pos.setReservationStatus(second, 'İptal'), isTrue);
+      expect(pos.setReservationStatus(first, 'Bekliyor'), isTrue);
     });
   });
 }
