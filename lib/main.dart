@@ -1107,10 +1107,22 @@ class Pos extends ChangeNotifier {
     t.discount = value; t.discountPercent = percent; t.discountReason = reason.trim();
     log('İndirim', 'Masa ${t.id}: ${percent ? '%$value' : money(value)} · ${reason.trim()}'); save(); return true;
   }
-  void upsertProduct(Product p) {
-    if (!can('inventory') || p.stock < reservedStock(p.id)) return;
-    final i = products.indexWhere((e) => e.id == p.id); if (i < 0) products.add(p); else { p.active=products[i].active; products[i] = p; }
-    log('Menü', '${p.name} kaydedildi'); save();
+  bool upsertProduct(Product p) {
+    if (!can('inventory') || p.stock < reservedStock(p.id) || p.stock < 0 ||
+        p.price <= 0 || p.costPrice < 0 || p.name.trim().isEmpty) return false;
+    final i = products.indexWhere((e) => e.id == p.id);
+    final before = i < 0 ? 0 : products[i].stock;
+    if (i < 0) { products.add(p); } else { p.active=products[i].active; products[i] = p; }
+    // Keep the stock ledger continuous when stock is set from the product form.
+    if (p.stock != before) {
+      final delta = p.stock - before;
+      stockMovements.add(StockMovement(id: nextRecordId(), productId: p.id,
+        productName: p.name, type: delta > 0 ? 'Giriş' : 'Çıkış', quantity: delta.abs(),
+        beforeStock: before, afterStock: p.stock, productCost: p.costPrice,
+        at: azNow().toIso8601String(), note: i < 0 ? 'İlk stok kaydı' : 'Ürün kartından stok düzeltmesi'));
+    }
+    log('Menü', '${p.name} kaydedildi · Fiyat ${money(p.price)}${p.stock != before ? ' · Stok $before → ${p.stock}' : ''}'); save();
+    return true;
   }
   bool stockChange(Product p, int delta, {String note='Manuel stok düzeltmesi'}) {
     if (!can('inventory') || !products.contains(p) || delta == 0 || note.trim().isEmpty) return false;
@@ -1570,11 +1582,21 @@ Future<void> _cancelSentLine(BuildContext context,OrderLine line) async {
 Widget _ticket()=>Container(color:Colors.white,child:Column(children:[Padding(padding:const EdgeInsets.all(12),child:Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Sipariş',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),Text('Mutfak: ${kitchenLabel(t)}') ])),Expanded(child:ListView.builder(itemCount:t.items.length,itemBuilder:(c,i){final x=t.items[i];return ListTile(title:Text(x.name),subtitle:Text('${money(x.price)} × ${x.qty}'),trailing:Row(mainAxisSize:MainAxisSize.min,children:[IconButton(tooltip:x.sent?'Gönderilmiş ürünü iptal et':'Adedi azalt',onPressed:!pos.can('orders')?null:()=>x.sent?_cancelSentLine(c,x):pos.qty(t,i,-1),icon:const Icon(Icons.remove)),IconButton(onPressed:pos.can('orders')?(){if(!pos.qty(t,i,1)){ScaffoldMessenger.of(c).showSnackBar(SnackBar(content:Text(x.sent?'Mutfağa gönderilen ürünün miktarı değiştirilemez. Yeni ürün satırı ekleyin.':'Stok yetersiz.')));}}:null,icon:const Icon(Icons.add))]));})),Padding(padding:const EdgeInsets.all(12),child:Column(children:[Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Ara toplam'),Text(money(t.subtotal))]),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('İndirim'),Text(money(t.subtotal-t.total))]),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('TOPLAM',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),Text(money(t.total),style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold))]),Wrap(spacing:8,children:[if(pos.can('discount')) OutlinedButton.icon(onPressed:t.items.isEmpty?null:()=>_discount(context),icon:const Icon(Icons.percent),label:const Text('İndirim')),if(t.discount>0&&pos.can('discount')) OutlinedButton(onPressed:()=>pos.clearDiscount(t),child:const Text('İndirimi kaldır')),OutlinedButton(onPressed:!t.items.any((item)=>!item.sent)||!pos.can('orders')?null:()=>pos.sendKitchen(t),child:Text(t.items.any((item)=>!item.sent)?'Mutfağa gönder':'Gönderilecek yeni ürün yok'))]),if(pos.can('register')) SizedBox(width:double.infinity,child:FilledButton(onPressed:t.items.isEmpty||t.items.any((item)=>!item.sent)?null:()=>_pay(context),child:Text(t.items.any((item)=>!item.sent)?'Önce mutfağa gönder':'Ödeme al')))]))]));
 Future<void> _discount(BuildContext context)async{final value=TextEditingController(text:t.discountPercent?t.discount.toString():(t.discount/100).toStringAsFixed(2));final reason=TextEditingController(text:t.discountReason);bool percent=t.discountPercent;final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,set)=>AlertDialog(title:const Text('İndirim tanımla'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:value,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'İndirim tutarı / yüzde')),SwitchListTile(title:const Text('Yüzde olarak uygula'),value:percent,onChanged:(v)=>set(()=>percent=v)),TextField(controller:reason,decoration:const InputDecoration(labelText:'İndirim nedeni'))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Vazgeç')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Uygula'))])));if(!context.mounted)return;if(ok==true){final n=percent?int.tryParse(value.text):parseMoney(value.text);if(n==null||!pos.setDiscount(t,n,percent,reason.text)){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('İndirim için geçerli bir tutar ve neden girin.')));}}}
 Future<void> _pay(BuildContext context) async {
+  if (!pos.can('register')) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text('Ödeme almak için kasiyer veya yönetici girişi gerekir.')));
+    return;
+  }
   final payment = await showDialog<PaymentResult>(
     context: context,
     builder: (_) => PaymentDialog(total: t.total, initialStaff: pos.currentUser),
   );
   if (!context.mounted || payment == null) return;
+  if (payment.payments.any((part) => part.method == 'Nakit') && pos.activeRegister == null) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text('Nakit ödeme için önce kasa vardiyasını açın. Sipariş korunmuştur.')));
+    return;
+  }
   if (pos.checkout(t, payment.payments, staffName: payment.staffName, staffPin: payment.staffPin)) {
     Navigator.pop(context);
   } else {
@@ -1622,7 +1644,8 @@ class _PaymentDialogState extends State<PaymentDialog> {
   String? staffName;
   final parts = <PaymentPart>[];
   Staff? get selectedStaff { for(final member in pos.staff) { if(member.name==staffName&&member.active)return member; } return null; }
-  @override void initState(){super.initState();staffName=pos.currentUser;}
+  static bool _canSell(Staff member)=>member.active&&['Yönetici','Garson','Kasiyer'].contains(member.role);
+  @override void initState(){super.initState();staffName=pos.staff.any((member)=>member.name==pos.currentUser&&_canSell(member))?pos.currentUser:null;}
   late int remaining = widget.total;
 
   @override
@@ -1650,7 +1673,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
     content: SingleChildScrollView(
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Text('Kalan: ${money(remaining)}'),
-        DropdownButtonFormField<String>(initialValue:staffName,decoration:const InputDecoration(labelText:'Satışı yapan personel'),items:pos.staff.where((member)=>member.active&&['Yönetici','Garson','Kasiyer'].contains(member.role)).map((member)=>DropdownMenuItem(value:member.name,child:Text('${member.name} · ${member.role}'))).toList(),onChanged:(value){setState((){staffName=value;staffPin.clear();});}),
+        DropdownButtonFormField<String>(initialValue:staffName,decoration:const InputDecoration(labelText:'Satışı yapan personel'),items:pos.staff.where(_canSell).map((member)=>DropdownMenuItem(value:member.name,child:Text('${member.name} · ${member.role}'))).toList(),onChanged:(value){setState((){staffName=value;staffPin.clear();});}),
         if(selectedStaff?.pinRequired??false) TextField(controller:staffPin,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'Personel PIN doğrulaması'),onChanged:(_)=>setState((){})),
         TextField(
           controller: amount,
@@ -1828,8 +1851,8 @@ class InventoryPage extends StatelessWidget {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             TextField(controller: name, decoration: const InputDecoration(labelText: 'Ürün adı')),
             TextField(controller: category, decoration: const InputDecoration(labelText: 'Kategori')),
-            TextField(controller: price, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Satış fiyatı (₼)')),
-            TextField(controller: cost, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Alış maliyeti (₼)')),
+            TextField(controller: price, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Satış fiyatı (₼)')),
+            TextField(controller: cost, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Alış maliyeti (₼)')),
             TextField(controller: stock, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Stok adedi')),
             TextField(controller: low, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Kritik stok seviyesi')),
           ]),
@@ -1841,17 +1864,28 @@ class InventoryPage extends StatelessWidget {
       ),
     );
     final parsedPrice = parseMoney(price.text);
-    final parsedCost = cost.text.trim().isEmpty ? 0 : parseMoney(cost.text);
-    if (ok == true && name.text.trim().isNotEmpty && parsedPrice != null && parsedPrice > 0 && parsedCost != null) {
-      pos.upsertProduct(Product(
+    final parsedCost = cost.text.trim().isEmpty ? 0 : parseMoney(cost.text, allowZero: true);
+    final parsedStock = int.tryParse(stock.text.trim());
+    final parsedLow = int.tryParse(low.text.trim());
+    if (ok != true) return;
+    if (name.text.trim().isEmpty || parsedPrice == null || parsedCost == null ||
+        parsedStock == null || parsedStock < 0 || parsedLow == null || parsedLow < 0) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Ürün kaydedilemedi. Ad, fiyat, maliyet ve stok değerlerini kontrol edin.')));
+      return;
+    }
+    {
+      final saved = pos.upsertProduct(Product(
         old?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
         category.text.trim().isEmpty ? 'Genel' : category.text.trim(),
         name.text.trim(),
         parsedPrice,
         costPrice: parsedCost,
-        stock: (int.tryParse(stock.text) ?? 0).clamp(0, 1000000).toInt(),
-        lowAt: (int.tryParse(low.text) ?? 5).clamp(0, 1000000).toInt(),
+        stock: parsedStock.clamp(0, 1000000).toInt(),
+        lowAt: parsedLow.clamp(0, 1000000).toInt(),
       ));
+      if (!saved && context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Ürün kaydedilemedi. Stok, açık masalardaki sipariş adedinden az olamaz.')));
     }
   }
 }
@@ -2714,14 +2748,25 @@ class RegisterPage extends StatelessWidget {
 
   Future<void> _close(BuildContext context, RegisterSession session) async {
     final expected = pos.expectedRegisterCash(session);
+    final openTables = pos.tables.where((table) => table.items.isNotEmpty).map((table) => table.id).toList();
+    if (openTables.isNotEmpty) {
+      final proceed = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
+        title: const Text('Açık masalar var'),
+        content: Text('Ödenmemiş siparişi olan masalar: ${openTables.join(', ')}. Yine de kasayı kapatmak istiyor musunuz?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Vazgeç')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Kasayı kapat')),
+        ]));
+      if (proceed != true || !context.mounted) return;
+    }
     final amount = await _amountDialog(context, 'Kasayı kapat',
       label: 'Sayılmış nakit (₼)', allowZero: true);
     if (!context.mounted || amount == null) return;
     final success = pos.closeRegister(amount);
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(success ? 'Kasa bağlandı. Fərq: ${money(amount - expected)}' :
-        'Kasa bağlana bilmədi.')));
+      content: Text(success ? 'Kasa kapatıldı. Fark: ${money(amount - expected)}' :
+        'Kasa kapatılamadı.')));
   }
 
   @override
@@ -2736,7 +2781,7 @@ class RegisterPage extends StatelessWidget {
           Card(child: Padding(padding: const EdgeInsets.all(16),
             child: session == null
               ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text('Aktiv kasa növbəsi yoxdur.',
+                  const Text('Açık kasa vardiyası yok.',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
                   const SizedBox(height: 8),
                   const Text('Yeni vardiya açarken kasadaki başlangıç nakit tutarını girin.'),
