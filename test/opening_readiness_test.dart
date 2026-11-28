@@ -45,7 +45,7 @@ void main() {
         final total = table.total;
         expect(pos.checkout(table, [PaymentPart('Kart', total)]), isTrue);
         await pos.flush();
-        expect(pos.persistenceFailed, isFalse);
+        expect(pos.persistenceFailed, isFalse, reason: pos.persistenceError);
 
         final reloaded = Pos(repository: repository);
         await reloaded.load();
