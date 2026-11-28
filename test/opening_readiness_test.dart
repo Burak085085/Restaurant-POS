@@ -216,19 +216,19 @@ void main() {
 
   group('Calendar report periods (Baku business dates)', () {
     test('week starts on Monday and month/year boundaries are exclusive', () {
-      // Sunday 30 Nov 2026, 23:59 Baku.
-      final sunday = DateTime.utc(2026, 11, 30, 23, 59);
-      expect(reportPeriodRange('today', sunday), (start: '2026-11-30', end: '2026-12-01'));
-      expect(reportPeriodRange('week', sunday), (start: '2026-11-24', end: '2026-12-01'));
+      // Sunday 29 Nov 2026, 23:59 Baku.
+      final sunday = DateTime.utc(2026, 11, 29, 23, 59);
+      expect(reportPeriodRange('today', sunday), (start: '2026-11-29', end: '2026-11-30'));
+      expect(reportPeriodRange('week', sunday), (start: '2026-11-23', end: '2026-11-30'));
       expect(reportPeriodRange('month', sunday), (start: '2026-11-01', end: '2026-12-01'));
       expect(reportPeriodRange('year', sunday), (start: '2026-01-01', end: '2027-01-01'));
-      expect(reportPeriodRange('30', sunday), (start: '2026-11-01', end: '2026-12-01'));
+      expect(reportPeriodRange('30', sunday), (start: '2026-10-31', end: '2026-11-30'));
       final december = DateTime.utc(2026, 12, 31, 10);
       expect(reportPeriodRange('month', december), (start: '2026-12-01', end: '2027-01-01'));
       expect(reportPeriodRange('week', DateTime.utc(2026, 12, 1)), (start: '2026-11-30', end: '2026-12-07'));
       final range = reportPeriodRange('month', sunday);
       expect(inReportRange('2026-11-01', range), isTrue);
-      expect(inReportRange('2026-11-30', range), isTrue);
+      expect(inReportRange('2026-11-29', range), isTrue);
       expect(inReportRange('2026-12-01', range), isFalse);
       expect(inReportRange('2026-10-31', range), isFalse);
     });
