@@ -29,6 +29,14 @@ jobs:
         shell: bash
         run: |
           python3 -c "from pathlib import Path; p=Path('android/app/build.gradle.kts'); s=p.read_text(); old='compileSdk = flutter.compileSdkVersion'; assert old in s, 'Generated compileSdk setting not found'; p.write_text(s.replace(old, 'compileSdk = 36', 1))"
+      - name: Configure release signing (optional owner keystore)
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: python3 .github/scripts/configure_android_signing.py
       - run: flutter pub get
       - name: Generate branded app icons
         run: dart run flutter_launcher_icons
@@ -54,7 +62,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          flutter build apk --release --no-pub 2>&1 | tee build.log
+          flutter build apk --release --no-pub --build-number=$((100 + GITHUB_RUN_NUMBER)) 2>&1 | tee build.log
       - name: Report build result
         if: always()
         shell: bash

@@ -47,3 +47,19 @@ The administrator PIN and PIN-protected cashier/kitchen staff credentials are st
 - Ürün alış maliyeti satıştan ayrı saklanır; satış tamamlandığında birim maliyet satış satırına kopyalanır. Eski satışların bilinmeyen maliyeti sıfır kalır, geriye dönük tahmin yapılmaz.
 - İşletme giderleri tarih, kategori, tutar ve açıklamayla kaydedilir. Raporlar kayıtlı satış maliyeti, brüt kâr, gider ve net kârı gösterir.
 - Manuel stok giriş/çıkışları ve satıştan kaynaklanan stok düşüşleri önce/sonra miktarlarıyla kaydedilir. CSV raporu uygulama belge klasörüne yazılır.
+
+## İade ve raporlar
+
+- İade, orijinal ödeme yöntemine göre yapılır: önce nakit kısmı (kasadan nakit çıkışı, açık kasa gerekir), sonra kart kısmı (karta iade, kasaya dokunmaz). İade ödemeleri negatif Nakit/Kart satırı olarak saklanır; günlük, personel ve analiz Nakit/Kart toplamları iadeleri düşer. Eski `İade` kayıtları nakit iade sayılır.
+- Gelişmiş analiz ekranında Bugün, Bu hafta (Pazartesi–Pazar), Bu ay, Bu yıl ve Son 30 gün dönemleri Bakü (UTC+4) iş tarihine göre hesaplanır.
+- Denetim kayıtlarında yalnızca sıradan işlemler 2000 kayıtla sınırlıdır; ödeme, indirim, iade, kasa, gider, stok, personel ve güvenlik kayıtları silinmez.
+
+## Restoranda yerel kurulum (mağaza yok)
+
+- **Android:** GitHub Actions çalışmasının "Artifacts" bölümünden `restaurant-pos-android-apk` indirilir, ZIP içindeki `app-release.apk` cihaza kopyalanıp "bilinmeyen kaynaklardan yükleme" izniyle kurulur. Her CI çalışması daha büyük bir sürüm kodu (versionCode) üretir.
+- **Windows:** `restaurant-pos-windows` ZIP'i bir klasöre (ör. `C:\RestaurantPOS`) açılır ve `restaurant_pos.exe` çalıştırılır. Çalışmazsa Microsoft Visual C++ Redistributable (x64) kurulmalıdır. Veriler Belgeler klasöründeki `restaurant_pos.sqlite3` dosyasındadır; güncellemede yalnızca program klasörü değiştirilir.
+- **Android imzası:** Güncellemenin eski sürümün üzerine (veri kaybı olmadan) kurulabilmesi için tüm APK'lar aynı anahtarla imzalanmalıdır. Sahip bir kez şu adımları yapar; anahtar ve parolalar asla depoya veya sohbete konmaz:
+  1. `keytool -genkey -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias restaurantpos`
+  2. Dosyayı güvenli yerde (iki kopya) saklayın; base64'e çevirin: Windows PowerShell'de `[Convert]::ToBase64String([IO.File]::ReadAllBytes("upload-keystore.jks"))`.
+  3. GitHub → Settings → Secrets and variables → Actions: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` (`restaurantpos`), `ANDROID_KEY_PASSWORD`.
+  Secret'lar yoksa APK geçici hata ayıklama anahtarıyla imzalanır; böyle bir APK'dan imzalı sürüme geçişte uygulama bir kez kaldırılmalıdır. Bu yüzden önce yedek alın, sonra yedeği geri yükleyin.
