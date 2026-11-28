@@ -215,3 +215,22 @@ Do not mark stages 5 or 6 complete from CI alone: they require the owner's physi
 - Current main SHA: `288cb0b7e1f231a398d25974e0c1f4c742563d56`.
 - Batch 12 software implementation and CI are complete. Physical printer/scanner acceptance remains open and must not be inferred from CI.
 - Next work: continue opening-readiness audit from the remaining High items, starting with Y3 discount/audit retention and Y5 timezone consistency. Keep K1 signing blocked until owner confirms package ID and manages their own keystore; do not change DB location for Y12 without explicit approval.
+
+
+## Batch 13 (branch fix/opening-readiness-batch-13) — prepared, NOT yet CI-verified
+Base: main `b971969`. Prepared offline without a Flutter SDK; must pass Android + Windows CI before merge.
+- [x] K5 (new, critical): record ids came from `DateTime.now().microsecondsSinceEpoch` inside loops. A multi-product checkout or stock-returning refund creates several `stock_movements` rows in the same clock tick; Windows clock resolution is coarse, so ids can repeat, the SQLite `PRIMARY KEY` insert fails, the whole save rolls back and the app enters "Kayıt başarısız" lockdown. Added `Pos.nextRecordId()` (strictly increasing, seeded from loaded records) for stock/ingredient/cash movements, register sessions, expenses and kitchen notices. No schema change.
+- [x] Y3 audit retention: the 2000-row cap deleted the oldest rows regardless of type. Now only ordinary operational rows are capped at 2000; financial/stock/staff/security actions (Ödeme, İndirim*, Satış iadesi, Kasa*, Gider, alımlar, Stok, Menü, Reçete, Barkod, Personel, Güvenlik, Giriş, Yedek geri yüklendi, Gönderilmiş ürün iptali) are never trimmed. No schema change.
+- [x] Tests: `test/opening_readiness_test.dart` (monotonic ids, ids above loaded records, 6-product SQLite checkout reload, audit cap/critical retention, SQLite reload + backup restore retention).
+- [ ] Android + Windows analyze/test/release CI on the batch branch, merge, post-merge main CI.
+
+## Open findings from the 2026-11-28 audit (not fixed in Batch 13)
+- [ ] R1 (high): `refundSale` always books a cash outflow (`Çıxış`) and requires an open register, even when the original sale was paid by card. Card refunds therefore reduce expected drawer cash. Needs owner decision: refund method follows original payment split.
+- [ ] R2 (high): refund payment parts use method `İade`, so daily/staff/analytics Nakit/Kart totals ignore refunds and are overstated. Fix together with R1.
+- [ ] R3 (medium): a wrong supervisor PIN records a failure for every eligible supervisor (Admin + all cashiers). Five wrong cancellation PIN entries by anyone lock Admin and all cashiers out (30 s → 60 s → 5 min). Consider a single shared supervisor lock scope.
+- [ ] R4 (medium): reports offer "today", "last 7 days" and "30 days" only; calendar week (Mon–Sun) and calendar month/year reports in Baku time are missing.
+- [ ] R5 (medium): `setReservationStatus` lets a cancelled/completed reservation return to `Bekliyor` without re-running the overlap check.
+- [ ] Y4 (performance, growing): every save deletes and re-inserts all sales, items, payments, movements and audit rows. Fine at opening volume; will slow down over months. Needs differential writes (no schema change required) before the database grows large.
+- [ ] Customer sales history / spend total: not implemented (sales are not linked to customers).
+- [ ] K1: platform runners are generated in CI; for local installs a stable applicationId and owner-held signing key are needed so APK updates install over the previous version without data loss. Debug-signed CI APKs from different runners may refuse to update in place.
+- [ ] Physical acceptance (printer 80 mm, glyphs, USB/Bluetooth scanner, Android/Windows device smoke tests) still pending — never inferred from CI.

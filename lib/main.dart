@@ -317,9 +317,9 @@ class Audit { String at,user,action,detail; Audit(this.at,this.user,this.action,
 class Pos extends ChangeNotifier {
   List<Product> products=[Product('p1','Dönerler','Tavuk döner',300),Product('p2','Dönerler','Dana döner',500),Product('p3','Dönerler','Dürüm döner',400),Product('p4','Dönerler','Porsiyon döner',700),Product('p5','İçecekler','Kola',200),Product('p6','İçecekler','Fanta',200),Product('p7','İçecekler','Ayran',100),Product('p8','İçecekler','Su',50),Product('p9','Ekstra','Patates',200),Product('p10','Ekstra','Ketçap',50),Product('p11','Ekstra','Mayonez',50)];
   List<PosTable> tables=List.generate(kTableCount,(i)=>PosTable(i+1)); List<Sale> sales=[]; List<RegisterSession> registerSessions=[]; List<CashMovement> cashMovements=[]; List<Expense> expenses=[]; List<StockMovement> stockMovements=[]; List<IngredientMovement> ingredientMovements=[]; List<Ingredient> ingredients=[]; Map<String,List<RecipeLine>> recipes={}; List<Staff> staff=[Staff('Admin','Yönetici')]; List<Audit> audit=[]; List<KitchenNotice> kitchenNotices=[]; String currentUser='Admin';
-  List<SupplierRecord> suppliers=[]; List<PurchaseRecord> purchases=[]; List<CustomerRecord> customers=[]; List<ReservationRecord> reservations=[]; Map<String,String> productBarcodes={}; Map<String,Map<String,dynamic>> pinSecurity={}; bool recoveryRequired=false; bool persistenceFailed=false; String? persistenceError; int inactivityTimeoutMinutes=15; final StoreRepository _repository; Future<void> _queue=Future.value();
+  List<SupplierRecord> suppliers=[]; List<PurchaseRecord> purchases=[]; List<CustomerRecord> customers=[]; List<ReservationRecord> reservations=[]; Map<String,String> productBarcodes={}; Map<String,Map<String,dynamic>> pinSecurity={}; bool recoveryRequired=false; bool persistenceFailed=false; String? persistenceError; int inactivityTimeoutMinutes=15; final StoreRepository _repository; Future<void> _queue=Future.value(); int _lastGeneratedId=0;
   Pos({StoreRepository? repository}) : _repository = repository ?? SqliteStoreRepository();
-  Future<void> load() async { final raw=await _repository.read(); if(raw==null){persistenceFailed=false;persistenceError=null;return;} try { final j=jsonDecode(raw) as Map<String,dynamic>; final needsTimestampMigration=(j['timestampFormatVersion'] as num?)?.toInt()!=2; if(needsTimestampMigration)_migrateLegacyTimestamps(j); pinSecurity=(j['pinSecurity'] as Map? ?? {}).map((key,value)=>MapEntry(key.toString(),Map<String,dynamic>.from(value as Map))); products=(j['products'] as List? ?? []).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList(); tables=List.generate(kTableCount,(i)=>PosTable(i+1)); for(final x in (j['tables'] as List? ?? [])){final m=Map<String,dynamic>.from(x); final id=m['id'] as int; if(id<1||id>kTableCount)continue; final t=tables[id-1]; t.items=(m['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(); t.kitchen=KitchenState.values[(m['kitchen']??0).clamp(0,3).toInt()]; final rawItems=(m['items'] as List? ?? []); for(var lineIndex=0;lineIndex<t.items.length;lineIndex++){final rawLine=Map<String,dynamic>.from(rawItems[lineIndex]);if(!rawLine.containsKey('kitchen'))t.items[lineIndex].kitchen=t.kitchen;} t.discount=m['discount']??0;t.discountPercent=m['discountPercent']??false;t.discountReason=m['discountReason']??'';} sales=(j['sales'] as List? ?? []).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList(); expenses=(j['expenses'] as List? ?? []).map((e)=>Expense.fromJson(Map<String,dynamic>.from(e))).toList(); stockMovements=(j['stockMovements'] as List? ?? []).map((e)=>StockMovement.fromJson(Map<String,dynamic>.from(e))).toList(); ingredientMovements=(j['ingredientMovements'] as List? ?? []).map((e)=>IngredientMovement.fromJson(Map<String,dynamic>.from(e))).toList(); ingredients=(j['ingredients'] as List? ?? []).map((e)=>Ingredient.fromJson(Map<String,dynamic>.from(e))).toList(); recipes=(j['recipes'] as Map? ?? {}).map((key,value)=>MapEntry(key.toString(),(value as List).map((e)=>RecipeLine.fromJson(Map<String,dynamic>.from(e))).toList())); registerSessions=(j['registerSessions'] as List? ?? []).map((e)=>RegisterSession.fromJson(Map<String,dynamic>.from(e))).toList(); cashMovements=(j['cashMovements'] as List? ?? []).map((e)=>CashMovement.fromJson(Map<String,dynamic>.from(e))).toList(); final legacyStaff=(j['staff'] as List? ?? []).map((e)=>Staff.fromJson(Map<String,dynamic>.from(e))).toList(); final admins=legacyStaff.where((member)=>member.name=='Admin').toList(); final admin=admins.isNotEmpty ? admins.first : Staff('Admin','Yönetici'); admin.active=true; final names=<String>{'admin'}; staff=[admin,...legacyStaff.where((member)=>member.name!='Admin'&&member.name.trim().isNotEmpty&&names.add(member.name.trim().toLowerCase()))]; audit=(j['audit'] as List? ?? []).map((e)=>Audit.fromJson(Map<String,dynamic>.from(e))).toList(); kitchenNotices=(j['kitchenNotices'] as List? ?? []).map((e)=>KitchenNotice.fromJson(Map<String,dynamic>.from(e))).toList(); final advanced=Map<String,dynamic>.from(j['advanced'] as Map? ?? {}); suppliers=(advanced['suppliers'] as List? ?? []).map((e)=>SupplierRecord.fromJson(Map<String,dynamic>.from(e))).toList(); purchases=(advanced['purchases'] as List? ?? []).map((e)=>PurchaseRecord.fromJson(Map<String,dynamic>.from(e))).toList(); customers=(advanced['customers'] as List? ?? []).map((e)=>CustomerRecord.fromJson(Map<String,dynamic>.from(e))).toList(); reservations=(advanced['reservations'] as List? ?? []).map((e)=>ReservationRecord.fromJson(Map<String,dynamic>.from(e))).toList(); productBarcodes=Map<String,String>.from(advanced['barcodes'] as Map? ?? {}); inactivityTimeoutMinutes=((j['inactivityTimeoutMinutes'] as num?)?.toInt() ?? 15).clamp(1,120); currentUser='Admin'; recoveryRequired=false; persistenceFailed=false; persistenceError=null; if(needsTimestampMigration){await _repository.write(_snapshot());} } catch (_) { await _repository.backupCorrupt(raw); recoveryRequired=true; } }
+  Future<void> load() async { final raw=await _repository.read(); if(raw==null){persistenceFailed=false;persistenceError=null;return;} try { final j=jsonDecode(raw) as Map<String,dynamic>; final needsTimestampMigration=(j['timestampFormatVersion'] as num?)?.toInt()!=2; if(needsTimestampMigration)_migrateLegacyTimestamps(j); pinSecurity=(j['pinSecurity'] as Map? ?? {}).map((key,value)=>MapEntry(key.toString(),Map<String,dynamic>.from(value as Map))); products=(j['products'] as List? ?? []).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList(); tables=List.generate(kTableCount,(i)=>PosTable(i+1)); for(final x in (j['tables'] as List? ?? [])){final m=Map<String,dynamic>.from(x); final id=m['id'] as int; if(id<1||id>kTableCount)continue; final t=tables[id-1]; t.items=(m['items'] as List? ?? []).map((e)=>OrderLine.fromJson(Map<String,dynamic>.from(e))).toList(); t.kitchen=KitchenState.values[(m['kitchen']??0).clamp(0,3).toInt()]; final rawItems=(m['items'] as List? ?? []); for(var lineIndex=0;lineIndex<t.items.length;lineIndex++){final rawLine=Map<String,dynamic>.from(rawItems[lineIndex]);if(!rawLine.containsKey('kitchen'))t.items[lineIndex].kitchen=t.kitchen;} t.discount=m['discount']??0;t.discountPercent=m['discountPercent']??false;t.discountReason=m['discountReason']??'';} sales=(j['sales'] as List? ?? []).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList(); expenses=(j['expenses'] as List? ?? []).map((e)=>Expense.fromJson(Map<String,dynamic>.from(e))).toList(); stockMovements=(j['stockMovements'] as List? ?? []).map((e)=>StockMovement.fromJson(Map<String,dynamic>.from(e))).toList(); ingredientMovements=(j['ingredientMovements'] as List? ?? []).map((e)=>IngredientMovement.fromJson(Map<String,dynamic>.from(e))).toList(); ingredients=(j['ingredients'] as List? ?? []).map((e)=>Ingredient.fromJson(Map<String,dynamic>.from(e))).toList(); recipes=(j['recipes'] as Map? ?? {}).map((key,value)=>MapEntry(key.toString(),(value as List).map((e)=>RecipeLine.fromJson(Map<String,dynamic>.from(e))).toList())); registerSessions=(j['registerSessions'] as List? ?? []).map((e)=>RegisterSession.fromJson(Map<String,dynamic>.from(e))).toList(); cashMovements=(j['cashMovements'] as List? ?? []).map((e)=>CashMovement.fromJson(Map<String,dynamic>.from(e))).toList(); final legacyStaff=(j['staff'] as List? ?? []).map((e)=>Staff.fromJson(Map<String,dynamic>.from(e))).toList(); final admins=legacyStaff.where((member)=>member.name=='Admin').toList(); final admin=admins.isNotEmpty ? admins.first : Staff('Admin','Yönetici'); admin.active=true; final names=<String>{'admin'}; staff=[admin,...legacyStaff.where((member)=>member.name!='Admin'&&member.name.trim().isNotEmpty&&names.add(member.name.trim().toLowerCase()))]; audit=(j['audit'] as List? ?? []).map((e)=>Audit.fromJson(Map<String,dynamic>.from(e))).toList(); kitchenNotices=(j['kitchenNotices'] as List? ?? []).map((e)=>KitchenNotice.fromJson(Map<String,dynamic>.from(e))).toList(); final advanced=Map<String,dynamic>.from(j['advanced'] as Map? ?? {}); suppliers=(advanced['suppliers'] as List? ?? []).map((e)=>SupplierRecord.fromJson(Map<String,dynamic>.from(e))).toList(); purchases=(advanced['purchases'] as List? ?? []).map((e)=>PurchaseRecord.fromJson(Map<String,dynamic>.from(e))).toList(); customers=(advanced['customers'] as List? ?? []).map((e)=>CustomerRecord.fromJson(Map<String,dynamic>.from(e))).toList(); reservations=(advanced['reservations'] as List? ?? []).map((e)=>ReservationRecord.fromJson(Map<String,dynamic>.from(e))).toList(); productBarcodes=Map<String,String>.from(advanced['barcodes'] as Map? ?? {}); inactivityTimeoutMinutes=((j['inactivityTimeoutMinutes'] as num?)?.toInt() ?? 15).clamp(1,120); _seedGeneratedIds(); currentUser='Admin'; recoveryRequired=false; persistenceFailed=false; persistenceError=null; if(needsTimestampMigration){await _repository.write(_snapshot());} } catch (_) { await _repository.backupCorrupt(raw); recoveryRequired=true; } }
 
   String _snapshot() => jsonEncode({
     'timestampFormatVersion': 2,
@@ -570,6 +570,27 @@ class Pos extends ChangeNotifier {
   }
 
   Future<void> flush()=>_queue;
+  /// Returns a strictly increasing record id. Several records are often
+  /// created inside the same clock tick (for example one stock movement per
+  /// product in a single checkout). Windows clocks can be coarse, so plain
+  /// microsecond timestamps can repeat and violate SQLite PRIMARY KEY
+  /// constraints, which would abort the whole save transaction.
+  int nextRecordId() {
+    final now = DateTime.now().microsecondsSinceEpoch;
+    _lastGeneratedId = now > _lastGeneratedId ? now : _lastGeneratedId + 1;
+    return _lastGeneratedId;
+  }
+  void _seedGeneratedIds() {
+    var highest = 0;
+    void consider(int id) { if (id > highest) highest = id; }
+    for (final item in stockMovements) { consider(item.id); }
+    for (final item in ingredientMovements) { consider(item.id); }
+    for (final item in cashMovements) { consider(item.id); }
+    for (final item in registerSessions) { consider(item.id); }
+    for (final item in expenses) { consider(item.id); }
+    for (final item in kitchenNotices) { consider(item.id); }
+    if (highest > _lastGeneratedId) _lastGeneratedId = highest;
+  }
   void save() {
     if (recoveryRequired || persistenceFailed) return;
     final snapshot = _snapshot();
@@ -598,7 +619,29 @@ class Pos extends ChangeNotifier {
     });
     notifyListeners();
   }
-  void log(String action,String detail){audit.insert(0,Audit(stamp(azWallTime(azNow())),currentUser,action,detail)); if(audit.length>2000)audit.removeRange(2000,audit.length);}
+  /// Ordinary operational audit rows (order edits, kitchen updates, table
+  /// moves...) are capped so the log stays fast. Financial, stock, staff and
+  /// security rows are never trimmed: they are the evidence for discounts,
+  /// refunds, register movements, staff permission changes and PIN failures.
+  static const int ordinaryAuditLimit = 2000;
+  static const Set<String> criticalAuditActions = {
+    'Ödeme', 'İndirim', 'İndirim kaldırıldı', 'İndirim sıfırlandı', 'Satış iadesi',
+    'Gönderilmiş ürün iptali', 'Kasa açıldı', 'Kasa bağlandı',
+    'Kasaya nakit girişi', 'Kasadan nakit çıkışı', 'Gider', 'Mal alımı',
+    'Malzeme alımı', 'Malzeme stoku', 'Stok', 'Menü', 'Reçete', 'Barkod',
+    'Personel', 'Güvenlik', 'Giriş', 'Yedek geri yüklendi',
+  };
+  static bool isCriticalAudit(Audit entry) => criticalAuditActions.contains(entry.action);
+  void _trimAudit() {
+    var ordinary = 0;
+    for (final entry in audit) { if (!isCriticalAudit(entry)) ordinary++; }
+    if (ordinary <= ordinaryAuditLimit) return;
+    // audit is newest-first: drop the oldest ordinary rows only.
+    for (var index = audit.length - 1; index >= 0 && ordinary > ordinaryAuditLimit; index--) {
+      if (!isCriticalAudit(audit[index])) { audit.removeAt(index); ordinary--; }
+    }
+  }
+  void log(String action,String detail){audit.insert(0,Audit(stamp(azWallTime(azNow())),currentUser,action,detail)); _trimAudit();}
   Staff? get _activeStaff {
     for (final member in staff) {
       if (member.name == currentUser && member.active) return member;
@@ -732,7 +775,7 @@ class Pos extends ChangeNotifier {
     if (ingredient.stock > 0) {
       final now = azNow();
       ingredientMovements.add(IngredientMovement(
-        id: now.microsecondsSinceEpoch, ingredientId: ingredient.id,
+        id: nextRecordId(), ingredientId: ingredient.id,
         ingredientName: ingredient.name, type: 'Giriş', quantity: ingredient.stock,
         beforeStock: 0, afterStock: ingredient.stock, unitCost: ingredient.costPerUnit,
         at: now.toIso8601String(), note: 'İlk stok kaydı'));
@@ -748,7 +791,7 @@ class Pos extends ChangeNotifier {
     ingredient.stock += delta;
     final now = azNow();
     ingredientMovements.add(IngredientMovement(
-      id: now.microsecondsSinceEpoch, ingredientId: ingredient.id,
+      id: nextRecordId(), ingredientId: ingredient.id,
       ingredientName: ingredient.name, type: delta > 0 ? 'Giriş' : 'Çıkış',
       quantity: delta.abs(), beforeStock: before, afterStock: ingredient.stock,
       unitCost: ingredient.costPerUnit, at: now.toIso8601String(),
@@ -777,7 +820,7 @@ class Pos extends ChangeNotifier {
     ingredient.stock = next;
     final now = azNow();
     ingredientMovements.add(IngredientMovement(
-      id: now.microsecondsSinceEpoch, ingredientId: ingredient.id,
+      id: nextRecordId(), ingredientId: ingredient.id,
       ingredientName: ingredient.name, type: 'Alım', quantity: quantity,
       beforeStock: before, afterStock: next, unitCost: unitCost,
       at: now.toIso8601String(),
@@ -818,7 +861,7 @@ class Pos extends ChangeNotifier {
     item.costPrice = ((previousValue + quantity * unitCost + nextStock ~/ 2) ~/ nextStock);
     item.stock = nextStock;
     final now = azNow();
-    final movementId = now.microsecondsSinceEpoch;
+    final movementId = nextRecordId();
     purchases.add(PurchaseRecord(id: movementId.toString(),
       supplierId: supplier.first.id, supplierName: supplier.first.name, productId: item.id,
       productName: item.name, quantity: quantity, unitCost: unitCost, at: now.toIso8601String(),
@@ -931,7 +974,7 @@ class Pos extends ChangeNotifier {
     if (quantity == line.qty) { table.items.remove(line); } else { line.qty -= quantity; }
     if (table.items.isEmpty) { table.discount=0; table.discountPercent=false; table.discountReason=''; table.kitchen=KitchenState.queued; }
     else if (table.discountPercent ? table.discount > 99 : table.discount >= table.subtotal) { table.discount=0; table.discountPercent=false; table.discountReason=''; log('İndirim sıfırlandı','Masa ${table.id}: iptal sonrası ara toplam değiştiği için indirim kaldırıldı'); }
-    kitchenNotices.insert(0, KitchenNotice(id:DateTime.now().microsecondsSinceEpoch,tableId:table.id,quantity:quantity,amount:cancelledAmount,at:azNow().toIso8601String(),productName:cancelledName,reason:reason.trim(),by:currentUser));
+    kitchenNotices.insert(0, KitchenNotice(id:nextRecordId(),tableId:table.id,quantity:quantity,amount:cancelledAmount,at:azNow().toIso8601String(),productName:cancelledName,reason:reason.trim(),by:currentUser));
     log('Gönderilmiş ürün iptali', 'Masa ${table.id}: $cancelledName × $quantity · Tutar: ${money(cancelledAmount)} · Neden: ${reason.trim()}');
     save();
     return true;
@@ -1036,7 +1079,7 @@ class Pos extends ChangeNotifier {
     if (next < reservedStock(p.id) || actualDelta == 0) return false;
     p.stock = next;
     stockMovements.add(StockMovement(
-      id: DateTime.now().microsecondsSinceEpoch,
+      id: nextRecordId(),
       productId: p.id,
       productName: p.name,
       type: actualDelta > 0 ? 'Giriş' : 'Çıkış',
@@ -1051,7 +1094,7 @@ class Pos extends ChangeNotifier {
     save();
     return true;
   }
-  bool addExpense(int amount,String category,String note){if(!can('reports')||amount<=0||category.trim().isEmpty||note.trim().isEmpty)return false;expenses.add(Expense(id:DateTime.now().microsecondsSinceEpoch,amount:amount,category:category.trim(),note:note.trim(),date:dayKey(azWallTime(azNow()))));log('Gider','${category.trim()} · ${money(amount)} · ${note.trim()}');save();return true;}
+  bool addExpense(int amount,String category,String note){if(!can('reports')||amount<=0||category.trim().isEmpty||note.trim().isEmpty)return false;expenses.add(Expense(id:nextRecordId(),amount:amount,category:category.trim(),note:note.trim(),date:dayKey(azWallTime(azNow()))));log('Gider','${category.trim()} · ${money(amount)} · ${note.trim()}');save();return true;}
   int costOfSale(Sale sale)=>sale.items.fold(0,(s,item)=>s+item.unitCost*item.qty) * (sale.isRefund ? -1 : 1);
   int refundedAmountForSale(int saleIndex) => sales.where((sale)=>sale.isRefund&&sale.refundOfSaleIndex==saleIndex).fold<int>(0,(sum,sale)=>sum-sale.total);
   int remainingRefundable(int saleIndex) { if(saleIndex<0||saleIndex>=sales.length||sales[saleIndex].isRefund)return 0; return (sales[saleIndex].total-refundedAmountForSale(saleIndex)).clamp(0,1<<30).toInt(); }
@@ -1067,14 +1110,14 @@ class Pos extends ChangeNotifier {
     }
     final now=azNow(); final session=activeRegister!;
     if(expectedRegisterCash(session)<amount)return false;
-    cashMovements.add(CashMovement(id:DateTime.now().microsecondsSinceEpoch,sessionId:session.id,at:now.toIso8601String(),type:'Çıxış',amount:amount,note:'Satış iadesi · Masa ${original.table} · ${reason.trim()}'));
-    if(returnStock){for(final entry in productNeeds.entries){final product=products.firstWhere((item)=>item.id==entry.key);final before=product.stock;product.stock+=entry.value;stockMovements.add(StockMovement(id:DateTime.now().microsecondsSinceEpoch,productId:product.id,productName:product.name,type:'İade',quantity:entry.value,beforeStock:before,afterStock:product.stock,productCost:product.costPrice,at:now.toIso8601String(),note:'Satış iadesi · Masa ${original.table}'));}
+    cashMovements.add(CashMovement(id:nextRecordId(),sessionId:session.id,at:now.toIso8601String(),type:'Çıxış',amount:amount,note:'Satış iadesi · Masa ${original.table} · ${reason.trim()}'));
+    if(returnStock){for(final entry in productNeeds.entries){final product=products.firstWhere((item)=>item.id==entry.key);final before=product.stock;product.stock+=entry.value;stockMovements.add(StockMovement(id:nextRecordId(),productId:product.id,productName:product.name,type:'İade',quantity:entry.value,beforeStock:before,afterStock:product.stock,productCost:product.costPrice,at:now.toIso8601String(),note:'Satış iadesi · Masa ${original.table}'));}
       for(final entry in ingredientNeeds.entries){
         final ingredient = ingredients.firstWhere((item)=>item.id==entry.key);
         final before = ingredient.stock;
         ingredient.stock += entry.value;
         ingredientMovements.add(IngredientMovement(
-          id: now.microsecondsSinceEpoch + ingredientMovements.length,
+          id: nextRecordId(),
           ingredientId: ingredient.id, ingredientName: ingredient.name,
           type: 'İade', quantity: entry.value, beforeStock: before,
           afterStock: ingredient.stock, unitCost: ingredient.costPerUnit,
@@ -1125,7 +1168,7 @@ class Pos extends ChangeNotifier {
       final product = products.firstWhere((item) => item.id == entry.key);
       final before = product.stock;
       product.stock -= entry.value;
-      stockMovements.add(StockMovement(id: DateTime.now().microsecondsSinceEpoch,
+      stockMovements.add(StockMovement(id: nextRecordId(),
         productId: product.id, productName: product.name, type: 'Satış',
         quantity: entry.value, beforeStock: before, afterStock: product.stock,
         productCost: product.costPrice, at: now.toIso8601String(),
@@ -1136,7 +1179,7 @@ class Pos extends ChangeNotifier {
       final before = ingredient.stock;
       ingredient.stock -= entry.value;
       ingredientMovements.add(IngredientMovement(
-        id: now.microsecondsSinceEpoch + ingredientMovements.length,
+        id: nextRecordId(),
         ingredientId: ingredient.id, ingredientName: ingredient.name,
         type: 'Satış', quantity: entry.value, beforeStock: before,
         afterStock: ingredient.stock, unitCost: ingredient.costPerUnit,
@@ -1181,7 +1224,7 @@ class Pos extends ChangeNotifier {
     if (!can('register') || activeRegister != null || openingCash < 0) return false;
     final now = azNow();
     registerSessions.add(RegisterSession(
-      id: now.microsecondsSinceEpoch,
+      id: nextRecordId(),
       openedAt: now.toIso8601String(),
       openingCash: openingCash,
       note: note.trim(),
@@ -1197,7 +1240,7 @@ class Pos extends ChangeNotifier {
         note.trim().isEmpty) return false;
     if (type == 'Çıxış' && expectedRegisterCash(session) < amount) return false;
     cashMovements.add(CashMovement(
-      id: DateTime.now().microsecondsSinceEpoch,
+      id: nextRecordId(),
       sessionId: session.id,
       at: azNow().toIso8601String(),
       type: type,
