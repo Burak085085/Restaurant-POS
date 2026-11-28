@@ -286,8 +286,29 @@ void main() {
     for (var attempt = 0; attempt < 5; attempt++) {
       expect(store.verifySupervisorPin('0000'), isFalse);
     }
-    expect(store.pinLockRemainingForStaff(store.staff.first), greaterThan(0));
+    expect(store.pinLockRemainingSeconds(Pos.supervisorPinScope), greaterThan(0));
     expect(store.verifySupervisorPin('1234'), isFalse);
+    // Wrong approval PINs must not lock the administrator's own sign-in.
+    expect(store.pinLockRemainingForStaff(store.staff.first), 0);
+    expect(store.verifyAdminPin('1234'), isTrue);
+  });
+
+  test('wrong supervisor PINs do not lock cashier sign-in and lock persists', () async {
+    final repository = MemoryStoreRepository();
+    final store = Pos(repository: repository);
+    expect(store.addStaff('Leyla', 'Kasiyer', '5813'), isTrue);
+    final cashier = store.staff.singleWhere((entry) => entry.name == 'Leyla');
+    for (var attempt = 0; attempt < 5; attempt++) {
+      expect(store.verifySupervisorPin('0000'), isFalse);
+    }
+    expect(store.pinLockRemainingForStaff(cashier), 0);
+    expect(store.verifySupervisorPin('5813'), isFalse);
+    await store.flush();
+    final restored = Pos(repository: repository);
+    await restored.load();
+    expect(restored.pinLockRemainingSeconds(Pos.supervisorPinScope), greaterThan(0));
+    final restoredCashier = restored.staff.singleWhere((entry) => entry.name == 'Leyla');
+    expect(restored.loginAsStaff(restoredCashier, pin: '5813'), isTrue);
   });
 
   test('PIN lockout state persists in SQLite app_meta', () async {
