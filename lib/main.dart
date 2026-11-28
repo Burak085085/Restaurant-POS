@@ -687,14 +687,20 @@ class Pos extends ChangeNotifier {
     }
     pinSecurity[scope]=state;
   }
-  bool _verifyPinAttempt(List<Staff> candidates,String candidate) {
+  static const String supervisorPinScope = 'supervisor';
+  /// [sharedScope] is used when one PIN entry is checked against several
+  /// people (supervisor approval). Failures then lock only that shared check,
+  /// so wrong approval PINs cannot lock the administrator or cashiers out of
+  /// their own sign-in.
+  bool _verifyPinAttempt(List<Staff> candidates,String candidate,{String? sharedScope}) {
     if (persistenceFailed || recoveryRequired) return false;
+    if (sharedScope != null && pinLockRemainingSeconds(sharedScope) > 0) return false;
     final eligible=candidates.where((member)=>member.active&&member.pinRequired&&pinLockRemainingSeconds('staff:${member.name}')==0).toList();
     if(eligible.isEmpty)return false;
     Staff? matched;
     for(final member in eligible){if(member.verifyPin(candidate)){matched=member;break;}}
-    if(matched!=null){pinSecurity.remove('staff:${matched.name}');log('Güvenlik','${matched.name} için PIN doğrulaması başarılı');save();return true;}
-    for(final member in eligible){_recordPinFailure('staff:${member.name}');}
+    if(matched!=null){pinSecurity.remove('staff:${matched.name}');if(sharedScope!=null)pinSecurity.remove(sharedScope);log('Güvenlik','${matched.name} için PIN doğrulaması başarılı');save();return true;}
+    if(sharedScope!=null){_recordPinFailure(sharedScope);}else{for(final member in eligible){_recordPinFailure('staff:${member.name}');}}
     save();return false;
   }
   bool verifyStaffPin(Staff member,String pin)=>staff.contains(member)&&member.pinRequired&&_verifyPinAttempt([member],pin);
@@ -704,7 +710,7 @@ class Pos extends ChangeNotifier {
   }
   bool verifySupervisorPin(String pin) {
     final supervisors=staff.where((member)=>member.active&&(member.name=='Admin'||member.role=='Kasiyer')).toList();
-    return _verifyPinAttempt(supervisors,pin);
+    return _verifyPinAttempt(supervisors,pin,sharedScope:supervisorPinScope);
   }
   bool can(String permission) {
     if (persistenceFailed || recoveryRequired) return false;
