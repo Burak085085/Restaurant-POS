@@ -122,6 +122,32 @@ void _migrateLegacyTimestamps(Map<String, dynamic> data) {
   }
 }
 String dayKey(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+const Map<String, String> kReportPeriods = {
+  'today': 'Bugün', 'week': 'Bu hafta', 'month': 'Bu ay', 'year': 'Bu yıl', '30': 'Son 30 gün',
+};
+/// Business-date range for a report period in Baku wall time. `start` is
+/// inclusive and `end` exclusive, both as `YYYY-MM-DD` day keys. Weeks start
+/// on Monday. UTC date arithmetic avoids device time-zone/DST effects.
+({String start, String end}) reportPeriodRange(String period, DateTime bakuNow) {
+  final today = DateTime.utc(bakuNow.year, bakuNow.month, bakuNow.day);
+  DateTime start;
+  DateTime end;
+  switch (period) {
+    case 'today':
+      start = today; end = today.add(const Duration(days: 1));
+    case 'week':
+      start = today.subtract(Duration(days: today.weekday - 1)); end = start.add(const Duration(days: 7));
+    case 'month':
+      start = DateTime.utc(today.year, today.month, 1); end = DateTime.utc(today.year, today.month + 1, 1);
+    case 'year':
+      start = DateTime.utc(today.year, 1, 1); end = DateTime.utc(today.year + 1, 1, 1);
+    default:
+      start = today.subtract(const Duration(days: 29)); end = today.add(const Duration(days: 1));
+  }
+  return (start: dayKey(start), end: dayKey(end));
+}
+bool inReportRange(String date, ({String start, String end}) range) =>
+    date.compareTo(range.start) >= 0 && date.compareTo(range.end) < 0;
 String stamp(DateTime d) => '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
 
 class RecipeLine {
@@ -888,17 +914,26 @@ class Pos extends ChangeNotifier {
         reservation.tableId < 1 || reservation.tableId > kTableCount) return false;
     final when = DateTime.tryParse(reservation.dateTime);
     if (when == null || when.isBefore(azNow().subtract(const Duration(minutes: 5)))) return false;
-    final overlaps = reservations.any((item) {
-      if (item.tableId != reservation.tableId || item.status == 'İptal' || item.status == 'Tamamlandı') return false;
-      final existing = DateTime.tryParse(item.dateTime);
-      return existing != null && existing.difference(when).inMinutes.abs() < 120;
-    });
-    if (overlaps) return false;
+    if (_reservationOverlaps(reservation, when)) return false;
     reservations.add(reservation); log('Rezervasyon', 'Masa ${reservation.tableId}: ${reservation.customerName}'); save(); return true;
   }
+  /// Active reservations on the same table must be at least two hours apart.
+  bool _reservationOverlaps(ReservationRecord reservation, DateTime when) => reservations.any((item) {
+    if (identical(item, reservation) || item.tableId != reservation.tableId ||
+        item.status == 'İptal' || item.status == 'Tamamlandı') return false;
+    final existing = DateTime.tryParse(item.dateTime);
+    return existing != null && existing.difference(when).inMinutes.abs() < 120;
+  });
   bool setReservationStatus(ReservationRecord reservation, String status) {
     if (!can('reports') || !reservations.contains(reservation) ||
         !['Bekliyor','Geldi','Tamamlandı','İptal'].contains(status)) return false;
+    // A completed reservation is final (its visit may already be counted).
+    if (reservation.status == 'Tamamlandı' && status != 'Tamamlandı') return false;
+    // Re-activating a cancelled reservation must not double-book the table.
+    if (reservation.status == 'İptal' && (status == 'Bekliyor' || status == 'Geldi')) {
+      final when = DateTime.tryParse(reservation.dateTime);
+      if (when == null || _reservationOverlaps(reservation, when)) return false;
+    }
     reservation.status = status;
     if (status == 'Tamamlandı' && !reservation.visitCounted && reservation.customerId != null) {
       final linked = customers.where((customer) => customer.id == reservation.customerId);
@@ -2935,17 +2970,21 @@ Map<int, int> buildHourlyRevenueSummary(Iterable<Sale> sales) {
   return result;
 }
 
-class AnalyticsPage extends StatelessWidget {
+class AnalyticsPage extends StatefulWidget {
   const AnalyticsPage({super.key});
+  @override State<AnalyticsPage> createState()=>_AnalyticsPageState();
+}
+class _AnalyticsPageState extends State<AnalyticsPage> {
+  String period='30';
   @override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(context,_) {
-    final now=azWallTime(azNow()); final start=DateTime(now.year,now.month,now.day).subtract(const Duration(days:29));
-    final sales=pos.sales.where((sale){final d=DateTime.tryParse(sale.date);return d!=null&&!d.isBefore(start);}).toList();
-    final expenses=pos.expenses.where((expense){final d=DateTime.tryParse(expense.date);return d!=null&&!d.isBefore(start);}).toList();
+    final range=reportPeriodRange(period,azWallTime(azNow()));
+    final sales=pos.sales.where((sale)=>inReportRange(sale.date,range)).toList();
+    final expenses=pos.expenses.where((expense)=>inReportRange(expense.date,range)).toList();
     final revenue=sales.fold<int>(0,(a,x)=>a+x.total);
     final cost=sales.fold<int>(0,(a,x)=>a+pos.costOfSale(x));
     final expenseTotal=expenses.fold<int>(0,(a,x)=>a+x.amount);
     final productTotals=<String,int>{};
-    for(final sale in sales){for(final item in sale.items){productTotals[item.name]=(productTotals[item.name]??0)+item.qty;}}
+    for(final sale in sales){for(final item in sale.items){productTotals[item.name]=(productTotals[item.name]??0)+(sale.isRefund?-item.qty:item.qty);}}
     final ranked=productTotals.entries.toList()..sort((a,b)=>b.value.compareTo(a.value));
     final daily=<String,int>{};
     for(final sale in sales){daily[sale.date]=(daily[sale.date]??0)+sale.total;}
@@ -2955,11 +2994,13 @@ class AnalyticsPage extends StatelessWidget {
     final activeHours=hourly.entries.where((entry)=>entry.value!=0).toList();
     final maxHourly=activeHours.fold<int>(0,(a,x)=>x.value>a?x.value:a);
     final productProfit=buildProductProfitSummary(sales);
-    return Scaffold(appBar:AppBar(title:const Text('Gelişmiş analiz · 30 gün')),body:ListView(padding:const EdgeInsets.all(12),children:[
+    return Scaffold(appBar:AppBar(title:Text('Gelişmiş analiz · ${kReportPeriods[period]}')),body:ListView(padding:const EdgeInsets.all(12),children:[
+      Wrap(spacing:6,runSpacing:6,children:[for(final entry in kReportPeriods.entries) ChoiceChip(label:Text(entry.value),selected:period==entry.key,onSelected:(_)=>setState(()=>period=entry.key))]),
+      Padding(padding:const EdgeInsets.symmetric(vertical:6),child:Text('Dönem: ${range.start} – ${dayKey(DateTime.parse('${range.end}T00:00:00Z').subtract(const Duration(days:1)))}')),
       Wrap(spacing:8,runSpacing:8,children:[
         _metric('Ciro',money(revenue)),_metric('Ürün maliyeti',money(cost)),
         _metric('Brüt kâr',money(revenue-cost)),_metric('Gider',money(expenseTotal)),
-        _metric('Net kâr',money(revenue-cost-expenseTotal)),_metric('Satış', '${sales.length}'),
+        _metric('Net kâr',money(revenue-cost-expenseTotal)),_metric('Satış', '${sales.where((sale)=>!sale.isRefund).length}'),_metric('İade', money(-sales.where((sale)=>sale.isRefund).fold<int>(0,(a,x)=>a+x.total))),
       ]),
       const SizedBox(height:16),const Text('Saatlik ciro',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),
       if(activeHours.isEmpty) const ListTile(title:Text('Saatlik satış verisi bulunmuyor.')),
