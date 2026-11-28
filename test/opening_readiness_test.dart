@@ -260,4 +260,55 @@ void main() {
       expect(pos.setReservationStatus(first, 'Bekliyor'), isTrue);
     });
   });
+
+  group('SQLite round trips keep timestamps and settings', () {
+    test('timestamps do not shift on repeated restarts and timeout persists', () async {
+      SharedPreferences.setMockInitialValues({});
+      final directory = await Directory.systemTemp.createTemp('pos-timestamp-stability-');
+      final databasePath = '${directory.path}/restaurant-pos.sqlite3';
+      final backups = '${directory.path}/backups';
+      var repository = SqliteStoreRepository(databasePath: databasePath, backupDirectoryPath: backups);
+      try {
+        final pos = Pos(repository: repository);
+        expect(pos.stockChange(pos.products.first, 3), isTrue);
+        expect(pos.openRegister(1000), isTrue);
+        pos.setInactivityTimeoutMinutes(30);
+        await pos.flush();
+        final stockAt = pos.stockMovements.single.at;
+        final openedAt = pos.registerSessions.single.openedAt;
+
+        for (var restart = 0; restart < 3; restart++) {
+          await repository.close();
+          repository = SqliteStoreRepository(databasePath: databasePath, backupDirectoryPath: backups);
+          final reloaded = Pos(repository: repository);
+          await reloaded.load();
+          expect(reloaded.stockMovements.single.at, stockAt, reason: 'restart $restart');
+          expect(reloaded.registerSessions.single.openedAt, openedAt, reason: 'restart $restart');
+          expect(reloaded.inactivityTimeoutMinutes, 30);
+          reloaded.save();
+          await reloaded.flush();
+        }
+      } finally {
+        await repository.close();
+        await directory.delete(recursive: true);
+      }
+    });
+  });
+
+  group('Product form edits', () {
+    test('stock set from the product form is recorded in the stock ledger', () async {
+      final pos = Pos(repository: MemoryStoreRepository());
+      final original = pos.products.first;
+      expect(pos.upsertProduct(Product(original.id, original.category, original.name,
+          original.price, costPrice: 0, stock: original.stock + 10)), isTrue);
+      final movement = pos.stockMovements.single;
+      expect(movement.type, 'Giriş');
+      expect(movement.quantity, 10);
+      expect(pos.upsertProduct(Product('new', 'Tatlı', 'Baklava', 450, stock: 12)), isTrue);
+      expect(pos.stockMovements.last.beforeStock, 0);
+      expect(pos.stockMovements.last.afterStock, 12);
+      expect(pos.upsertProduct(Product('bad', 'Tatlı', 'Fiyatsız', 0)), isFalse);
+      expect(await pos.integrityCheck(), isEmpty);
+    });
+  });
 }

@@ -211,6 +211,10 @@ class SqliteStoreRepository implements StoreRepository {
         where: 'key = ?', whereArgs: ['pin_security_json'], limit: 1);
     final kitchenNoticeRows = await db.query('app_meta', columns: ['value'],
         where: 'key = ?', whereArgs: ['kitchen_notices_json'], limit: 1);
+    final settingsRows = await db.query('app_meta', columns: ['value'],
+        where: 'key = ?', whereArgs: ['settings_json'], limit: 1);
+    final settings = settingsRows.isEmpty ? <String, dynamic>{} :
+        Map<String, dynamic>.from(jsonDecode(_string(settingsRows.first['value'])) as Map? ?? {});
     final ingredientData = ingredientRows.isEmpty ? <dynamic>[] :
         (jsonDecode(_string(ingredientRows.first['value'])) as List? ?? <dynamic>[]);
     final ingredientMovementData = ingredientMovementRows.isEmpty ? <dynamic>[] :
@@ -275,6 +279,12 @@ class SqliteStoreRepository implements StoreRepository {
       'ingredientMovements': ingredientMovementData,
       'recipes': recipeData,
       'advanced': advancedData,
+      // Normalized rows are always written from the in-memory model, whose
+      // legacy timestamps were already converted to UTC before the first
+      // save. Reporting version 2 prevents re-running the legacy conversion
+      // (which shifted every timestamp by -4 hours on each restart).
+      'timestampFormatVersion': _int(settings['timestampFormatVersion'], 2),
+      'inactivityTimeoutMinutes': _int(settings['inactivityTimeoutMinutes'], 15),
 
     };
   }
@@ -489,6 +499,13 @@ class SqliteStoreRepository implements StoreRepository {
       await transaction.insert('app_meta', {
         'key': 'currentUser',
         'value': _string(decoded['currentUser'], 'Admin'),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await transaction.insert('app_meta', {
+        'key': 'settings_json',
+        'value': jsonEncode({
+          'timestampFormatVersion': _int(decoded['timestampFormatVersion'], 2),
+          'inactivityTimeoutMinutes': _int(decoded['inactivityTimeoutMinutes'], 15),
+        }),
       }, conflictAlgorithm: ConflictAlgorithm.replace);
       await transaction.delete('app_state', where: 'id = ?', whereArgs: [1]);
     });
