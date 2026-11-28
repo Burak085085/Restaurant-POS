@@ -1175,7 +1175,7 @@ void main() {
     expect(plainWaiter.verifyPin('1234'), isFalse);
   });
   testWidgets('PosApp uses Turkish Material localization', (tester) async {
-    await tester.pumpWidget(const PosApp());
+    await tester.pumpWidget(const PosApp(showSplash: false));
     final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
     expect(app.locale, const Locale('tr', 'TR'));
     expect(app.localizationsDelegates, containsAll(GlobalMaterialLocalizations.delegates));
