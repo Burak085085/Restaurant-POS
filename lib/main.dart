@@ -1098,8 +1098,31 @@ class Pos extends ChangeNotifier {
   int costOfSale(Sale sale)=>sale.items.fold(0,(s,item)=>s+item.unitCost*item.qty) * (sale.isRefund ? -1 : 1);
   int refundedAmountForSale(int saleIndex) => sales.where((sale)=>sale.isRefund&&sale.refundOfSaleIndex==saleIndex).fold<int>(0,(sum,sale)=>sum-sale.total);
   int remainingRefundable(int saleIndex) { if(saleIndex<0||saleIndex>=sales.length||sales[saleIndex].isRefund)return 0; return (sales[saleIndex].total-refundedAmountForSale(saleIndex)).clamp(0,1<<30).toInt(); }
+  int _paidByMethod(Sale sale, String method) => sale.payments
+      .where((part) => part.method == method)
+      .fold<int>(0, (sum, part) => sum + part.amount);
+  /// Refunded amount per original payment method. Refunds recorded before
+  /// method-aware refunds used the method `İade` and always left the drawer as
+  /// cash, so they are counted as cash refunds.
+  int refundedByMethod(int saleIndex, String method) => sales
+      .where((sale) => sale.isRefund && sale.refundOfSaleIndex == saleIndex)
+      .expand((sale) => sale.payments)
+      .where((part) => part.method == method || (method == 'Nakit' && part.method == 'İade'))
+      .fold<int>(0, (sum, part) => sum - part.amount);
+  /// Splits a refund over the original payment methods: cash first, then card.
+  /// Card portions are returned to the card and never leave the cash drawer.
+  ({int cash, int card}) refundSplit(int saleIndex, int amount) {
+    if (saleIndex < 0 || saleIndex >= sales.length || amount <= 0) return (cash: 0, card: 0);
+    final original = sales[saleIndex];
+    final cashLeft = (_paidByMethod(original, 'Nakit') - refundedByMethod(saleIndex, 'Nakit')).clamp(0, 1 << 30).toInt();
+    final cardLeft = (_paidByMethod(original, 'Kart') - refundedByMethod(saleIndex, 'Kart')).clamp(0, 1 << 30).toInt();
+    var cash = math.min(amount, cashLeft);
+    var card = amount - cash;
+    if (card > cardLeft) { cash += card - cardLeft; card = cardLeft; }
+    return (cash: cash, card: card);
+  }
   bool refundSale(int saleIndex,int amount,String reason,String adminPin,{bool returnStock=false}) {
-    if(!isAdmin||!verifyAdminPin(adminPin)||activeRegister==null||saleIndex<0||saleIndex>=sales.length||amount<=0||reason.trim().isEmpty)return false;
+    if(!isAdmin||!verifyAdminPin(adminPin)||saleIndex<0||saleIndex>=sales.length||amount<=0||reason.trim().isEmpty)return false;
     final original=sales[saleIndex]; final remaining=remainingRefundable(saleIndex);
     if(original.isRefund||amount>remaining||(returnStock&&(amount!=remaining||original.stockReturned)))return false;
     final productNeeds=<String,int>{}; final ingredientNeeds=<String,int>{};
@@ -1108,9 +1131,9 @@ class Pos extends ChangeNotifier {
       for(final entry in productNeeds.entries){final p=products.where((item)=>item.id==entry.key);if(p.isEmpty||p.first.stock+entry.value>100000000)return false;}
       for(final entry in ingredientNeeds.entries){final item=ingredients.where((x)=>x.id==entry.key);if(item.isEmpty||item.first.stock+entry.value>100000000)return false;}
     }
-    final now=azNow(); final session=activeRegister!;
-    if(expectedRegisterCash(session)<amount)return false;
-    cashMovements.add(CashMovement(id:nextRecordId(),sessionId:session.id,at:now.toIso8601String(),type:'Çıxış',amount:amount,note:'Satış iadesi · Masa ${original.table} · ${reason.trim()}'));
+    final now=azNow(); final split=refundSplit(saleIndex,amount); final session=activeRegister;
+    if(split.cash>0&&(session==null||expectedRegisterCash(session)<split.cash))return false;
+    if(split.cash>0)cashMovements.add(CashMovement(id:nextRecordId(),sessionId:session!.id,at:now.toIso8601String(),type:'Çıxış',amount:split.cash,note:'Satış iadesi · Masa ${original.table} · ${reason.trim()}'));
     if(returnStock){for(final entry in productNeeds.entries){final product=products.firstWhere((item)=>item.id==entry.key);final before=product.stock;product.stock+=entry.value;stockMovements.add(StockMovement(id:nextRecordId(),productId:product.id,productName:product.name,type:'İade',quantity:entry.value,beforeStock:before,afterStock:product.stock,productCost:product.costPrice,at:now.toIso8601String(),note:'Satış iadesi · Masa ${original.table}'));}
       for(final entry in ingredientNeeds.entries){
         final ingredient = ingredients.firstWhere((item)=>item.id==entry.key);
@@ -1124,8 +1147,8 @@ class Pos extends ChangeNotifier {
           at: now.toIso8601String(), note: 'Satış iadesi · Masa ${original.table}'));
       }
       original.stockReturned=true;}
-    sales.add(Sale(dayKey(azWallTime(now)),stamp(azWallTime(now)),currentUser,original.table,-amount,0,returnStock?original.items.map((item)=>OrderLine(item.productId,item.name,item.price,item.qty,unitCost:item.unitCost)).toList():<OrderLine>[],[PaymentPart('İade',-amount,tendered:-amount)],registerSessionId:session.id,isRefund:true,refundOfSaleIndex:saleIndex,reason:reason.trim()));
-    log('Satış iadesi','Satış #${saleIndex+1}: ${money(amount)} · ${reason.trim()}${returnStock?' · Stok geri alındı':''}'); save(); return true;
+    sales.add(Sale(dayKey(azWallTime(now)),stamp(azWallTime(now)),currentUser,original.table,-amount,0,returnStock?original.items.map((item)=>OrderLine(item.productId,item.name,item.price,item.qty,unitCost:item.unitCost)).toList():<OrderLine>[],[if(split.cash>0)PaymentPart('Nakit',-split.cash,tendered:-split.cash),if(split.card>0)PaymentPart('Kart',-split.card,tendered:-split.card)],registerSessionId:split.cash>0?session!.id:null,isRefund:true,refundOfSaleIndex:saleIndex,reason:reason.trim()));
+    log('Satış iadesi','Satış #${saleIndex+1}: ${money(amount)} (Nakit ${money(split.cash)} · Kart ${money(split.card)}) · ${reason.trim()}${returnStock?' · Stok geri alındı':''}'); save(); return true;
   }int get totalExpenses=>expenses.fold(0,(s,e)=>s+e.amount);int get totalCostOfSales=>sales.fold(0,(s,e)=>s+costOfSale(e));int get netProfit=>sales.fold(0,(s,e)=>s+e.total-costOfSale(e))-totalExpenses;
   String buildCsv(){String q(Object? v)=>'"${v.toString().replaceAll('"','""')}"';final b=StringBuffer('Tarih;Tür;Açıklama;Adet;Ciro/Gider;Maliyet\r\n');for(final sale in sales){b.writeln([q(sale.date),q('Satış'),q('Masa ${sale.table}'),q(sale.items.fold<int>(0,(int n,OrderLine x)=>n+x.qty)),q(sale.total/100),q(costOfSale(sale)/100)].join(';'));}for(final e in expenses){b.writeln([q(e.date),q('Gider'),q('${e.category}: ${e.note}'),q(1),q(e.amount/100),q(0)].join(';'));}return b.toString();}
   bool checkout(PosTable t, List<PaymentPart> payments, {String? staffName, String? staffPin}) {
@@ -1208,8 +1231,10 @@ class Pos extends ChangeNotifier {
     }
     return null;
   }
+  // Refund cash leaves the drawer through its cash movement, so refund sales
+  // are excluded here to avoid counting the outflow twice.
   int cashSalesForSession(int sessionId) => sales
-      .where((sale) => sale.registerSessionId == sessionId)
+      .where((sale) => sale.registerSessionId == sessionId && !sale.isRefund)
       .fold(0, (sum, sale) => sum + sale.payments
           .where((part) => part.method == 'Nakit')
           .fold(0, (value, part) => value + part.amount));
@@ -2021,7 +2046,7 @@ class ReportsPage extends StatelessWidget {
     if(remaining<=0)return;
     final amount=TextEditingController(text:(remaining/100).toStringAsFixed(2)),reason=TextEditingController(),pin=TextEditingController(); bool returnStock=false;
     final ok=await showDialog<bool>(context:context,builder:(dialogContext)=>StatefulBuilder(builder:(dialogContext,setDialog)=>AlertDialog(title:Text('Satış #${saleIndex+1} için iade'),content:Column(mainAxisSize:MainAxisSize.min,children:[Text('İade edilebilir tutar: ${money(remaining)}'),TextField(controller:amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'İade tutarı (₼)')),TextField(controller:reason,maxLines:2,decoration:const InputDecoration(labelText:'İade nedeni (zorunlu)')),TextField(controller:pin,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'Yönetici PIN')),CheckboxListTile(contentPadding:EdgeInsets.zero,value:returnStock,onChanged:(value)=>setDialog(()=>returnStock=value??false),title:const Text('Ürünleri ve reçete malzemelerini stoğa geri al'),subtitle:const Text('Stok iadesi yalnızca satışın kalan tutarının tamamı iade edilirse yapılır.'))]),actions:[TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Vazgeç')),FilledButton(onPressed:()=>Navigator.pop(dialogContext,true),child:const Text('İadeyi kaydet'))])));
-    if(context.mounted&&ok==true){final success=pos.refundSale(saleIndex,parseMoney(amount.text) ?? 0,reason.text,pin.text.trim(),returnStock:returnStock);ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(success?'İade kaydedildi ve kasa çıkışı işlendi.':'İade yapılamadı. PIN, tutar, açık kasa ve stok durumunu kontrol edin.')));}
+    if(context.mounted&&ok==true){final success=pos.refundSale(saleIndex,parseMoney(amount.text) ?? 0,reason.text,pin.text.trim(),returnStock:returnStock);ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(success?'İade kaydedildi. Nakit kısmı kasadan, kart kısmı karta iade edilir.':'İade yapılamadı. PIN, tutar, nakit iade için açık kasa ve stok durumunu kontrol edin.')));}
     amount.dispose();reason.dispose();pin.dispose();
   }
   Future<void> _addExpense(BuildContext context) async {final amount=TextEditingController(),category=TextEditingController(text:'Diğer'),note=TextEditingController();final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('İşletme gideri ekle'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Tutar (₼)')),TextField(controller:category,decoration:const InputDecoration(labelText:'Kategori')),TextField(controller:note,decoration:const InputDecoration(labelText:'Açıklama'))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Kaydet'))]));if(ok==true&&!pos.addExpense(parseMoney(amount.text) ?? 0,category.text,note.text)&&context.mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Gider kaydedilemedi.')));amount.dispose();category.dispose();note.dispose();}

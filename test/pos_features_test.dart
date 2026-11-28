@@ -98,8 +98,11 @@ void main() {
       expect(pos.sales.last.refundOfSaleIndex, originalIndex);
       expect(pos.sales.last.reason, 'Hatalı ürün');
       expect(pos.sales.last.items.single.qty, 1);
-      expect(pos.cashMovements.last.type, 'Çıxış');
-      expect(pos.cashMovements.last.amount, product.price);
+      // Card sale: refund goes back to the card, the drawer is untouched.
+      expect(pos.cashMovements, isEmpty);
+      expect(pos.sales.last.payments.single.method, 'Kart');
+      expect(pos.sales.last.payments.single.amount, -product.price);
+      expect(pos.expectedRegisterCash(pos.activeRegister!), 5000);
       expect(pos.remainingRefundable(originalIndex), 0);
       expect(pos.refundSale(originalIndex, 1, 'İkinci iade', '8642'), isFalse);
       expect(pos.stockMovements.last.type, 'İade');
@@ -111,7 +114,8 @@ void main() {
       expect(restored.sales.last.isRefund, isTrue);
       expect(restored.sales.last.refundOfSaleIndex, originalIndex);
       expect(restored.sales[originalIndex].stockReturned, isTrue);
-      expect(restored.cashMovements.last.type, 'Çıxış');
+      expect(restored.cashMovements, isEmpty);
+      expect(restored.sales.last.payments.single.method, 'Kart');
 
     });
 
@@ -444,9 +448,9 @@ void main() {
       expect(pos.refundedAmountForSale(saleIndex), product.price);
       expect(product.stock, 5);
       expect(pos.sales.where((sale) => sale.isRefund && sale.refundOfSaleIndex == saleIndex), hasLength(2));
-      expect(pos.cashMovements.where((movement) => movement.type == 'Çıxış')
-        .fold<int>(0, (sum, movement) => sum + movement.amount), product.price);
-      expect(pos.expectedRegisterCash(pos.activeRegister!), 1000 - product.price);
+      expect(pos.cashMovements.where((movement) => movement.type == 'Çıxış'), isEmpty);
+      expect(pos.refundedByMethod(saleIndex, 'Kart'), product.price);
+      expect(pos.expectedRegisterCash(pos.activeRegister!), 1000);
       expect(pos.refundSale(saleIndex, 1, 'Mükerrer iade', '8642'), isFalse);
       expect(pos.integrityCheck(), completion(isEmpty));
       await pos.flush();
@@ -468,9 +472,10 @@ void main() {
 
       expect(pos.add(table, product), isTrue);
       expect(pos.sendKitchen(table), isTrue);
-      expect(pos.openRegister(50), isTrue);
-      expect(pos.checkout(table, [PaymentPart('Kart', product.price)]), isTrue);
+      expect(pos.openRegister(0), isTrue);
+      expect(pos.checkout(table, [PaymentPart('Nakit', product.price)]), isTrue);
       final saleIndex = pos.sales.length - 1;
+      expect(pos.addCashMovement('Çıxış', product.price - 50, 'Bankaya yatırıldı'), isTrue);
       final saleCount = pos.sales.length;
       final movementCount = pos.cashMovements.length;
       final stockBefore = product.stock;

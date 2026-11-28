@@ -126,4 +126,90 @@ void main() {
       }
     });
   });
+
+  group('Method-aware refunds', () {
+    Pos sellOne(List<PaymentPart> Function(int price) payments, {int openingCash = 1000, bool openRegister = true}) {
+      final pos = Pos(repository: MemoryStoreRepository());
+      pos.staff.firstWhere((member) => member.name == 'Admin').setPin('8642');
+      final product = pos.products.firstWhere((item) => item.price == 500);
+      final table = pos.tables.first;
+      expect(pos.add(table, product), isTrue);
+      expect(pos.sendKitchen(table), isTrue);
+      if (openRegister) expect(pos.openRegister(openingCash), isTrue);
+      expect(pos.checkout(table, payments(product.price)), isTrue);
+      return pos;
+    }
+
+    test('cash sale refund leaves the drawer once and nets cash totals', () async {
+      final pos = sellOne((price) => [PaymentPart('Nakit', price, tendered: 1000)]);
+      final session = pos.activeRegister!;
+      expect(pos.expectedRegisterCash(session), 1500);
+      expect(pos.refundSale(0, 200, 'Soğuk geldi', '8642'), isTrue);
+      expect(pos.expectedRegisterCash(session), 1300);
+      expect(pos.cashMovements.single.amount, 200);
+      final refund = pos.sales.last;
+      expect(refund.payments.single.method, 'Nakit');
+      expect(refund.payments.single.amount, -200);
+      final netCash = pos.sales.expand((sale) => sale.payments)
+          .where((part) => part.method == 'Nakit').fold<int>(0, (a, part) => a + part.amount);
+      expect(netCash, 300);
+      expect(await pos.integrityCheck(), isEmpty);
+    });
+
+    test('card sale refund needs no open register and never touches cash', () async {
+      final pos = sellOne((price) => [PaymentPart('Kart', price)], openRegister: false);
+      expect(pos.activeRegister, isNull);
+      expect(pos.refundSale(0, 500, 'Yanlış sipariş', '8642', returnStock: true), isTrue);
+      expect(pos.cashMovements, isEmpty);
+      expect(pos.sales.last.registerSessionId, isNull);
+      expect(pos.sales.last.payments.single.method, 'Kart');
+      final netCard = pos.sales.expand((sale) => sale.payments)
+          .where((part) => part.method == 'Kart').fold<int>(0, (a, part) => a + part.amount);
+      expect(netCard, 0);
+      expect(pos.refundSale(0, 1, 'Tekrar', '8642'), isFalse);
+      expect(await pos.integrityCheck(), isEmpty);
+    });
+
+    test('split payment refund returns cash first, then card, and survives reload', () async {
+      final repository = MemoryStoreRepository();
+      final pos = Pos(repository: repository);
+      pos.staff.firstWhere((member) => member.name == 'Admin').setPin('8642');
+      final product = pos.products.firstWhere((item) => item.price == 500);
+      final table = pos.tables.first;
+      expect(pos.add(table, product), isTrue);
+      expect(pos.sendKitchen(table), isTrue);
+      expect(pos.openRegister(1000), isTrue);
+      expect(pos.checkout(table, [PaymentPart('Nakit', 200), PaymentPart('Kart', 300)]), isTrue);
+      final session = pos.activeRegister!;
+      expect(pos.expectedRegisterCash(session), 1200);
+
+      expect(pos.refundSplit(0, 350), (cash: 200, card: 150));
+      expect(pos.refundSale(0, 350, 'Kısmi', '8642'), isTrue);
+      expect(pos.expectedRegisterCash(session), 1000);
+      expect(pos.refundSplit(0, 150), (cash: 0, card: 150));
+      expect(pos.refundSale(0, 150, 'Kalan', '8642'), isTrue);
+      expect(pos.expectedRegisterCash(session), 1000);
+      expect(pos.refundedByMethod(0, 'Nakit'), 200);
+      expect(pos.refundedByMethod(0, 'Kart'), 300);
+      expect(pos.remainingRefundable(0), 0);
+      expect(pos.refundSale(0, 1, 'Mükerrer', '8642'), isFalse);
+      await pos.flush();
+
+      final restored = Pos(repository: repository);
+      await restored.load();
+      expect(restored.refundedByMethod(0, 'Kart'), 300);
+      expect(restored.expectedRegisterCash(restored.activeRegister!), 1000);
+      expect(await restored.integrityCheck(), isEmpty);
+    });
+
+    test('legacy İade refunds count as cash refunds', () {
+      final pos = Pos(repository: MemoryStoreRepository());
+      pos.sales.add(Sale('2026-11-27', '12:00', 'Admin', 1, 500, 0, [],
+          [PaymentPart('Nakit', 300), PaymentPart('Kart', 200)]));
+      pos.sales.add(Sale('2026-11-27', '12:30', 'Admin', 1, -100, 0, [],
+          [PaymentPart('İade', -100)], isRefund: true, refundOfSaleIndex: 0));
+      expect(pos.refundedByMethod(0, 'Nakit'), 100);
+      expect(pos.refundSplit(0, 400), (cash: 200, card: 200));
+    });
+  });
 }
