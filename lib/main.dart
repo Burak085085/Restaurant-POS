@@ -7,7 +7,8 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:crypto/crypto.dart';
 import 'advanced_features.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:material_ui/material_ui.dart' hide Text;
+import 'i18n.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'storage.dart';
@@ -1357,9 +1358,112 @@ class Pos extends ChangeNotifier {
   int get lowStock=>products.where((p)=>p.active&&p.stock<=p.lowAt).length;
 }
 final pos=Pos();
-Future<void> main() async {WidgetsFlutterBinding.ensureInitialized();await pos.load();runApp(const PosApp());}
+Future<void> main() async {WidgetsFlutterBinding.ensureInitialized();await loadAppLanguage();await pos.load();runApp(const PosApp());}
 class PosLogo extends StatelessWidget { final double size; const PosLogo({super.key, this.size = 112}); @override Widget build(BuildContext context) => Image.asset('assets/branding/restoram_logo.jpg', width: size, height: size, fit: BoxFit.contain); }
-class PosApp extends StatelessWidget {const PosApp({super.key});@override Widget build(BuildContext context)=>MaterialApp(scaffoldMessengerKey:appMessengerKey,title:'Restaurant POS',debugShowCheckedModeBanner:false,locale:const Locale('tr','TR'),supportedLocales:const [Locale('tr','TR')],localizationsDelegates: GlobalMaterialLocalizations.delegates,theme:ThemeData(useMaterial3:true,colorScheme:ColorScheme.fromSeed(seedColor:ink),scaffoldBackgroundColor:bg,appBarTheme:const AppBarTheme(backgroundColor:ink,foregroundColor:Colors.white)),home:pos.recoveryRequired ? const RecoveryPage() : const Home());}
+const List<Locale> kSupportedLocales = [
+  Locale('tr', 'TR'), Locale('az', 'AZ'), Locale('en', 'US'), Locale('ru', 'RU'),
+  Locale('pl', 'PL'), Locale('zh', 'CN'), Locale('ar'), Locale('es', 'ES'),
+];
+Locale localeForLanguage(String code) =>
+    kSupportedLocales.firstWhere((locale) => locale.languageCode == code, orElse: () => kSupportedLocales.first);
+class PosApp extends StatelessWidget {
+  const PosApp({super.key, this.showSplash = true});
+  final bool showSplash;
+  @override Widget build(BuildContext context)=>ValueListenableBuilder<String>(valueListenable: appLanguage, builder: (context, language, _) => MaterialApp(scaffoldMessengerKey:appMessengerKey,title:'Restaurant POS',debugShowCheckedModeBanner:false,locale:localeForLanguage(language),supportedLocales:kSupportedLocales,localizationsDelegates: GlobalMaterialLocalizations.delegates,theme:ThemeData(useMaterial3:true,colorScheme:ColorScheme.fromSeed(seedColor:ink),scaffoldBackgroundColor:bg,appBarTheme:const AppBarTheme(backgroundColor:ink,foregroundColor:Colors.white)),home:SplashGate(enabled: showSplash, child: pos.recoveryRequired ? const RecoveryPage() : const Home())));
+}
+
+/// Opening animation: the logo grows out of the dark, glows briefly and then
+/// zooms through the screen while fading, revealing the app underneath.
+class SplashGate extends StatefulWidget {
+  const SplashGate({super.key, required this.child, this.enabled = true});
+  final Widget child;
+  final bool enabled;
+  @override State<SplashGate> createState() => _SplashGateState();
+}
+class _SplashGateState extends State<SplashGate> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 2600));
+  bool _done = false;
+  @override
+  void initState() {
+    super.initState();
+    if (!widget.enabled) { _done = true; return; }
+    _controller.addStatusListener((status) {
+      if (status == AnimationStatus.completed && mounted) setState(() => _done = true);
+    });
+    _controller.forward();
+  }
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_done && MediaQuery.maybeDisableAnimationsOf(context) == true) {
+      _controller.stop();
+      _done = true;
+    }
+  }
+  @override
+  void dispose() { _controller.dispose(); super.dispose(); }
+  void _skip() { if (!_done) { _controller.stop(); setState(() => _done = true); } }
+  double _interval(double begin, double end, Curve curve) =>
+      curve.transform(((_controller.value - begin) / (end - begin)).clamp(0.0, 1.0));
+  @override
+  Widget build(BuildContext context) {
+    // The app stays at the same position in the tree so its state survives
+    // the end of the animation.
+    return Stack(fit: StackFit.expand, children: [
+      widget.child,
+      if (!_done) GestureDetector(onTap: _skip, child: AnimatedBuilder(animation: _controller, builder: (context, _) {
+        final appear = _interval(0.0, 0.42, Curves.easeOutBack);
+        final glow = _interval(0.30, 0.62, Curves.easeInOut);
+        final zoom = _interval(0.66, 1.0, Curves.easeInCubic);
+        final logoOpacity = (_interval(0.0, 0.25, Curves.easeOut) * (1 - _interval(0.80, 1.0, Curves.easeIn))).clamp(0.0, 1.0);
+        final backgroundOpacity = 1 - _interval(0.78, 1.0, Curves.easeIn);
+        final scale = 0.35 + 0.65 * appear + 11 * zoom;
+        final shortest = MediaQuery.sizeOf(context).shortestSide;
+        final logoSize = (shortest * 0.42).clamp(120.0, 260.0);
+        return ColoredBox(
+          color: Colors.black.withValues(alpha: backgroundOpacity),
+          child: Center(child: Opacity(opacity: logoOpacity, child: Transform.scale(scale: scale, child: Container(
+            width: logoSize, height: logoSize,
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(logoSize * 0.18), boxShadow: [
+              BoxShadow(color: red.withValues(alpha: 0.55 * glow * (1 - zoom)), blurRadius: 60 * glow, spreadRadius: 6 * glow),
+            ]),
+            child: ClipRRect(borderRadius: BorderRadius.circular(logoSize * 0.18), child: PosLogo(size: logoSize)),
+          )))),
+        );
+      })),
+    ]);
+  }
+}
+
+/// Lets the user pick the interface language; the choice is remembered.
+class LanguageButton extends StatelessWidget {
+  const LanguageButton({super.key, this.color});
+  final Color? color;
+  @override
+  Widget build(BuildContext context) => TextButton.icon(
+    style: TextButton.styleFrom(foregroundColor: color),
+    onPressed: () => showLanguagePicker(context),
+    icon: const Icon(Icons.language),
+    label: Text(kAppLanguages[appLanguage.value] ?? 'Türkçe'),
+  );
+}
+Future<void> showLanguagePicker(BuildContext context) async {
+  final selected = await showDialog<String>(context: context, builder: (dialogContext) => SimpleDialog(
+    title: const Text('Dil seçin'),
+    children: [
+      for (final entry in kAppLanguages.entries)
+        SimpleDialogOption(
+          onPressed: () => Navigator.pop(dialogContext, entry.key),
+          child: Row(children: [
+            Icon(entry.key == appLanguage.value ? Icons.radio_button_checked : Icons.radio_button_unchecked, size: 20),
+            const SizedBox(width: 12),
+            Expanded(child: Text(entry.value)),
+          ]),
+        ),
+    ],
+  ));
+  if (selected != null) await setAppLanguage(selected);
+}
 
 class Home extends StatefulWidget {const Home({super.key});@override State<Home> createState()=>_HomeState();}
 class _HomeState extends State<Home> with WidgetsBindingObserver {
@@ -1401,6 +1505,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     setState(()=>authenticated=false);
   }
   @override Widget build(BuildContext context)=>Listener(onPointerDown: (_) => _resetInactivityTimer(), child: AnimatedBuilder(animation:pos,builder:(context,_){
+    // Depend on the locale so navigation labels refresh after a language change.
+    Localizations.localeOf(context);
     if(!authenticated)return PinGate(
       onAuthenticated:() { setState(() { authenticated=true; }); _resetInactivityTimer(); },
       onStaffSelected:(_) { setState(() { authenticated=true; }); _resetInactivityTimer(); },
@@ -1415,16 +1521,16 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         bottomNavigationBar:NavigationBar(
           selectedIndex:index,
           onDestinationSelected:(value)=>setState(()=>tab=value),
-          destinations:const [
-            NavigationDestination(icon:Icon(Icons.table_restaurant),label:'Masalar'),
-            NavigationDestination(icon:Icon(Icons.point_of_sale),label:'Kasa'),
+          destinations:[
+            NavigationDestination(icon:const Icon(Icons.table_restaurant),label:tr('Masalar')),
+            NavigationDestination(icon:const Icon(Icons.point_of_sale),label:tr('Kasa')),
           ],
         ),
       );
     }
     final pages=[TablesPage(onLogout:_logout),const KitchenPage(),const InventoryPage(),const ReportsPage(),const AdminPage()];
     final index=tab.clamp(0,pages.length-1).toInt();
-    return Scaffold(body:SafeArea(child:pages[index]),bottomNavigationBar:NavigationBar(selectedIndex:index,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:const [NavigationDestination(icon:Icon(Icons.table_restaurant),label:'Masalar'),NavigationDestination(icon:Icon(Icons.soup_kitchen),label:'Mutfak'),NavigationDestination(icon:Icon(Icons.inventory_2),label:'Stok'),NavigationDestination(icon:Icon(Icons.bar_chart),label:'Rapor'),NavigationDestination(icon:Icon(Icons.settings),label:'Yönetim')]));
+    return Scaffold(body:SafeArea(child:pages[index]),bottomNavigationBar:NavigationBar(selectedIndex:index,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:[NavigationDestination(icon:const Icon(Icons.table_restaurant),label:tr('Masalar')),NavigationDestination(icon:const Icon(Icons.soup_kitchen),label:tr('Mutfak')),NavigationDestination(icon:const Icon(Icons.inventory_2),label:tr('Stok')),NavigationDestination(icon:const Icon(Icons.bar_chart),label:tr('Rapor')),NavigationDestination(icon:const Icon(Icons.settings),label:tr('Yönetim'))]));
   }));
 }
 
@@ -1439,7 +1545,7 @@ class TablesPage extends StatelessWidget {
         leading: const Padding(padding: EdgeInsets.all(6), child: PosLogo(size: 40)),
         actions: [Padding(padding: const EdgeInsets.all(12),
           child: Center(child: Text(pos.currentUser))),
-          if(onLogout!=null) IconButton(tooltip:'Oturumu kapat',onPressed:onLogout,icon:const Icon(Icons.logout))]),
+          if(onLogout!=null) IconButton(tooltip:tr('Oturumu kapat'),onPressed:onLogout,icon:const Icon(Icons.logout))]),
       body: Column(children: [
         Padding(padding: const EdgeInsets.all(12), child: Wrap(spacing: 16, children: [
           Text('Tarih: ${stamp(azWallTime(azNow()))}'),
@@ -1513,7 +1619,7 @@ class _TableOperationsDialogState extends State<TableOperationsDialog> {
         children: [
           DropdownButtonFormField<String>(
             initialValue: mode,
-            decoration: const InputDecoration(labelText: 'İşlem'),
+            decoration: const InputDecoration(label: Text('İşlem')),
             items: const [
               DropdownMenuItem(value: 'Taşı', child: Text('Siparişi başka masaya taşı')),
               DropdownMenuItem(value: 'Birleştir', child: Text('Masaları birleştir')),
@@ -1524,7 +1630,7 @@ class _TableOperationsDialogState extends State<TableOperationsDialog> {
           const SizedBox(height: 12),
           DropdownButtonFormField<int>(
             initialValue: targetId,
-            decoration: const InputDecoration(labelText: 'Hedef masa'),
+            decoration: const InputDecoration(label: Text('Hedef masa')),
             items: targets.map((table) => DropdownMenuItem(
               value: table.id, child: Text('Masa ${table.id}'))).toList(),
             onChanged: (value) => setState(() => targetId = value),
@@ -1533,14 +1639,14 @@ class _TableOperationsDialogState extends State<TableOperationsDialog> {
             const SizedBox(height: 12),
             DropdownButtonFormField<int>(
               initialValue: lineIndex,
-              decoration: const InputDecoration(labelText: 'Bölünecek ürün'),
+              decoration: const InputDecoration(label: Text('Bölünecek ürün')),
               items: [for (var i = 0; i < source.items.length; i++)
                 DropdownMenuItem(value: i,
                   child: Text('${source.items[i].name} (×${source.items[i].qty})'))],
               onChanged: (value) => setState(() => lineIndex = value),
             ),
             TextField(controller: quantity, keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Hedef masaya aktarılacak adet')),
+              decoration: const InputDecoration(label: Text('Hedef masaya aktarılacak adet'))),
           ],
           if (mode == 'Böl' && (source.discount > 0))
             const Text('İndirimli masa bölünmeden önce indirim kaldırılmalıdır.',
@@ -1575,12 +1681,12 @@ class _OrderPageState extends State<OrderPage>{String category='Tümü';PosTable
 Widget _products(List<Product> list)=>GridView.builder(padding:const EdgeInsets.all(10),gridDelegate:const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent:170,childAspectRatio:1.45,crossAxisSpacing:8,mainAxisSpacing:8),itemCount:list.length,itemBuilder:(c,i){final p=list[i];return Card(child:InkWell(onTap:p.stock>0&&pos.can('orders')?(){if(!pos.add(t,p)){ScaffoldMessenger.of(c).showSnackBar(const SnackBar(content:Text('Yeterli stok yok veya işlem yetkiniz bulunmuyor.')));}}:null,child:Padding(padding:const EdgeInsets.all(10),child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[Text(p.name,style:const TextStyle(fontWeight:FontWeight.bold)),Text(money(p.price)),if(pos.can('inventory')) Text('Stok: ${p.stock}',style:TextStyle(color:p.stock<=p.lowAt?red:Colors.black54))]))));});
 Future<void> _cancelSentLine(BuildContext context,OrderLine line) async {
   final quantity=TextEditingController(text:'1'),reason=TextEditingController(),pin=TextEditingController();
-  final ok=await showDialog<bool>(context:context,builder:(dialogContext)=>AlertDialog(title:const Text('Mutfağa gönderilmiş ürünü iptal et'),content:Column(mainAxisSize:MainAxisSize.min,children:[Text('Masa ${t.id} · ${line.name} · mevcut adet ${line.qty}'),TextField(controller:quantity,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'İptal edilecek adet')),TextField(controller:reason,maxLines:2,decoration:const InputDecoration(labelText:'İptal nedeni (zorunlu)')),TextField(controller:pin,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'Yönetici veya kasiyer PIN'))]),actions:[TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Vazgeç')),FilledButton(onPressed:()=>Navigator.pop(dialogContext,true),child:const Text('İptali onayla'))]));
+  final ok=await showDialog<bool>(context:context,builder:(dialogContext)=>AlertDialog(title:const Text('Mutfağa gönderilmiş ürünü iptal et'),content:Column(mainAxisSize:MainAxisSize.min,children:[Text('Masa ${t.id} · ${line.name} · mevcut adet ${line.qty}'),TextField(controller:quantity,keyboardType:TextInputType.number,decoration:const InputDecoration(label: Text('İptal edilecek adet'))),TextField(controller:reason,maxLines:2,decoration:const InputDecoration(label: Text('İptal nedeni (zorunlu)'))),TextField(controller:pin,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(label: Text('Yönetici veya kasiyer PIN')))]),actions:[TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Vazgeç')),FilledButton(onPressed:()=>Navigator.pop(dialogContext,true),child:const Text('İptali onayla'))]));
   if(context.mounted&&ok==true){final success=pos.cancelSentLine(t,line,int.tryParse(quantity.text)??0,reason.text,pin.text.trim());if(!success)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('İptal yapılamadı. Adedi, nedeni ve yönetici/kasiyer PIN kodunu kontrol edin.')));}
   quantity.dispose();reason.dispose();pin.dispose();
 }
 Widget _ticket()=>Container(color:Colors.white,child:Column(children:[Padding(padding:const EdgeInsets.all(12),child:Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Sipariş',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),Text('Mutfak: ${kitchenLabel(t)}') ])),Expanded(child:ListView.builder(itemCount:t.items.length,itemBuilder:(c,i){final x=t.items[i];return ListTile(title:Text(x.name),subtitle:Text('${money(x.price)} × ${x.qty}'),trailing:Row(mainAxisSize:MainAxisSize.min,children:[IconButton(tooltip:x.sent?'Gönderilmiş ürünü iptal et':'Adedi azalt',onPressed:!pos.can('orders')?null:()=>x.sent?_cancelSentLine(c,x):pos.qty(t,i,-1),icon:const Icon(Icons.remove)),IconButton(onPressed:pos.can('orders')?(){if(!pos.qty(t,i,1)){ScaffoldMessenger.of(c).showSnackBar(SnackBar(content:Text(x.sent?'Mutfağa gönderilen ürünün miktarı değiştirilemez. Yeni ürün satırı ekleyin.':'Stok yetersiz.')));}}:null,icon:const Icon(Icons.add))]));})),Padding(padding:const EdgeInsets.all(12),child:Column(children:[Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Ara toplam'),Text(money(t.subtotal))]),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('İndirim'),Text(money(t.subtotal-t.total))]),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('TOPLAM',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),Text(money(t.total),style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold))]),Wrap(spacing:8,children:[if(pos.can('discount')) OutlinedButton.icon(onPressed:t.items.isEmpty?null:()=>_discount(context),icon:const Icon(Icons.percent),label:const Text('İndirim')),if(t.discount>0&&pos.can('discount')) OutlinedButton(onPressed:()=>pos.clearDiscount(t),child:const Text('İndirimi kaldır')),OutlinedButton(onPressed:!t.items.any((item)=>!item.sent)||!pos.can('orders')?null:()=>pos.sendKitchen(t),child:Text(t.items.any((item)=>!item.sent)?'Mutfağa gönder':'Gönderilecek yeni ürün yok'))]),if(pos.can('register')) SizedBox(width:double.infinity,child:FilledButton(onPressed:t.items.isEmpty||t.items.any((item)=>!item.sent)?null:()=>_pay(context),child:Text(t.items.any((item)=>!item.sent)?'Önce mutfağa gönder':'Ödeme al')))]))]));
-Future<void> _discount(BuildContext context)async{final value=TextEditingController(text:t.discountPercent?t.discount.toString():(t.discount/100).toStringAsFixed(2));final reason=TextEditingController(text:t.discountReason);bool percent=t.discountPercent;final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,set)=>AlertDialog(title:const Text('İndirim tanımla'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:value,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'İndirim tutarı / yüzde')),SwitchListTile(title:const Text('Yüzde olarak uygula'),value:percent,onChanged:(v)=>set(()=>percent=v)),TextField(controller:reason,decoration:const InputDecoration(labelText:'İndirim nedeni'))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Vazgeç')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Uygula'))])));if(!context.mounted)return;if(ok==true){final n=percent?int.tryParse(value.text):parseMoney(value.text);if(n==null||!pos.setDiscount(t,n,percent,reason.text)){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('İndirim için geçerli bir tutar ve neden girin.')));}}}
+Future<void> _discount(BuildContext context)async{final value=TextEditingController(text:t.discountPercent?t.discount.toString():(t.discount/100).toStringAsFixed(2));final reason=TextEditingController(text:t.discountReason);bool percent=t.discountPercent;final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,set)=>AlertDialog(title:const Text('İndirim tanımla'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:value,keyboardType:TextInputType.number,decoration:const InputDecoration(label: Text('İndirim tutarı / yüzde'))),SwitchListTile(title:const Text('Yüzde olarak uygula'),value:percent,onChanged:(v)=>set(()=>percent=v)),TextField(controller:reason,decoration:const InputDecoration(label: Text('İndirim nedeni')))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Vazgeç')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Uygula'))])));if(!context.mounted)return;if(ok==true){final n=percent?int.tryParse(value.text):parseMoney(value.text);if(n==null||!pos.setDiscount(t,n,percent,reason.text)){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('İndirim için geçerli bir tutar ve neden girin.')));}}}
 Future<void> _pay(BuildContext context) async {
   if (!pos.can('register')) {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -1673,12 +1779,12 @@ class _PaymentDialogState extends State<PaymentDialog> {
     content: SingleChildScrollView(
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Text('Kalan: ${money(remaining)}'),
-        DropdownButtonFormField<String>(initialValue:staffName,decoration:const InputDecoration(labelText:'Satışı yapan personel'),items:pos.staff.where(_canSell).map((member)=>DropdownMenuItem(value:member.name,child:Text('${member.name} · ${member.role}'))).toList(),onChanged:(value){setState((){staffName=value;staffPin.clear();});}),
-        if(selectedStaff?.pinRequired??false) TextField(controller:staffPin,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'Personel PIN doğrulaması'),onChanged:(_)=>setState((){})),
+        DropdownButtonFormField<String>(initialValue:staffName,decoration:const InputDecoration(label: Text('Satışı yapan personel')),items:pos.staff.where(_canSell).map((member)=>DropdownMenuItem(value:member.name,child:Text('${member.name} · ${member.role}'))).toList(),onChanged:(value){setState((){staffName=value;staffPin.clear();});}),
+        if(selectedStaff?.pinRequired??false) TextField(controller:staffPin,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(label: Text('Personel PIN doğrulaması')),onChanged:(_)=>setState((){})),
         TextField(
           controller: amount,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: const InputDecoration(labelText: 'Tutar (örn. 12,50)'),
+          decoration: const InputDecoration(label: Text('Tutar (örn. 12,50)')),
         ),
         Wrap(children: ['Nakit', 'Kart'].map((method) => TextButton(
           onPressed: remaining == 0 ? null : () => addPart(method),
@@ -1725,7 +1831,7 @@ class KitchenPage extends StatelessWidget {
           title: const Text('Mutfak sipariş kuyruğu'),
           actions: [
             if (onLogout != null)
-              IconButton(tooltip: 'Oturumu kapat', onPressed: onLogout,
+              IconButton(tooltip: tr('Oturumu kapat'), onPressed: onLogout,
                 icon: const Icon(Icons.logout)),
           ],
         ),
@@ -1736,7 +1842,7 @@ class KitchenPage extends StatelessWidget {
               leading:const Icon(Icons.notification_important,color:red),
               title:Text('İPTAL · Masa ${notice.tableId} · ${notice.quantity} × ${notice.productName}',style:const TextStyle(fontWeight:FontWeight.bold)),
               subtitle:Text('${notice.reason} · ${money(notice.amount)} · ${notice.by} · ${bakuTimestamp(notice.at)}'),
-              trailing:IconButton(tooltip:'Görüldü',onPressed:()=>pos.acknowledgeKitchenNotice(notice),icon:const Icon(Icons.check_circle_outline)),
+              trailing:IconButton(tooltip:tr('Görüldü'),onPressed:()=>pos.acknowledgeKitchenNotice(notice),icon:const Icon(Icons.check_circle_outline)),
             ));},
           )),
           Expanded(child:activeTables.isEmpty
@@ -1765,7 +1871,7 @@ class KitchenPage extends StatelessWidget {
                                 style: const TextStyle(fontWeight: FontWeight.w600)),
                               subtitle: Text('Durum: ${_label(line.kitchen)}'),
                               trailing: PopupMenuButton<KitchenState>(
-                                tooltip: 'Ürün durumunu değiştir',
+                                tooltip: tr('Ürün durumunu değiştir'),
                                 onSelected: (state) => pos.setKitchenLine(table, line, state),
                                 itemBuilder: (_) => [
                                   for (final state in KitchenState.values)
@@ -1798,9 +1904,9 @@ class InventoryPage extends StatelessWidget {
           appBar: AppBar(
             title: const Text('Stok yönetimi'),
             actions: [
-              IconButton(tooltip:'Stok hareket geçmişi',onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const StockHistoryPage())),icon:const Icon(Icons.history)),
-              IconButton(tooltip:'Barkod okuyucu',onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const BarcodePage())),icon:const Icon(Icons.qr_code_scanner)),
-              IconButton(tooltip: 'Reçeteler ve malzemeler',
+              IconButton(tooltip:tr('Stok hareket geçmişi'),onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const StockHistoryPage())),icon:const Icon(Icons.history)),
+              IconButton(tooltip:tr('Barkod okuyucu'),onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const BarcodePage())),icon:const Icon(Icons.qr_code_scanner)),
+              IconButton(tooltip: tr('Reçeteler ve malzemeler'),
                 onPressed: () => Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const RecipePage())),
                 icon: const Icon(Icons.restaurant_menu)),
@@ -1849,12 +1955,12 @@ class InventoryPage extends StatelessWidget {
         title: Text(old == null ? 'Ürün ekle' : 'Ürünü düzenle'),
         content: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextField(controller: name, decoration: const InputDecoration(labelText: 'Ürün adı')),
-            TextField(controller: category, decoration: const InputDecoration(labelText: 'Kategori')),
-            TextField(controller: price, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Satış fiyatı (₼)')),
-            TextField(controller: cost, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Alış maliyeti (₼)')),
-            TextField(controller: stock, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Stok adedi')),
-            TextField(controller: low, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Kritik stok seviyesi')),
+            TextField(controller: name, decoration: const InputDecoration(label: Text('Ürün adı'))),
+            TextField(controller: category, decoration: const InputDecoration(label: Text('Kategori'))),
+            TextField(controller: price, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(label: Text('Satış fiyatı (₼)'))),
+            TextField(controller: cost, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(label: Text('Alış maliyeti (₼)'))),
+            TextField(controller: stock, keyboardType: TextInputType.number, decoration: const InputDecoration(label: Text('Stok adedi'))),
+            TextField(controller: low, keyboardType: TextInputType.number, decoration: const InputDecoration(label: Text('Kritik stok seviyesi'))),
           ]),
         ),
         actions: [
@@ -1904,14 +2010,14 @@ class RecipePage extends StatelessWidget {
         title: const Text('Yeni malzeme'),
         content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: name, decoration: const InputDecoration(labelText: 'Malzeme adı')),
-            TextField(controller: unit, decoration: const InputDecoration(labelText: 'Birim (gram, ml, adet)')),
+            TextField(controller: name, decoration: const InputDecoration(label: Text('Malzeme adı'))),
+            TextField(controller: unit, decoration: const InputDecoration(label: Text('Birim (gram, ml, adet)'))),
             TextField(controller: stock, keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Mevcut miktar')),
+              decoration: const InputDecoration(label: Text('Mevcut miktar'))),
             TextField(controller: low, keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Kritik stok miktarı')),
+              decoration: const InputDecoration(label: Text('Kritik stok miktarı'))),
             TextField(controller: cost, keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Birim maliyet (₼)')),
+              decoration: const InputDecoration(label: Text('Birim maliyet (₼)'))),
           ])),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('İptal')),
@@ -1942,13 +2048,13 @@ class RecipePage extends StatelessWidget {
           content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min,
             children: [
               TextField(controller: quantity, keyboardType: TextInputType.number,
-                decoration: InputDecoration(labelText: 'Miktar (${ingredient.unit})')),
+                decoration: InputDecoration(labelText: tr('Miktar (${ingredient.unit})'))),
               TextField(controller: cost, keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(labelText: 'Alış birim maliyeti (₼)')),
+                decoration: const InputDecoration(label: Text('Alış birim maliyeti (₼)'))),
               if (activeSuppliers.isNotEmpty)
                 DropdownButtonFormField<String?>(
                   initialValue: supplierId,
-                  decoration: const InputDecoration(labelText: 'Tedarikçi (isteğe bağlı)'),
+                  decoration: const InputDecoration(label: Text('Tedarikçi (isteğe bağlı)')),
                   items: [
                     const DropdownMenuItem<String?>(value: null, child: Text('Belirtilmedi')),
                     ...activeSuppliers.map((item) => DropdownMenuItem<String?>(
@@ -2000,13 +2106,13 @@ class RecipePage extends StatelessWidget {
               const Divider(),
               DropdownButtonFormField<String>(
                 initialValue: selectedId,
-                decoration: const InputDecoration(labelText: 'Malzeme seç'),
+                decoration: const InputDecoration(label: Text('Malzeme seç')),
                 items: pos.ingredients.map((item) => DropdownMenuItem(
                   value: item.id, child: Text('${item.name} (${item.unit})'))).toList(),
                 onChanged: (value) => setDialogState(() => selectedId = value),
               ),
               TextField(controller: amount, keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Ürün başına miktar')),
+                decoration: const InputDecoration(label: Text('Ürün başına miktar'))),
               Align(alignment: Alignment.centerRight, child: TextButton.icon(
                 onPressed: selectedId == null || int.tryParse(amount.text) == null ||
                     int.parse(amount.text) <= 0 || lines.any((line) => line.ingredientId == selectedId)
@@ -2033,7 +2139,7 @@ class RecipePage extends StatelessWidget {
     builder: (context, _) => Scaffold(
       appBar: AppBar(title: const Text('Malzemeler ve ürün reçeteleri'),
         actions: [IconButton(onPressed: pos.can('inventory') ? () => _addIngredient(context) : null,
-          icon: const Icon(Icons.add), tooltip: 'Malzeme ekle')]),
+          icon: const Icon(Icons.add), tooltip: tr('Malzeme ekle'))]),
       body: pos.can('inventory') ? ListView(padding: const EdgeInsets.all(12), children: [
         const Text('Malzeme stokları', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
         if (pos.ingredients.isEmpty) const ListTile(title: Text('Henüz malzeme eklenmedi.')),
@@ -2047,7 +2153,7 @@ class RecipePage extends StatelessWidget {
               IconButton(onPressed: () => pos.adjustIngredient(ingredient, -1), icon: const Icon(Icons.remove)),
               IconButton(onPressed: () => pos.adjustIngredient(ingredient, 1), icon: const Icon(Icons.add)),
               IconButton(onPressed: () => _purchaseIngredient(context, ingredient),
-                icon: const Icon(Icons.add_shopping_cart), tooltip: 'Malzeme alımı'),
+                icon: const Icon(Icons.add_shopping_cart), tooltip: tr('Malzeme alımı')),
             ]),
           )),
         const Divider(),
@@ -2120,11 +2226,11 @@ class ReportsPage extends StatelessWidget {
     final saleIndex=pos.sales.indexOf(sale); final remaining=pos.remainingRefundable(saleIndex);
     if(remaining<=0)return;
     final amount=TextEditingController(text:(remaining/100).toStringAsFixed(2)),reason=TextEditingController(),pin=TextEditingController(); bool returnStock=false;
-    final ok=await showDialog<bool>(context:context,builder:(dialogContext)=>StatefulBuilder(builder:(dialogContext,setDialog)=>AlertDialog(title:Text('Satış #${saleIndex+1} için iade'),content:Column(mainAxisSize:MainAxisSize.min,children:[Text('İade edilebilir tutar: ${money(remaining)}'),TextField(controller:amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'İade tutarı (₼)')),TextField(controller:reason,maxLines:2,decoration:const InputDecoration(labelText:'İade nedeni (zorunlu)')),TextField(controller:pin,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'Yönetici PIN')),CheckboxListTile(contentPadding:EdgeInsets.zero,value:returnStock,onChanged:(value)=>setDialog(()=>returnStock=value??false),title:const Text('Ürünleri ve reçete malzemelerini stoğa geri al'),subtitle:const Text('Stok iadesi yalnızca satışın kalan tutarının tamamı iade edilirse yapılır.'))]),actions:[TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Vazgeç')),FilledButton(onPressed:()=>Navigator.pop(dialogContext,true),child:const Text('İadeyi kaydet'))])));
+    final ok=await showDialog<bool>(context:context,builder:(dialogContext)=>StatefulBuilder(builder:(dialogContext,setDialog)=>AlertDialog(title:Text('Satış #${saleIndex+1} için iade'),content:Column(mainAxisSize:MainAxisSize.min,children:[Text('İade edilebilir tutar: ${money(remaining)}'),TextField(controller:amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(label: Text('İade tutarı (₼)'))),TextField(controller:reason,maxLines:2,decoration:const InputDecoration(label: Text('İade nedeni (zorunlu)'))),TextField(controller:pin,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(label: Text('Yönetici PIN'))),CheckboxListTile(contentPadding:EdgeInsets.zero,value:returnStock,onChanged:(value)=>setDialog(()=>returnStock=value??false),title:const Text('Ürünleri ve reçete malzemelerini stoğa geri al'),subtitle:const Text('Stok iadesi yalnızca satışın kalan tutarının tamamı iade edilirse yapılır.'))]),actions:[TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Vazgeç')),FilledButton(onPressed:()=>Navigator.pop(dialogContext,true),child:const Text('İadeyi kaydet'))])));
     if(context.mounted&&ok==true){final success=pos.refundSale(saleIndex,parseMoney(amount.text) ?? 0,reason.text,pin.text.trim(),returnStock:returnStock);ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(success?'İade kaydedildi. Nakit kısmı kasadan, kart kısmı karta iade edilir.':'İade yapılamadı. PIN, tutar, nakit iade için açık kasa ve stok durumunu kontrol edin.')));}
     amount.dispose();reason.dispose();pin.dispose();
   }
-  Future<void> _addExpense(BuildContext context) async {final amount=TextEditingController(),category=TextEditingController(text:'Diğer'),note=TextEditingController();final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('İşletme gideri ekle'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Tutar (₼)')),TextField(controller:category,decoration:const InputDecoration(labelText:'Kategori')),TextField(controller:note,decoration:const InputDecoration(labelText:'Açıklama'))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Kaydet'))]));if(ok==true&&!pos.addExpense(parseMoney(amount.text) ?? 0,category.text,note.text)&&context.mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Gider kaydedilemedi.')));amount.dispose();category.dispose();note.dispose();}
+  Future<void> _addExpense(BuildContext context) async {final amount=TextEditingController(),category=TextEditingController(text:'Diğer'),note=TextEditingController();final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('İşletme gideri ekle'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(label: Text('Tutar (₼)'))),TextField(controller:category,decoration:const InputDecoration(label: Text('Kategori'))),TextField(controller:note,decoration:const InputDecoration(label: Text('Açıklama')))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Kaydet'))]));if(ok==true&&!pos.addExpense(parseMoney(amount.text) ?? 0,category.text,note.text)&&context.mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Gider kaydedilemedi.')));amount.dispose();category.dispose();note.dispose();}
   Future<void> _exportCsv(BuildContext context) async {try{final dir=await getApplicationDocumentsDirectory();final file=File('${dir.path}/restoram-rapor-${dayKey(azWallTime(azNow()))}.csv');await file.writeAsString(pos.buildCsv(),flush:true);if(context.mounted)showDialog<void>(context:context,builder:(c)=>AlertDialog(title:const Text('CSV raporu hazır'),content:SelectableText(file.path),actions:[TextButton(onPressed:()=>Navigator.pop(c),child:const Text('Kapat'))]));}catch(e){if(context.mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('CSV oluşturulamadı: $e')));}}
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
@@ -2246,10 +2352,10 @@ class _StaffManagerPageState extends State<StaffManagerPage>{
   Future<void> _add() async {
     final name=TextEditingController(),pin=TextEditingController(),confirm=TextEditingController(); String role='Garson';
     final ok=await showDialog<bool>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,set)=>AlertDialog(title:const Text('Personel ekle'),content:Column(mainAxisSize:MainAxisSize.min,children:[
-      TextField(controller:name,decoration:const InputDecoration(labelText:'Ad soyad')),
-      DropdownButtonFormField<String>(initialValue:role,decoration:const InputDecoration(labelText:'Görev'),items:const ['Garson','Kasiyer','Mutfak'].map((r)=>DropdownMenuItem(value:r,child:Text(r))).toList(),onChanged:(v)=>set(()=>role=v??'Garson')),
-      if(role!='Garson') TextField(controller:pin,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'Personel PIN (4 rakam)')),
-      if(role!='Garson') TextField(controller:confirm,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(labelText:'PIN tekrar')),
+      TextField(controller:name,decoration:const InputDecoration(label: Text('Ad soyad'))),
+      DropdownButtonFormField<String>(initialValue:role,decoration:const InputDecoration(label: Text('Görev')),items:const ['Garson','Kasiyer','Mutfak'].map((r)=>DropdownMenuItem(value:r,child:Text(r))).toList(),onChanged:(v)=>set(()=>role=v??'Garson')),
+      if(role!='Garson') TextField(controller:pin,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(label: Text('Personel PIN (4 rakam)'))),
+      if(role!='Garson') TextField(controller:confirm,keyboardType:TextInputType.number,obscureText:true,maxLength:4,decoration:const InputDecoration(label: Text('PIN tekrar'))),
       if(role=='Garson') const Text('Garson hesabı PIN olmadan açılır. Yalnızca masalara sipariş ekleyebilir.'),
     ]),actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Ekle'))])));
     final pinValid=role=='Garson'||(pin.text.trim()==confirm.text.trim());
@@ -2272,6 +2378,7 @@ class AdminPage extends StatelessWidget {
       appBar: AppBar(title: const Text('Yönetim ve güvenlik')),
       body: ListView(padding: const EdgeInsets.all(12), children: [
         const Card(child: ListTile(leading: Icon(Icons.admin_panel_settings),title:Text('Yönetici kontrolü'),subtitle:Text('Personel listesini yönetin ve satışları personele atayın.'))),
+        ListTile(leading: const Icon(Icons.language), title: const Text('Dil'), subtitle: Text(kAppLanguages[appLanguage.value] ?? 'Türkçe'), trailing: const Icon(Icons.chevron_right), onTap: () => showLanguagePicker(context)),
         ListTile(leading: const Icon(Icons.timer), title: const Text('Otomatik oturum kilidi'), subtitle: const Text('İşlem yapılmadığında oturumu kilitle'), trailing: DropdownButton<int>(value: pos.inactivityTimeoutMinutes, items: const [5, 10, 15, 30, 60].map((minutes) => DropdownMenuItem(value: minutes, child: Text('$minutes dk'))).toList(), onChanged: pos.isAdmin ? (value) { if (value != null) pos.setInactivityTimeoutMinutes(value); } : null)),
         OutlinedButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const StaffManagerPage())),icon:const Icon(Icons.groups),label:const Text('Personel listesi ve yönetimi')),
         OutlinedButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const SuppliersPage())),icon:const Icon(Icons.local_shipping),label:const Text('Tedarikçiler ve mal alımları')),
@@ -2316,9 +2423,9 @@ class AdminPage extends StatelessWidget {
     final ok = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
       title: const Text('Yönetici PIN değiştir'),
       content: Column(mainAxisSize: MainAxisSize.min, children: [
-        TextField(controller: oldPin, obscureText: true, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Mevcut PIN')),
-        TextField(controller: newPin, obscureText: true, keyboardType: TextInputType.number, maxLength: 4, decoration: const InputDecoration(labelText: 'Yeni 4 haneli PIN')),
-        TextField(controller: confirmPin, obscureText: true, keyboardType: TextInputType.number, maxLength: 4, decoration: const InputDecoration(labelText: 'Yeni PIN tekrar')),
+        TextField(controller: oldPin, obscureText: true, keyboardType: TextInputType.number, decoration: const InputDecoration(label: Text('Mevcut PIN'))),
+        TextField(controller: newPin, obscureText: true, keyboardType: TextInputType.number, maxLength: 4, decoration: const InputDecoration(label: Text('Yeni 4 haneli PIN'))),
+        TextField(controller: confirmPin, obscureText: true, keyboardType: TextInputType.number, maxLength: 4, decoration: const InputDecoration(label: Text('Yeni PIN tekrar'))),
       ]),
       actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('İptal')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Değiştir'))],
     ));
@@ -2431,9 +2538,9 @@ class _BackupManagerPageState extends State<BackupManagerPage> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Yedekler'), actions: [
-      IconButton(tooltip: 'Dosyadan yedek içe aktar', onPressed: busy ? null : _importBackup,
+      IconButton(tooltip: tr('Dosyadan yedek içe aktar'), onPressed: busy ? null : _importBackup,
         icon: const Icon(Icons.file_open)),
-      IconButton(tooltip: 'Yedeği dışa aktar', onPressed: busy ? null : _exportBackup,
+      IconButton(tooltip: tr('Yedeği dışa aktar'), onPressed: busy ? null : _exportBackup,
         icon: const Icon(Icons.ios_share)),
     ]),
     body: FutureBuilder<List<BackupFile>>(
@@ -2459,7 +2566,7 @@ class _BackupManagerPageState extends State<BackupManagerPage> {
               title: Text(file.name),
               subtitle: Text('${stamp(azWallTime(file.modifiedAt))} · ${(file.sizeBytes / 1024).toStringAsFixed(1)} KB'),
               trailing: busy ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator()) : IconButton(
-                tooltip: 'Geri yükle',
+                tooltip: tr('Geri yükle'),
                 icon: const Icon(Icons.restore),
                 onPressed: () => _restore(file),
               ),
@@ -2546,7 +2653,7 @@ class _RecoveryPageState extends State<RecoveryPage> {
                   title: Text(file.name),
                   subtitle: Text('${stamp(azWallTime(file.modifiedAt))} · ${(file.sizeBytes / 1024).toStringAsFixed(1)} KB'),
                   trailing: IconButton(
-                    tooltip: 'Bu yedeği geri yükle',
+                    tooltip: tr('Bu yedeği geri yükle'),
                     onPressed: busy ? null : () => _restore(file),
                     icon: busy ? const SizedBox(width: 20, height: 20,
                       child: CircularProgressIndicator()) : const Icon(Icons.restore),
@@ -2608,7 +2715,7 @@ class _PinGateState extends State<PinGate> {
           content: TextField(
             controller: controller, autofocus: true,
             keyboardType: TextInputType.number, obscureText: true, maxLength: 4,
-            decoration: const InputDecoration(labelText: '4 haneli personel PIN'),
+            decoration: const InputDecoration(label: Text('4 haneli personel PIN')),
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('İptal')),
@@ -2641,12 +2748,13 @@ class _PinGateState extends State<PinGate> {
     body: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 380), child: Card(
       margin: const EdgeInsets.all(24),
       child: Padding(padding: const EdgeInsets.all(20), child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Align(alignment: AlignmentDirectional.centerEnd, child: LanguageButton()),
         const PosLogo(size: 120),
         const SizedBox(height: 16),
         Text(setupRequired ? 'Yönetici PIN kodunu oluştur' : 'Yönetici girişi', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
         const SizedBox(height: 20),
-        TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4, decoration: InputDecoration(labelText: setupRequired ? 'Yeni 4 haneli PIN' : 'Yönetici PIN'), onSubmitted: (_) => submit()),
-        if (setupRequired) TextField(controller: confirm, keyboardType: TextInputType.number, obscureText: true, maxLength: 4, decoration: const InputDecoration(labelText: 'PIN tekrar')),
+        TextField(controller: pin, keyboardType: TextInputType.number, obscureText: true, maxLength: 4, decoration: InputDecoration(labelText: tr(setupRequired ? 'Yeni 4 haneli PIN' : 'Yönetici PIN')), onSubmitted: (_) => submit()),
+        if (setupRequired) TextField(controller: confirm, keyboardType: TextInputType.number, obscureText: true, maxLength: 4, decoration: const InputDecoration(label: Text('PIN tekrar'))),
         if (error != null) Padding(padding: const EdgeInsets.only(bottom: 12), child: Text(error!, style: const TextStyle(color: red))),
         Row(children:[
           Expanded(child:FilledButton(onPressed:submit,child:Text(
@@ -2679,7 +2787,7 @@ class RegisterPage extends StatelessWidget {
             controller: controller,
             autofocus: true,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: InputDecoration(labelText: label, errorText: error),
+            decoration: InputDecoration(labelText: tr(label), errorText: error == null ? null : tr(error!)),
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(dialogContext),
@@ -2710,7 +2818,7 @@ class RegisterPage extends StatelessWidget {
       builder: (dialogContext) => AlertDialog(
         title: Text(title),
         content: TextField(controller: controller, autofocus: true, maxLines: 2,
-          decoration: const InputDecoration(labelText: 'Not / neden')),
+          decoration: const InputDecoration(label: Text('Not / neden'))),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext),
             child: const Text('İptal')),
@@ -2859,9 +2967,9 @@ class _SuppliersPageState extends State<SuppliersPage> {
   Future<void> _addSupplier() async {
     final name=TextEditingController(), phone=TextEditingController(), notes=TextEditingController();
     final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('Tedarikçi ekle'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
-      TextField(controller:name,decoration:const InputDecoration(labelText:'Firma / kişi adı')),
-      TextField(controller:phone,decoration:const InputDecoration(labelText:'Telefon')),
-      TextField(controller:notes,decoration:const InputDecoration(labelText:'Not'),maxLines:2),
+      TextField(controller:name,decoration:const InputDecoration(label: Text('Firma / kişi adı'))),
+      TextField(controller:phone,decoration:const InputDecoration(label: Text('Telefon'))),
+      TextField(controller:notes,decoration:const InputDecoration(label: Text('Not')),maxLines:2),
     ])),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Kaydet'))]));
     if(ok==true) {
       final saved=pos.addSupplier(SupplierRecord(id:DateTime.now().microsecondsSinceEpoch.toString(),name:name.text.trim(),phone:phone.text.trim(),notes:notes.text.trim()));
@@ -2877,11 +2985,11 @@ class _SuppliersPageState extends State<SuppliersPage> {
     String productId=pos.products.firstWhere((p)=>p.active).id;
     final quantity=TextEditingController(text:'1'), cost=TextEditingController(), invoice=TextEditingController();
     final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,set)=>AlertDialog(title:const Text('Mal alımı kaydet'),content:Column(mainAxisSize:MainAxisSize.min,children:[
-      DropdownButtonFormField<String>(initialValue:supplierId,decoration:const InputDecoration(labelText:'Tedarikçi'),items:pos.suppliers.where((x)=>x.active).map((x)=>DropdownMenuItem(value:x.id,child:Text(x.name))).toList(),onChanged:(v)=>set(()=>supplierId=v??supplierId)),
-      DropdownButtonFormField<String>(initialValue:productId,decoration:const InputDecoration(labelText:'Ürün'),items:pos.products.where((x)=>x.active).map((x)=>DropdownMenuItem(value:x.id,child:Text(x.name))).toList(),onChanged:(v)=>set(()=>productId=v??productId)),
-      TextField(controller:quantity,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Alınan adet')),
-      TextField(controller:cost,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Birim alış maliyeti (₼)')),
-      TextField(controller:invoice,decoration:const InputDecoration(labelText:'Fatura / irsaliye numarası (isteğe bağlı)'),maxLength:80),
+      DropdownButtonFormField<String>(initialValue:supplierId,decoration:const InputDecoration(label: Text('Tedarikçi')),items:pos.suppliers.where((x)=>x.active).map((x)=>DropdownMenuItem(value:x.id,child:Text(x.name))).toList(),onChanged:(v)=>set(()=>supplierId=v??supplierId)),
+      DropdownButtonFormField<String>(initialValue:productId,decoration:const InputDecoration(label: Text('Ürün')),items:pos.products.where((x)=>x.active).map((x)=>DropdownMenuItem(value:x.id,child:Text(x.name))).toList(),onChanged:(v)=>set(()=>productId=v??productId)),
+      TextField(controller:quantity,keyboardType:TextInputType.number,decoration:const InputDecoration(label: Text('Alınan adet'))),
+      TextField(controller:cost,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(label: Text('Birim alış maliyeti (₼)'))),
+      TextField(controller:invoice,decoration:const InputDecoration(label: Text('Fatura / irsaliye numarası (isteğe bağlı)')),maxLength:80),
     ]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Stoka ekle'))])));
     if(ok==true) {
       final success=pos.recordPurchase(supplierId:supplierId,productId:productId,quantity:int.tryParse(quantity.text)??0,unitCost:parseMoney(cost.text) ?? 0,invoiceNumber:invoice.text);
@@ -2910,9 +3018,9 @@ class _CustomersReservationsPageState extends State<CustomersReservationsPage> {
   Future<void> _addCustomer() async {
     final name=TextEditingController(),phone=TextEditingController(),notes=TextEditingController();
     final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('Müşteri ekle'),content:Column(mainAxisSize:MainAxisSize.min,children:[
-      TextField(controller:name,decoration:const InputDecoration(labelText:'Ad soyad')),
-      TextField(controller:phone,keyboardType:TextInputType.phone,decoration:const InputDecoration(labelText:'Telefon')),
-      TextField(controller:notes,decoration:const InputDecoration(labelText:'Not')),
+      TextField(controller:name,decoration:const InputDecoration(label: Text('Ad soyad'))),
+      TextField(controller:phone,keyboardType:TextInputType.phone,decoration:const InputDecoration(label: Text('Telefon'))),
+      TextField(controller:notes,decoration:const InputDecoration(label: Text('Not'))),
     ]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Kaydet'))]));
     if(ok==true&&!pos.addCustomer(CustomerRecord(id:DateTime.now().microsecondsSinceEpoch.toString(),name:name.text.trim(),phone:phone.text.trim(),notes:notes.text.trim()))&&mounted)
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Müşteri adı boş veya telefon numarası zaten kayıtlı.')));
@@ -2922,9 +3030,9 @@ class _CustomersReservationsPageState extends State<CustomersReservationsPage> {
     final name=TextEditingController(),phone=TextEditingController(),guests=TextEditingController(text:'2'),note=TextEditingController();
     int tableId=1; String customerId=''; DateTime date=azWallTime(azNow()).add(const Duration(days:1)); TimeOfDay time=const TimeOfDay(hour:19,minute:0);
     final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,set)=>AlertDialog(title:const Text('Masa rezervasyonu'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
-      TextField(controller:name,decoration:const InputDecoration(labelText:'Müşteri adı')),
-      TextField(controller:phone,keyboardType:TextInputType.phone,decoration:const InputDecoration(labelText:'Telefon')),
-      DropdownButtonFormField<String>(initialValue:customerId,decoration:const InputDecoration(labelText:'Kayıtlı müşteri'),items:[
+      TextField(controller:name,decoration:const InputDecoration(label: Text('Müşteri adı'))),
+      TextField(controller:phone,keyboardType:TextInputType.phone,decoration:const InputDecoration(label: Text('Telefon'))),
+      DropdownButtonFormField<String>(initialValue:customerId,decoration:const InputDecoration(label: Text('Kayıtlı müşteri')),items:[
         const DropdownMenuItem(value:'',child:Text('Yeni / kayıt dışı müşteri')),
         ...pos.customers.map((customer)=>DropdownMenuItem(value:customer.id,child:Text('${customer.name} · ${customer.phone}'))),
       ],onChanged:(value)=>set(() {
@@ -2932,11 +3040,11 @@ class _CustomersReservationsPageState extends State<CustomersReservationsPage> {
         final matches=pos.customers.where((customer)=>customer.id==customerId);
         if(matches.isNotEmpty){name.text=matches.first.name;phone.text=matches.first.phone;}
       })),
-      DropdownButtonFormField<int>(initialValue:tableId,decoration:const InputDecoration(labelText:'Masa'),items:List.generate(kTableCount,(i)=>DropdownMenuItem(value:i+1,child:Text('Masa ${i+1}'))),onChanged:(v)=>set(()=>tableId=v??1)),
-      TextField(controller:guests,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Kişi sayısı')),
+      DropdownButtonFormField<int>(initialValue:tableId,decoration:const InputDecoration(label: Text('Masa')),items:List.generate(kTableCount,(i)=>DropdownMenuItem(value:i+1,child:Text('Masa ${i+1}'))),onChanged:(v)=>set(()=>tableId=v??1)),
+      TextField(controller:guests,keyboardType:TextInputType.number,decoration:const InputDecoration(label: Text('Kişi sayısı'))),
       ListTile(contentPadding:EdgeInsets.zero,title:Text('Tarih: ${dayKey(date)}'),trailing:TextButton(onPressed:()async{final picked=await showDatePicker(context:c,initialDate:date.isBefore(azWallTime(azNow()))?azWallTime(azNow()):date,firstDate:azWallTime(azNow()),lastDate:azWallTime(azNow()).add(const Duration(days:365)));if(picked!=null)set(()=>date=picked);},child:const Text('Değiştir'))),
       ListTile(contentPadding:EdgeInsets.zero,title:Text('Saat: ${time.format(c)}'),trailing:TextButton(onPressed:()async{final picked=await showTimePicker(context:c,initialTime:time);if(picked!=null)set(()=>time=picked);},child:const Text('Değiştir'))),
-      TextField(controller:note,decoration:const InputDecoration(labelText:'Not')),
+      TextField(controller:note,decoration:const InputDecoration(label: Text('Not'))),
     ])),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('İptal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Rezervasyon oluştur'))])));
     if(ok==true) {
       final when=DateTime(date.year,date.month,date.day,time.hour,time.minute);
@@ -3094,13 +3202,13 @@ class _BarcodePageState extends State<BarcodePage> {
   @override Widget build(BuildContext context)=>AnimatedBuilder(animation:pos,builder:(context,_)=>Scaffold(
     appBar:AppBar(title:const Text('Barkod okuyucu')),body:ListView(padding:const EdgeInsets.all(16),children:[
       const Text('USB veya Bluetooth barkod okuyucu klavye gibi çalışır. Alanı seçip barkodu okutun; cihaz Enter gönderdiğinde ürün bulunur.',style:TextStyle(fontSize:14)),
-      TextField(controller:code,autofocus:true,decoration:const InputDecoration(labelText:'Barkod / ürün kodu',prefixIcon:Icon(Icons.qr_code_scanner)),onSubmitted:_scan),
+      TextField(controller:code,autofocus:true,decoration:const InputDecoration(label: Text('Barkod / ürün kodu'),prefixIcon:Icon(Icons.qr_code_scanner)),onSubmitted:_scan),
       const SizedBox(height:8),FilledButton.icon(onPressed:()=>_scan(code.text),icon:const Icon(Icons.search),label:const Text('Barkodu bul')),
       if(message!=null) Padding(padding:const EdgeInsets.all(12),child:Text(message!,style:TextStyle(color:found==null?red:green))),
       if(found!=null) Card(child:ListTile(title:Text(found!.name),subtitle:Text('Stok: ${found!.stock} · ${money(found!.price)}'),trailing:FilledButton(onPressed:()=>pos.add(pos.tables[tableId-1],found!)?ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Ürün masaya eklendi.'))):ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Ürün eklenemedi; masa veya stok durumunu kontrol edin.'))),child:const Text('Masaya ekle')))),
-      DropdownButtonFormField<int>(initialValue:tableId,decoration:const InputDecoration(labelText:'Sipariş eklenecek masa'),items:List.generate(kTableCount,(i)=>DropdownMenuItem(value:i+1,child:Text('Masa ${i+1}'))),onChanged:(v)=>setState(()=>tableId=v??1)),
+      DropdownButtonFormField<int>(initialValue:tableId,decoration:const InputDecoration(label: Text('Sipariş eklenecek masa')),items:List.generate(kTableCount,(i)=>DropdownMenuItem(value:i+1,child:Text('Masa ${i+1}'))),onChanged:(v)=>setState(()=>tableId=v??1)),
       const Divider(),const Text('Ürüne barkod ata',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),
-      DropdownButtonFormField<String>(initialValue:productId,decoration:const InputDecoration(labelText:'Ürün seç'),items:pos.products.map((p)=>DropdownMenuItem(value:p.id,child:Text(p.name))).toList(),onChanged:(v)=>setState(()=>productId=v)),
+      DropdownButtonFormField<String>(initialValue:productId,decoration:const InputDecoration(label: Text('Ürün seç')),items:pos.products.map((p)=>DropdownMenuItem(value:p.id,child:Text(p.name))).toList(),onChanged:(v)=>setState(()=>productId=v)),
       OutlinedButton.icon(onPressed:productId==null?null:_assign,icon:const Icon(Icons.link),label:const Text('Barkodu ürüne kaydet')),
       for(final product in pos.products.where((p)=>pos.productBarcodes.containsKey(p.id))) ListTile(dense:true,title:Text(product.name),trailing:Text(pos.productBarcodes[product.id]!)),
     ]),
