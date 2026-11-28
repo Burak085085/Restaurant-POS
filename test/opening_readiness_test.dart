@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:restaurant_pos/main.dart';
 import 'package:restaurant_pos/storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -30,6 +31,7 @@ void main() {
     });
 
     test('multi-product checkout persists every stock movement in SQLite', () async {
+      SharedPreferences.setMockInitialValues({});
       final directory = await Directory.systemTemp.createTemp('pos-unique-ids-');
       final repository = SqliteStoreRepository(
         databasePath: '${directory.path}/restaurant-pos.sqlite3',
@@ -84,6 +86,7 @@ void main() {
     });
 
     test('critical audit rows survive SQLite reload and backup restore', () async {
+      SharedPreferences.setMockInitialValues({});
       final directory = await Directory.systemTemp.createTemp('pos-audit-retention-');
       final repository = SqliteStoreRepository(
         databasePath: '${directory.path}/restaurant-pos.sqlite3',
